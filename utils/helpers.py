@@ -1,4 +1,5 @@
 import os
+import sys
 import time
 import signal
 import threading
@@ -17,27 +18,29 @@ from config.settings import (
     xrp_total_amount
 )
 from utils.summary import print_final_aggregated_summary
+from datetime import datetime, timedelta
+
+transaction_cache = {'token_symbol': {'tx_hash': {'timestamp': datetime, 'amount': float}}}
 
 def signal_handler(signum, frame):
     """Handle Ctrl+C gracefully"""
-    safe_print("\nInitiating shutdown...")
+    print("\nInitiating shutdown...")
     shutdown_flag.set()
     
-    # Give time for threads to clean up
-    time.sleep(2)
+    # Clear the screen
+    print("\033[H\033[J")  # ANSI escape sequence to clear screen
     
     try:
-        # Clear screen
-        os.system('cls' if os.name == 'nt' else 'clear')
-        
         # Print final analysis
         print_final_aggregated_summary()
+        print("\nShutdown complete.")
+        
+        # Force exit
+        sys.exit(0)
         
     except Exception as e:
-        safe_print(f"Error during shutdown: {e}")
-    finally:
-        # Force exit
-        os._exit(0)
+        print(f"\nError during shutdown: {e}")
+        sys.exit(1)
 
 def safe_shutdown():
     """Safe shutdown function that can be called from anywhere"""
@@ -69,13 +72,24 @@ def get_protocol_slug(token_symbol):
 
 def is_significant_tvl_movement(protocol_tvl, amount):
     try:
+        if not protocol_tvl or not isinstance(protocol_tvl, dict):
+            return False
+            
         current_tvl = protocol_tvl.get('tvl', 0)
+        if isinstance(current_tvl, (list, dict)):
+            if isinstance(current_tvl, dict) and 'total' in current_tvl:
+                current_tvl = float(current_tvl['total'])
+            else:
+                return False
+                
+        current_tvl = float(current_tvl)
         if current_tvl == 0:
             return False
-        amount_percentage = (amount / current_tvl) * 100
+            
+        amount_percentage = (float(amount) / current_tvl) * 100
         return amount_percentage > 0.1
     except Exception as e:
-        safe_print(f"Error checking TVL significance: {e}")
+        print(f"Error checking TVL significance: {str(e)}")
         return False
 
 
@@ -89,18 +103,6 @@ def get_bridge_name(address):
         "0x99c9fc46f92e8a1c0dec1b1747d010903e884be1": "optimism_bridge"
     }
     return bridge_mapping.get(address)
-
-def get_token_address(token_symbol):
-    """Get token contract address from symbol"""
-    token_addresses = {
-        "WETH": "0xC02aaa39b223FE8D0A0e5C4F27ead9083C756Cc2",
-        "LINK": "0x514910771af9ca656af840dff83e8264ecf986ca",
-        "UNI": "0x1f9840a85d5af5bf1d1762f925bdaddc4201f984",
-        "AAVE": "0x7fc66500c84a76ad7e9c93437bfc5ac33e2ddae9",
-        "SUSHI": "0x6b3595068778dd592e39a122f4f5a5cf09c90fe2",
-        # Add more tokens as needed
-    }
-    return token_addresses.get(token_symbol.upper())
 
 def matches_historical_pattern(flow_data, from_addr, to_addr):
     """Analyze if transaction matches historical patterns"""
@@ -222,4 +224,5 @@ def clean_shutdown():
 def compute_buy_percentage(buys, sells):
     total = buys + sells
     return buys / total if total else 0
+
 

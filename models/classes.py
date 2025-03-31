@@ -28,18 +28,19 @@ DUNE_QUERIES = {
 }
 
 def initialize_prices():
-    """Initialize token prices from CoinGecko"""
-    coingecko = CoinGeckoAPI()  # Create instance here
+    """Initialize token prices from CoinGecko with correct coin IDs"""
+    coingecko = CoinGeckoAPI()
     updated_prices = {}
     
     # Mapping of your token symbols to CoinGecko IDs
     token_map = {
+        # Ethereum tokens
         "WETH": "weth",
         "LINK": "chainlink",
         "UNI": "uniswap",
         "AAVE": "aave",
         "COMP": "compound-governance-token",
-        "SNX": "havven",
+        "SNX": "synthetix-network-token",
         "MKR": "maker",
         "YFI": "yearn-finance",
         "SUSHI": "sushi",
@@ -47,13 +48,29 @@ def initialize_prices():
         "BAL": "balancer",
         "BNT": "bancor",
         "REN": "republic-protocol",
-        "OMG": "omisego",
+        "OMG": "omg",
         "ZRX": "0x",
         "BAT": "basic-attention-token",
         "GRT": "the-graph",
         "LRC": "loopring",
         "1INCH": "1inch",
         "MATIC": "matic-network",
+        "PEPE": "pepe",
+        "SHIB": "shiba-inu",
+        "APE": "apecoin",
+        "DYDX": "dydx",
+        "OP": "optimism",
+        "ARB": "arbitrum",
+        "FRAX": "frax",
+        "LUSD": "liquity-usd",
+        "FEI": "fei-usd",
+        "CVX": "convex-finance",
+        "FXS": "frax-share",
+        "LDO": "lido-dao",
+        "RPL": "rocket-pool",
+        "INJ": "injective-protocol",
+        
+        # Solana tokens
         "SOL": "solana",
         "BONK": "bonk",
         "RAY": "raydium",
@@ -63,7 +80,17 @@ def initialize_prices():
         "MSOL": "msol",
         "SRM": "serum",
         "MNGO": "mango-markets",
-        "ATLAS": "star-atlas"
+        "ATLAS": "star-atlas",
+        "JTO": "jito-governance-token",
+        "PYTH": "pyth-network",
+        "BSOL": "basis-solana",
+        "WIF": "wif",
+        "RENDER": "render-token",
+        "MEAN": "meanfi",
+        "UXDY": "uxd-stablecoin",
+        "USDR": "real-usd",
+        "SHDW": "genesysgo-shadow",
+        "COPE": "cope"
     }
     
     print("Initializing token prices from CoinGecko...")
@@ -89,10 +116,12 @@ def initialize_prices():
     return updated_prices
 
 
+# In models/classes.py, update CoinGeckoAPI class
+
 class CoinGeckoAPI:
     def __init__(self):
         self.base_url = "https://api.coingecko.com/api/v3"
-        self.api_key = "CG-KQUtZkRECi63h68Sv3YrEbsS"
+        self.api_key = "CG-KQUtZkRECi63h68Sv3YrEbsS"  # Your API key
         self.price_cache = {}
         self.cache_duration = 300  # 5 minutes
         self.last_request_time = 0

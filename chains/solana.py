@@ -16,70 +16,110 @@ from data.tokens import SOL_TOKENS_TO_MONITOR, TOKEN_PRICES
 from utils.classification import enhanced_solana_classification
 from utils.base_helpers import safe_print
 from utils.summary import record_transfer
+from utils.summary import has_been_classified, mark_as_classified
+from utils.dedup import get_dedup_stats, deduped_transactions, handle_event
+
+
+
+
+total_transfers_fetched = 0
+filtered_by_threshold = 0
 
 def on_solana_message(ws, message):
     try:
         data = json.loads(message)
-        if "params" in data:
-            result = data["params"].get("result", {})
-            if "value" in result:
-                value = result["value"]
-                if "account" in value and "data" in value["account"]:
-                    parsed_data = value["account"]["data"].get("parsed", {})
-                    if parsed_data.get("type") == "account":
-                        info = parsed_data.get("info", {})
-                        mint = info.get("mint")
-                        current_amount = info.get("tokenAmount", {}).get("uiAmount", 0)
-                        owner = info.get("owner")
-                        
-                        # Get previous owner and amount
-                        prev_owner = None
-                        if mint in solana_previous_balances:
-                            prev_owner = solana_previous_balances[mint].get("owner")
-                        prev_amount = solana_previous_balances.get(owner, {}).get(mint, 0)
-                        amount_change = current_amount - prev_amount
-                        
-                        # Check if this mint is one we're monitoring
-                        for symbol, token_info in SOL_TOKENS_TO_MONITOR.items():
-                            if token_info["mint"] == mint:
-                                price = TOKEN_PRICES.get(symbol, 0)
-                                usd_value = abs(amount_change) * price
-                                min_threshold = token_info["min_threshold"]
-                                
-                                if usd_value >= min_threshold:
-                                    # Get classification and confidence score
-                                    classification, confidence = enhanced_solana_classification(
-                                        owner=owner,
-                                        prev_owner=prev_owner,
-                                        amount_change=amount_change
-                                    )
-                                    
-                                    # Only process if we have high confidence
-                                    if confidence >= 2:
-                                        # Update counters based on classification
-                                        if classification == "buy":
-                                            solana_buy_counts[symbol] += 1
-                                        elif classification == "sell":
-                                            solana_sell_counts[symbol] += 1
-                                        
-                                        record_transfer("SOL", abs(amount_change), owner, prev_owner or "unknown")
-                                            
-                                        # Print transaction details
-                                        current_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())
-                                        print(f"\n[{symbol} | ${usd_value:,.2f} USD] Solana {classification.upper()}")
-                                        print(f"  Time: {current_time}")
-                                        print(f"  Amount: {abs(amount_change):,.2f} {symbol}")
-                                        print(f"  Owner: {owner}")
-                                        print(f"  Classification: {classification} (confidence: {confidence})")
-                                
-                                # Update balance tracking
-                                if owner not in solana_previous_balances:
-                                    solana_previous_balances[owner] = {}
-                                solana_previous_balances[owner][mint] = current_amount
-                                
+        if "params" not in data:
+            return
+
+        result = data["params"].get("result", {})
+        if "value" not in result:
+            return
+
+        value = result["value"]
+        if "account" not in value or "data" not in value["account"]:
+            return
+
+        parsed_data = value["account"]["data"].get("parsed", {})
+        if parsed_data.get("type") != "account":
+            return
+
+        info = parsed_data.get("info", {})
+        mint = info.get("mint")
+        current_amount = info.get("tokenAmount", {}).get("uiAmount", 0)
+        owner = info.get("owner")
+        tx_hash = data["params"].get("result", {}).get("signature", "")
+
+        # Get previous state
+        prev_owner = None
+        if mint in solana_previous_balances:
+            prev_owner = solana_previous_balances[mint].get("owner")
+        prev_amount = solana_previous_balances.get(owner, {}).get(mint, 0)
+        amount_change = current_amount - prev_amount
+
+        # Check monitored tokens
+        for symbol, token_info in SOL_TOKENS_TO_MONITOR.items():
+            if token_info["mint"] == mint:
+                price = TOKEN_PRICES.get(symbol, 0)
+                usd_value = abs(amount_change) * price
+                min_threshold = token_info["min_threshold"]
+
+                if usd_value < min_threshold:
+                    continue
+
+                # Create standardized event
+                event = {
+                    "blockchain": "solana",
+                    "tx_hash": tx_hash,
+                    "from": prev_owner or "unknown",
+                    "to": owner,
+                    "amount": abs(amount_change),
+                    "symbol": symbol,
+                    "usd_value": usd_value,
+                    "timestamp": time.time(),
+                    "source": "solana"
+                }
+                event["signature"] = tx_hash
+
+                # Check if it's a duplicate before processing
+                if not handle_event(event):
+                    continue
+
+                # Only proceed with classification and counting if it's not a duplicate
+                classification, confidence = enhanced_solana_classification(
+                    owner=owner,
+                    prev_owner=prev_owner,
+                    amount_change=amount_change,
+                    tx_hash=tx_hash,
+                    token=symbol,
+                    source="solana"
+                )
+
+                # Fallback: if confidence is low, use the sign of the amount change
+                if confidence < 1:
+                    classification = "buy" if amount_change > 0 else "sell"
+                    confidence = 1
+
+                if confidence >= 1:
+                    if classification == "buy":
+                        solana_buy_counts[symbol] += 1
+                    elif classification == "sell":
+                        solana_sell_counts[symbol] += 1
+
+                    # Print transaction details
+                    current_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())
+                    safe_print(f"\n[{symbol} | ${usd_value:,.2f} USD] Solana {classification.upper()}")
+                    safe_print(f"  Time: {current_time}")
+                    safe_print(f"  TX Hash: {tx_hash[:16]}...")
+                    safe_print(f"  Amount: {abs(amount_change):,.2f} {symbol}")
+                    safe_print(f"  Classification: {classification} (confidence: {confidence})")
+
+                # Update balance tracking
+                if owner not in solana_previous_balances:
+                    solana_previous_balances[owner] = {}
+                solana_previous_balances[owner][mint] = current_amount
+
     except Exception as e:
-        if "KeyError" not in str(e):
-            print(f"Error processing Solana transfer: {str(e)}")
+        safe_print(f"Error processing Solana transfer: {str(e)}")
 
 
 def connect_solana_websocket(retry_count=0, max_retries=5):
@@ -128,22 +168,6 @@ def connect_solana_websocket(retry_count=0, max_retries=5):
     
     return ws_thread
 
-    ws_app = websocket.WebSocketApp(
-        ws_url,
-        on_open=on_open,
-        on_message=on_solana_message,
-        on_error=on_error,
-        on_close=on_close
-    )
-    ws_app.run_forever(ping_interval=60)  # Add ping_interval
-    
-    try:
-        ws_app.run_forever()
-    except Exception as e:
-        print(f"Solana websocket error: {str(e)}")
-        if retry_count < max_retries:
-            time.sleep(5)
-            connect_solana_websocket(retry_count, max_retries)
 
 def start_solana_thread():
     solana_thread = threading.Thread(target=connect_solana_websocket, daemon=True)

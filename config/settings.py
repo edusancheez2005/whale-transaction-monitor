@@ -51,7 +51,7 @@ xrp_payment_count = 0
 xrp_total_amount = 0.0
 
 # Transaction monitoring thresholds
-GLOBAL_USD_THRESHOLD = 1_000_000
+GLOBAL_USD_THRESHOLD = 3_000
 
 # Network settings
 SOLANA_RPC_URL = "https://api.mainnet-beta.solana.com"

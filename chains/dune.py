@@ -1,7 +1,7 @@
 from typing import Dict, List
 from models.classes import DuneAnalytics
 from utils.base_helpers import safe_print
-from config.settings import print_lock
+from config.settings import DUNE_QUERIES, print_lock
 from data.tokens import TOKENS_TO_MONITOR
 
 def get_transfer_volumes():
@@ -28,56 +28,42 @@ def monitor_dune_metrics():
     dune = DuneAnalytics()
     
     try:
+        # Print debug information
+        safe_print("\n🔍 Checking Dune Analytics metrics...")
+        
         # Volume Analysis
-        volume_results = dune.execute_query("2516339")  # Volume query
-        if volume_results:
-            safe_print("\n=== 24h Trading Volume Analysis ===")
+        volume_results = dune.execute_query(DUNE_QUERIES["total_dex_volume"])
+        if volume_results and 'data' in volume_results:
+            safe_print("\n=== 24h DEX Trading Volume Analysis ===")
             for row in volume_results['data']:
-                safe_print(f"• {row['token']}: ${row['volume_24h']:,.2f}")
+                safe_print(f"• {row.get('dex', 'Unknown')}: ${row.get('volume_24h', 0):,.2f}")
                 
-        # Liquidity Analysis
-        liquidity_results = dune.execute_query("2516340")  # Liquidity query
-        if liquidity_results:
-            safe_print("\n=== Liquidity Pool Analysis ===")
-            for row in liquidity_results['data']:
-                safe_print(
-                    f"• {row['pool_name']}: "
-                    f"TVL: ${row['tvl']:,.2f} | "
-                    f"24h Volume: ${row['volume_24h']:,.2f}"
-                )
-                
-        # Whale Transaction Analysis
-        whale_results = dune.execute_query("2516341")  # Whale analysis query
-        if whale_results:
-            safe_print("\n=== Whale Transaction Analysis ===")
-            for row in whale_results['data']:
-                safe_print(
-                    f"• {row['token']}: "
-                    f"Count: {row['transaction_count']} | "
-                    f"Volume: ${row['volume']:,.2f}"
-                )
+        # Stablecoin flows
+        stablecoin_results = dune.execute_query(DUNE_QUERIES["stablecoin_flows"])
+        if stablecoin_results and 'data' in stablecoin_results:
+            safe_print("\n=== Stablecoin Flow Analysis ===")
+            for row in stablecoin_results['data']:
+                safe_print(f"• {row.get('stablecoin', 'Unknown')}: "
+                          f"Net Flow: ${row.get('net_flow', 0):,.2f} | "
+                          f"Volume: ${row.get('volume', 0):,.2f}")
                 
         # Gas Analytics
-        gas_results = dune.execute_query("2516345")  # Gas analytics query
-        if gas_results:
+        gas_results = dune.execute_query(DUNE_QUERIES["gas_analytics"])
+        if gas_results and 'data' in gas_results:
             safe_print("\n=== Gas Price Analytics ===")
-            row = gas_results['data'][0]  # Latest data
-            safe_print(
-                f"• Average: {row['avg_gwei']} gwei | "
-                f"Max: {row['max_gwei']} gwei | "
-                f"Base Fee: {row['base_fee']} gwei"
-            )
+            row = gas_results['data'][0] if gas_results['data'] else {}  # Latest data
+            safe_print(f"• Average: {row.get('avg_gwei', 'N/A')} gwei | "
+                      f"Max: {row.get('max_gwei', 'N/A')} gwei | "
+                      f"Base Fee: {row.get('base_fee', 'N/A')} gwei")
             
         # Token Transfer Analysis
-        transfer_results = dune.execute_query("2516346")  # Transfer analysis query
-        if transfer_results:
-            safe_print("\n=== Token Transfer Analysis ===")
+        transfer_results = dune.execute_query(DUNE_QUERIES["token_bridges"])
+        if transfer_results and 'data' in transfer_results:
+            safe_print("\n=== Cross-chain Bridge Analysis ===")
             for row in transfer_results['data']:
-                safe_print(
-                    f"• {row['token']}: "
-                    f"Unique Senders: {row['unique_senders']} | "
-                    f"Transfer Count: {row['transfer_count']}"
-                )
+                safe_print(f"• {row.get('bridge', 'Unknown')}: "
+                          f"Volume: ${row.get('volume_usd', 0):,.2f} | "
+                          f"Transfers: {row.get('transfer_count', 0):,}")
 
     except Exception as e:
         safe_print(f"Error monitoring Dune metrics: {e}")

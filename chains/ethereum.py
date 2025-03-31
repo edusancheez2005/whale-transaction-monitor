@@ -13,6 +13,27 @@ from data.tokens import TOKENS_TO_MONITOR, TOKEN_PRICES
 from utils.classification import transaction_classifier
 from utils.base_helpers import safe_print
 from utils.summary import record_transfer
+from utils.summary import has_been_classified, mark_as_classified
+from data.market_makers import MARKET_MAKER_ADDRESSES, FILTER_SETTINGS
+from utils.dedup import deduplicator, get_dedup_stats, deduped_transactions, handle_event
+
+import requests
+import time
+from typing import Dict, List, Optional
+from config.api_keys import ETHERSCAN_API_KEY
+from config.settings import (
+    GLOBAL_USD_THRESHOLD,
+    last_processed_block,
+    etherscan_buy_counts,
+    etherscan_sell_counts,
+    print_lock
+)
+from data.tokens import TOKENS_TO_MONITOR, TOKEN_PRICES
+from utils.classification import transaction_classifier
+from utils.base_helpers import safe_print
+from utils.summary import record_transfer
+from utils.summary import has_been_classified, mark_as_classified
+from data.market_makers import MARKET_MAKER_ADDRESSES, FILTER_SETTINGS
 
 
 def fetch_erc20_transfers(contract_address, sort="desc"):
@@ -55,7 +76,10 @@ def fetch_erc20_transfers(contract_address, sort="desc"):
         return []
 
 
+# In ethereum.py
+
 def print_new_erc20_transfers():
+    """Print new ERC-20 transfers with fixed transaction classification"""
     global last_processed_block
     current_time = time.strftime('%Y-%m-%d %H:%M:%S')
     safe_print(f"\n[{current_time}] 🔍 Checking ERC-20 transfers...")
@@ -85,42 +109,70 @@ def print_new_erc20_transfers():
             last_processed_block[symbol] = max(last_processed_block.get(symbol, 0), highest_block)
             
         for tx in reversed(new_transfers):
-            raw_value = int(tx["value"])
-            token_amount = raw_value / (10 ** decimals)
-            estimated_usd = token_amount * price
-            
-                    # In print_new_erc20_transfers function, replace the classification section with:
-        if estimated_usd >= GLOBAL_USD_THRESHOLD:
-            tx_from = tx["from"]
-            tx_to = tx["to"]
-            
-            # Use the enhanced classifier
-            classification, confidence = transaction_classifier(
-                tx_from=tx_from,
-                tx_to=tx_to,
-                token_symbol=symbol,
-                amount=token_amount
-            )
-            
-            if "probable" not in classification and confidence >= 3:
-                if classification == "buy":
-                    etherscan_buy_counts[symbol] += 1
-                elif classification == "sell":
-                    etherscan_sell_counts[symbol] += 1
+            try:
+                raw_value = int(tx["value"])
+                token_amount = raw_value / (10 ** decimals)
+                estimated_usd = token_amount * price
                 
-                record_transfer(symbol, token_amount, tx["from"], tx["to"])
+                if estimated_usd >= GLOBAL_USD_THRESHOLD:
+                    from_addr = tx["from"]
+                    to_addr = tx["to"]
+                    tx_hash = tx["hash"]
+                    
+                    # Create event for deduplication
+                    event = {
+                        "blockchain": "ethereum",
+                        "tx_hash": tx_hash,
+                        "from": from_addr,
+                        "to": to_addr,
+                        "symbol": symbol,
+                        "amount": token_amount,
+                        "estimated_usd": estimated_usd,
+                        "block_number": int(tx["blockNumber"])
+                    }
 
+                    # Check if it's a duplicate before processing
+                    if handle_event(event):
+                        # Get classification with enhanced checks
+                        classification, confidence = transaction_classifier(
+                            tx_from=from_addr,
+                            tx_to=to_addr,
+                            token_symbol=symbol,
+                            amount=token_amount,
+                            tx_hash=tx_hash,
+                            source="ethereum"
+                        )
+                        
+                        # Add classification to the event for later analysis
+                        event["classification"] = classification
+                        
+                        # Update the event in deduped_transactions
+                        key = deduplicator.generate_key(event)
+                        deduped_transactions[key] = event
 
-            
-            timestamp = int(tx["timeStamp"])
-            human_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(timestamp))
-            # Print with enhanced information
-            safe_print(f"\n[{symbol} | ${estimated_usd:,.2f} USD] Block {tx['blockNumber']} | Tx {tx['hash']}")
-            safe_print(f"  Time: {human_time}")
-            safe_print(f"  From: {tx_from}")
-            safe_print(f"  To:   {tx_to}")
-            safe_print(f"  Amount: {token_amount:,.2f} {symbol} (~${estimated_usd:,.2f} USD)")
-            safe_print(f"  Classification: {classification} (confidence: {confidence})")
+                        # Always update counters regardless of confidence
+                        if classification == "buy" or classification.startswith("probable_buy"):
+                            etherscan_buy_counts[symbol] += 1
+                        elif classification == "sell" or classification.startswith("probable_sell"):
+                            etherscan_sell_counts[symbol] += 1
+                        
+                        timestamp = int(tx["timeStamp"])
+                        human_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(timestamp))
+                        
+                        # Print with enhanced information
+                        safe_print(f"\n[{symbol} | ${estimated_usd:,.2f} USD] Block {tx['blockNumber']} | Tx {tx_hash}")
+                        safe_print(f"  Time: {human_time}")
+                        safe_print(f"  From: {from_addr}")
+                        safe_print(f"  To:   {to_addr}")
+                        safe_print(f"  Amount: {token_amount:,.2f} {symbol} (~${estimated_usd:,.2f} USD)")
+                        safe_print(f"  Classification: {classification} (confidence: {confidence})")
+                        
+                        # Record transfer for volume tracking
+                        record_transfer(symbol, token_amount, from_addr, to_addr, tx_hash)
+                        
+            except Exception as e:
+                safe_print(f"Error processing {symbol} transfer: {str(e)}")
+                continue
 
 
 def test_etherscan_connection():
