@@ -3,6 +3,7 @@ import sys
 import time
 import signal
 import threading
+import traceback
 from typing import Dict
 from config.settings import print_lock, shutdown_flag
 from collections import defaultdict
@@ -17,30 +18,12 @@ from config.settings import (
     xrp_payment_count,
     xrp_total_amount
 )
+from utils.dedup import deduplicator
 from utils.summary import print_final_aggregated_summary
 from datetime import datetime, timedelta
 
 transaction_cache = {'token_symbol': {'tx_hash': {'timestamp': datetime, 'amount': float}}}
 
-def signal_handler(signum, frame):
-    """Handle Ctrl+C gracefully"""
-    print("\nInitiating shutdown...")
-    shutdown_flag.set()
-    
-    # Clear the screen
-    print("\033[H\033[J")  # ANSI escape sequence to clear screen
-    
-    try:
-        # Print final analysis
-        print_final_aggregated_summary()
-        print("\nShutdown complete.")
-        
-        # Force exit
-        sys.exit(0)
-        
-    except Exception as e:
-        print(f"\nError during shutdown: {e}")
-        sys.exit(1)
 
 def safe_shutdown():
     """Safe shutdown function that can be called from anywhere"""
@@ -125,14 +108,57 @@ def matches_historical_pattern(flow_data, from_addr, to_addr):
         return False
 
 
+
+
+
+# In utils/helpers.py - Update signal_handler and clean_shutdown functions
+
+# Add these color codes at the top of the file
+# ANSI color codes
+HEADER = '\033[95m'
+BLUE = '\033[94m'
+GREEN = '\033[92m'
+YELLOW = '\033[93m'
+RED = '\033[91m'
+BOLD = '\033[1m'
+UNDERLINE = '\033[4m'
+END = '\033[0m'
+
+def signal_handler(signum, frame):
+    """Handle Ctrl+C gracefully with color output"""
+    print(f"\n{YELLOW}{BOLD}Initiating shutdown...{END}")
+    shutdown_flag.set()
+    
+    # Clear the screen
+    os.system('clear')  # For macOS/Linux
+    
+    try:
+        # Print a colorful header
+        print(f"\n{BLUE}{BOLD}{'=' * 80}{END}")
+        print(f"{HEADER}{BOLD}{' ' * 30}FINAL ANALYSIS REPORT{END}")
+        print(f"{BLUE}{BOLD}{'=' * 80}{END}\n")
+        
+        # Print the summary
+        print_final_aggregated_summary()
+        
+        print(f"\n{GREEN}Shutdown complete.{END}")
+        
+        # Force exit
+        sys.exit(0)
+        
+    except Exception as e:
+        print(f"\n{RED}Error during shutdown: {e}{END}")
+        traceback.print_exc()
+        sys.exit(1)
+
 # Register the signal handler
 signal.signal(signal.SIGINT, signal_handler)
 
-
 def clean_shutdown():
+    """Safe shutdown function that can be called from anywhere"""
     try:
         # Stop all websocket connections
-        for thread in threading.enumerate():
+        for thread in list(threading.enumerate()):  # Create a copy of the thread list
             if thread != threading.current_thread():
                 if hasattr(thread, '_stop'):
                     thread._stop()
@@ -143,82 +169,88 @@ def clean_shutdown():
         # Give time for screen to clear
         time.sleep(1)
         
-        # Now print the summary data
-        print("\n" + "=" * 80)
-        print(" " * 30 + "FINAL ANALYSIS REPORT")
-        print("=" * 80)
-        
-        # Combine and sort all transaction data
-        aggregated_buy = defaultdict(int)
-        aggregated_sell = defaultdict(int)
-        
-        for coin, count in etherscan_buy_counts.items():
-            if count > 0:  # Only include non-zero counts
-                aggregated_buy[coin] += count
-        for coin, count in etherscan_sell_counts.items():
-            if count > 0:
-                aggregated_sell[coin] += count
-        for coin, count in whale_buy_counts.items():
-            if count > 0:
-                aggregated_buy[coin] += count
-        for coin, count in whale_sell_counts.items():
-            if count > 0:
-                aggregated_sell[coin] += count
-        for coin, count in solana_buy_counts.items():
-            if count > 0:
-                aggregated_buy[coin] += count
-        for coin, count in solana_sell_counts.items():
-            if count > 0:
-                aggregated_sell[coin] += count
+        # Make a copy of all data structures that will be used in summary
+        with print_lock:
+            # Create a copy of all data needed for the summary
+            etherscan_buys = dict(etherscan_buy_counts)
+            etherscan_sells = dict(etherscan_sell_counts)
+            whale_buys = dict(whale_buy_counts)
+            whale_sells = dict(whale_sell_counts)
+            solana_buys = dict(solana_buy_counts)
+            solana_sells = dict(solana_sell_counts)
+            
+            # Print summary using the copied data
+            print("\n" + "=" * 80)
+            print(" " * 30 + "FINAL ANALYSIS REPORT")
+            print("=" * 80)
+            
+            # Combine and sort all transaction data
+            aggregated_buy = defaultdict(int)
+            aggregated_sell = defaultdict(int)
+            
+            for coin, count in etherscan_buys.items():
+                if count > 0:  # Only include non-zero counts
+                    aggregated_buy[coin] += count
+            for coin, count in etherscan_sells.items():
+                if count > 0:
+                    aggregated_sell[coin] += count
+            for coin, count in whale_buys.items():
+                if count > 0:
+                    aggregated_buy[coin] += count
+            for coin, count in whale_sells.items():
+                if count > 0:
+                    aggregated_sell[coin] += count
+            for coin, count in solana_buys.items():
+                if count > 0:
+                    aggregated_buy[coin] += count
+            for coin, count in solana_sells.items():
+                if count > 0:
+                    aggregated_sell[coin] += count
 
-        # Calculate summaries
-        summaries = []
-        for coin in set(list(aggregated_buy.keys()) + list(aggregated_sell.keys())):
-            buys = aggregated_buy[coin]
-            sells = aggregated_sell[coin]
-            total = buys + sells
-            if total > 0:  # Only include coins with activity
-                buy_pct = (buys / total * 100) if total else 0
-                summaries.append({
-                    'coin': coin,
-                    'buys': buys,
-                    'sells': sells,
-                    'total': total,
-                    'buy_pct': buy_pct,
-                    'trend': "↑" if buy_pct > 55 else "↓" if buy_pct < 45 else "→"
-                })
+            # Calculate summaries
+            summaries = []
+            for coin in set(list(aggregated_buy.keys()) + list(aggregated_sell.keys())):
+                buys = aggregated_buy[coin]
+                sells = aggregated_sell[coin]
+                total = buys + sells
+                if total > 0:  # Only include coins with activity
+                    buy_pct = (buys / total * 100) if total else 0
+                    summaries.append({
+                        'coin': coin,
+                        'buys': buys,
+                        'sells': sells,
+                        'total': total,
+                        'buy_pct': buy_pct,
+                        'trend': "↑" if buy_pct > 55 else "↓" if buy_pct < 45 else "→"
+                    })
 
-        # Sort by total volume
-        summaries.sort(key=lambda x: x['total'], reverse=True)
+            # Sort by total volume
+            summaries.sort(key=lambda x: x['total'], reverse=True)
 
-        # Print formatted table
-        print("\n{:<8} {:>10} {:>10} {:>10} {:>10} {:>8}".format(
-            "COIN", "BUYS", "SELLS", "TOTAL", "BUY %", "TREND"))
-        print("-" * 60)
+            # Print formatted table
+            print("\n{:<8} {:>10} {:>10} {:>10} {:>10} {:>8}".format(
+                "COIN", "BUYS", "SELLS", "TOTAL", "BUY %", "TREND"))
+            print("-" * 60)
 
-        for summary in summaries:
-            print("{:<8} {:>10,d} {:>10,d} {:>10,d} {:>9.1f}% {:>8}".format(
-                summary['coin'],
-                summary['buys'],
-                summary['sells'],
-                summary['total'],
-                summary['buy_pct'],
-                summary['trend']
-            ))
+            for summary in summaries:
+                print("{:<8} {:>10,d} {:>10,d} {:>10,d} {:>9.1f}% {:>8}".format(
+                    summary['coin'],
+                    summary['buys'],
+                    summary['sells'],
+                    summary['total'],
+                    summary['buy_pct'],
+                    summary['trend']
+                ))
 
-        if xrp_payment_count > 0:
-            print("\nXRP Activity:")
-            print(f"Transactions: {xrp_payment_count:,}")
-            print(f"Total Volume: {xrp_total_amount:,.2f} XRP")
-
-        print("\nSession ended:", time.strftime('%Y-%m-%d %H:%M:%S'))
-        print("=" * 80)
+            print("\nSession ended:", time.strftime('%Y-%m-%d %H:%M:%S'))
+            print("=" * 80)
         
         # Force exit
         os._exit(0)
         
     except Exception as e:
         print(f"Error during shutdown: {e}")
+        traceback.print_exc()
         os._exit(1)
 
 def compute_buy_percentage(buys, sells):

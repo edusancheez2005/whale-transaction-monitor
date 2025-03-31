@@ -4,3 +4,5 @@ idna==3.10
 requests==2.32.3
 urllib3==2.3.0
 websocket-client==1.8.0
+keyboard==0.13.5
+windows-curses==2.3.1; platform_system == "Windows"

@@ -175,6 +175,9 @@ def print_new_erc20_transfers():
                 continue
 
 
+# chains/ethereum.py
+# Add this at the end of the file or update the existing function
+
 def test_etherscan_connection():
     """Test Etherscan API connection"""
     url = "https://api.etherscan.io/api"

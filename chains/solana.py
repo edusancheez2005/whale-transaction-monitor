@@ -1,6 +1,7 @@
 import json
 import time
 import threading
+import traceback
 import websocket
 from typing import Dict, Optional
 from config.api_keys import HELIUS_API_KEY
@@ -17,7 +18,7 @@ from utils.classification import enhanced_solana_classification
 from utils.base_helpers import safe_print
 from utils.summary import record_transfer
 from utils.summary import has_been_classified, mark_as_classified
-from utils.dedup import get_dedup_stats, deduped_transactions, handle_event
+from utils.dedup import deduplicator, get_dedup_stats, deduped_transactions, handle_event
 
 
 
@@ -25,8 +26,15 @@ from utils.dedup import get_dedup_stats, deduped_transactions, handle_event
 total_transfers_fetched = 0
 filtered_by_threshold = 0
 
+# In solana.py - update the on_solana_message function
+
+# In solana.py - Update the on_solana_message function
+
 def on_solana_message(ws, message):
     try:
+        global total_transfers_fetched
+        total_transfers_fetched += 1
+        
         data = json.loads(message)
         if "params" not in data:
             return
@@ -49,27 +57,45 @@ def on_solana_message(ws, message):
         owner = info.get("owner")
         tx_hash = data["params"].get("result", {}).get("signature", "")
 
+        # Skip transactions without a hash or with empty addresses
+        if not tx_hash or not owner or not mint:
+            return
+            
         # Get previous state
         prev_owner = None
+        prev_amount = 0
+        
         if mint in solana_previous_balances:
             prev_owner = solana_previous_balances[mint].get("owner")
-        prev_amount = solana_previous_balances.get(owner, {}).get(mint, 0)
+            
+        if owner in solana_previous_balances:
+            prev_amount = solana_previous_balances.get(owner, {}).get(mint, 0)
+            
         amount_change = current_amount - prev_amount
+        
+        # Skip negligible changes (can be noise)
+        if abs(amount_change) < 0.0001:
+            return
 
         # Check monitored tokens
         for symbol, token_info in SOL_TOKENS_TO_MONITOR.items():
             if token_info["mint"] == mint:
                 price = TOKEN_PRICES.get(symbol, 0)
                 usd_value = abs(amount_change) * price
-                min_threshold = token_info["min_threshold"]
+                min_threshold = token_info.get("min_threshold", GLOBAL_USD_THRESHOLD)
 
+                # Skip low-value transactions
                 if usd_value < min_threshold:
                     continue
 
-                # Create standardized event
+                # Create standardized event with unique transaction identifier
+                # Use a combination of tx_hash, owner, and amount for better uniqueness
+                unique_id = f"{tx_hash}_{owner}_{amount_change:.6f}"
+                
                 event = {
                     "blockchain": "solana",
-                    "tx_hash": tx_hash,
+                    "tx_hash": unique_id,  # Use enhanced ID to avoid duplicates
+                    "original_hash": tx_hash,  # Keep original hash for reference
                     "from": prev_owner or "unknown",
                     "to": owner,
                     "amount": abs(amount_change),
@@ -78,7 +104,6 @@ def on_solana_message(ws, message):
                     "timestamp": time.time(),
                     "source": "solana"
                 }
-                event["signature"] = tx_hash
 
                 # Check if it's a duplicate before processing
                 if not handle_event(event):
@@ -94,12 +119,11 @@ def on_solana_message(ws, message):
                     source="solana"
                 )
 
-                # Fallback: if confidence is low, use the sign of the amount change
-                if confidence < 1:
-                    classification = "buy" if amount_change > 0 else "sell"
-                    confidence = 1
-
-                if confidence >= 1:
+                # Add classification to the event
+                event["classification"] = classification
+                
+                # Only count transactions with sufficient confidence
+                if confidence >= 2:  # Increased confidence threshold
                     if classification == "buy":
                         solana_buy_counts[symbol] += 1
                     elif classification == "sell":
@@ -120,6 +144,7 @@ def on_solana_message(ws, message):
 
     except Exception as e:
         safe_print(f"Error processing Solana transfer: {str(e)}")
+        traceback.print_exc()
 
 
 def connect_solana_websocket(retry_count=0, max_retries=5):

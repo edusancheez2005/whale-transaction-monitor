@@ -12,7 +12,9 @@ INTERVALS = {
 FILTERING = {
     'min_usd_value': 3_000,  # Minimum USD value to track
     'exclude_stablecoins': True,
-    'min_confidence_score': 2,  # Minimum confidence for classification
+    'min_confidence_score': 2,  # Increased from 1
+    'detect_circular_flows': True,  # New setting
+    'min_trend_threshold': 10,  # Percentage difference to mark a trend
 }
 
 # Deduplication settings
@@ -20,6 +22,8 @@ DEDUP_SETTINGS = {
     'time_window': 3600,  # Time window for temporal deduplication (1 hour)
     'address_tracking': True,  # Track address interactions
     'chain_specific': True,  # Use chain-specific deduplication rules
+    'circular_detection': True,  # Detect A->B->C->A patterns
+    'window_for_similar_tx': 1800  # 30 minutes
 }
 
 # Chain-specific settings

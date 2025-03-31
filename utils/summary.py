@@ -1,3 +1,4 @@
+# utils/summary.py
 import time
 import requests
 from datetime import datetime
@@ -16,10 +17,9 @@ from config.settings import DUNE_QUERIES
 # To:
 from utils.base_helpers import safe_print
 from utils.dedup import (
-    get_stats, 
+    get_dedup_stats, 
     get_transactions, 
     handle_event, 
-    get_dedup_stats,
     deduplicator  # Import the deduplicator instance instead
 )
 
@@ -116,158 +116,215 @@ class TransferTracker:
 transfer_tracker = TransferTracker()
 
 
-# In summary.py
-
-# In summary.py
-
 def print_final_aggregated_summary():
     """Print final analysis with improved transaction tracking"""
     # Get deduplication stats
-    dedup_stats = get_stats()
+    dedup_stats = get_dedup_stats()
     
-    # Process all unique transactions
-    transactions = get_transactions()
+    # Process all unique transactions (make a safe copy)
+    import copy
     
-    # Aggregate by token
-    token_stats = defaultdict(lambda: {
-        'buys': 0,
-        'sells': 0,
-        'total': 0,
-        'volume_usd': 0.0,
-        'unique_addresses': set()
-    })
-
-    # Process each transaction
-    for tx_key in transactions:
-        tx = transactions[tx_key]
+    try:
+        # Create a safe shallow copy of the keys
+        tx_keys = list(deduplicator.transactions.keys())
         
-        symbol = tx.get('symbol', '')
-        if not symbol:
-            continue
+        # Aggregate by token
+        token_stats = defaultdict(lambda: {
+            'buys': 0,
+            'sells': 0,
+            'transfers': 0,
+            'total': 0,
+            'volume_usd': 0.0,
+            'unique_addresses': set(),
+            'hourly_data': defaultdict(lambda: {'buys': 0, 'sells': 0, 'transfers': 0})
+        })
+
+        # Process each transaction with enhanced tracking
+        for tx_key in tx_keys:
+            if tx_key in deduplicator.transactions:  # Check if key still exists
+                tx = deduplicator.transactions[tx_key]
+                
+                symbol = tx.get('symbol', '')
+                if not symbol:
+                    continue
+                    
+                classification = tx.get('classification', '').lower()
+                timestamp = tx.get('timestamp', 0)
+                hour = time.strftime('%H', time.localtime(timestamp)) if timestamp else "00"
+                
+                # Update classification counting
+                if classification == 'buy' or classification.startswith('probable_buy'):
+                    token_stats[symbol]['buys'] += 1
+                    token_stats[symbol]['total'] += 1
+                    token_stats[symbol]['hourly_data'][hour]['buys'] += 1
+                elif classification == 'sell' or classification.startswith('probable_sell'):
+                    token_stats[symbol]['sells'] += 1
+                    token_stats[symbol]['total'] += 1
+                    token_stats[symbol]['hourly_data'][hour]['sells'] += 1
+                else:
+                    token_stats[symbol]['transfers'] += 1
+                    token_stats[symbol]['total'] += 1
+                    token_stats[symbol]['hourly_data'][hour]['transfers'] += 1
+
+                # Add volume if available
+                if 'usd_value' in tx:
+                    volume = float(tx.get('usd_value', 0))
+                    token_stats[symbol]['volume_usd'] += volume
+                elif 'estimated_usd' in tx:
+                    volume = float(tx.get('estimated_usd', 0))
+                    token_stats[symbol]['volume_usd'] += volume
+                
+                # Track addresses
+                if 'from' in tx:
+                    token_stats[symbol]['unique_addresses'].add(tx.get('from', ''))
+                if 'to' in tx:
+                    token_stats[symbol]['unique_addresses'].add(tx.get('to', ''))
+
+        # Print the enhanced report
+        print("\n" + "="*100)
+        print(" "*40 + "ENHANCED ANALYSIS REPORT")
+        print("="*100)
+        print(f"\nAnalysis Period: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        
+        # Transaction Statistics
+        print("\n1. TRANSACTION STATISTICS")
+        print("-"*100)
+        print(f"{'COIN':<10} {'BUYS':>8} {'SELLS':>8} {'TRANSFERS':>8} {'TOTAL':>8} {'BUY %':>7} {'SELL %':>7} {'TREND':>6}")
+        print("-"*100)
+        
+        # Sort by total volume
+        sorted_tokens = sorted(
+            token_stats.items(),
+            key=lambda x: x[1]['total'],
+            reverse=True
+        )
+
+        for symbol, stats in sorted_tokens:
+            total = stats['total']
+            if total < 10:  # Skip tokens with very few transactions
+                continue
+                
+            buys = stats['buys']
+            sells = stats['sells']
+            transfers = stats['transfers']
+            buy_pct = (buys / total * 100) if total else 0
+            sell_pct = (sells / total * 100) if total else 0
             
-        classification = tx.get('classification', '').lower()
+            # Determine trend (with more balanced criteria)
+            if buys == 0 and sells == 0:
+                trend = "→"
+            elif buy_pct > sell_pct + 10:  # Higher threshold for trend
+                trend = "↑"
+            elif sell_pct > buy_pct + 10:
+                trend = "↓"
+            else:
+                trend = "→"
+                
+            print(f"{symbol:<10} {buys:>8,d} {sells:>8,d} {transfers:>8,d} {total:>8,d} "
+                  f"{buy_pct:>6.1f}% {sell_pct:>6.1f}% {trend:>6}")
+
+        # Market Momentum Analysis
+        print("\n2. MARKET MOMENTUM ANALYSIS")
+        print("-"*100)
         
-        # Updated classification counting
-        if classification == 'buy' or classification.startswith('probable_buy'):
-            token_stats[symbol]['buys'] += 1
-            token_stats[symbol]['total'] += 1
-        elif classification == 'sell' or classification.startswith('probable_sell'):
-            token_stats[symbol]['sells'] += 1
-            token_stats[symbol]['total'] += 1
-        else:
-            token_stats[symbol]['total'] += 1
-
-        # Add volume if available
-        if 'usd_value' in tx:
-            volume = float(tx.get('usd_value', 0))
-            token_stats[symbol]['volume_usd'] += volume
-        elif 'estimated_usd' in tx:
-            volume = float(tx.get('estimated_usd', 0))
-            token_stats[symbol]['volume_usd'] += volume
-        
-        # Track addresses
-        if 'from' in tx:
-            token_stats[symbol]['unique_addresses'].add(tx.get('from', ''))
-        if 'to' in tx:
-            token_stats[symbol]['unique_addresses'].add(tx.get('to', ''))
-
-    # Print the report
-    print("\n" + "="*100)
-    print(" "*40 + "FINAL ANALYSIS REPORT")
-    print("="*100)
-    print(f"\nAnalysis Period: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    
-    # Transaction Statistics
-    print("\n1. TRANSACTION STATISTICS")
-    print("-"*100)
-    print(f"{'COIN':<10} {'BUYS':>8} {'SELLS':>8} {'TOTAL':>8} {'BUY %':>8} {'SELL %':>8} {'TREND':>6}")
-    print("-"*100)
-    
-    # Sort by total volume
-    sorted_tokens = sorted(
-        token_stats.items(),
-        key=lambda x: x[1]['total'],
-        reverse=True
-    )
-
-    for symbol, stats in sorted_tokens:
-        total = stats['total']
-        if total == 0:
-            continue
+        # First identify tokens with sufficient volume
+        high_volume_tokens = [symbol for symbol, stats in token_stats.items() 
+                          if stats['total'] > 100]  # Minimum threshold
+                          
+        # Sort by buy/sell ratio for high volume tokens
+        momentum_tokens = []
+        for symbol in high_volume_tokens:
+            stats = token_stats[symbol]
+            buys = stats['buys']
+            sells = stats['sells']
+            total = buys + sells
             
-        buys = stats['buys']
-        sells = stats['sells']
-        buy_pct = (buys / total * 100) if total else 0
-        sell_pct = (sells / total * 100) if total else 0
+            if total == 0:
+                continue
+                
+            buy_ratio = buys / total if total else 0
+            momentum_tokens.append((symbol, buy_ratio, total))
         
-        # Determine trend
-        if buys == 0 and sells == 0:
-            trend = "→"
-        elif buy_pct > sell_pct + 5:  # 5% threshold for trend
-            trend = "↑"
-        elif sell_pct > buy_pct + 5:
-            trend = "↓"
-        else:
-            trend = "→"
+        # Print top bullish and bearish tokens
+        momentum_tokens.sort(key=lambda x: x[1], reverse=True)  # Sort by buy ratio
+        
+        print("TOP BULLISH TOKENS:")
+        for symbol, buy_ratio, total in momentum_tokens[:3]:
+            buy_pct = buy_ratio * 100
+            sell_pct = 100 - buy_pct
+            print(f"  • {symbol:<8} Buy: {buy_pct:>6.1f}%  Sell: {sell_pct:>6.1f}%  "
+                  f"(Volume: {total:,} transactions)")
+        
+        print("\nTOP BEARISH TOKENS:")
+        for symbol, buy_ratio, total in momentum_tokens[-3:]:
+            buy_pct = buy_ratio * 100
+            sell_pct = 100 - buy_pct
+            print(f"  • {symbol:<8} Buy: {buy_pct:>6.1f}%  Sell: {sell_pct:>6.1f}%  "
+                  f"(Volume: {total:,} transactions)")
+
+        # Hourly analysis for top token
+        if sorted_tokens:
+            top_token, top_stats = sorted_tokens[0]
+            hourly = top_stats['hourly_data']
             
-        print(f"{symbol:<10} {buys:>8,d} {sells:>8,d} {total:>8,d} "
-              f"{buy_pct:>7.1f}% {sell_pct:>7.1f}% {trend:>6}")
+            if hourly:
+                print(f"\n3. HOURLY ANALYSIS FOR {top_token}")
+                print("-"*100)
+                print(f"{'HOUR':<6} {'BUYS':>8} {'SELLS':>8} {'RATIO':>8}")
+                print("-"*100)
+                
+                for hour in sorted(hourly.keys()):
+                    h_buys = hourly[hour]['buys']
+                    h_sells = hourly[hour]['sells']
+                    h_ratio = (h_buys / max(1, h_buys + h_sells)) * 100
+                    
+                    print(f"{hour:0>2}:00  {h_buys:>8,d} {h_sells:>8,d} {h_ratio:>7.1f}%")
 
-    # Market Momentum Analysis
-    print("\n2. MARKET MOMENTUM ANALYSIS")
-    print("-"*100)
-    for symbol, stats in sorted(token_stats.items(),
-                              key=lambda x: x[1]['buys'] / max(1, x[1]['total']),
-                              reverse=True)[:5]:
-        total = stats['total']
-        if total == 0:
-            continue
-        buy_pct = (stats['buys'] / total * 100)
-        sell_pct = (stats['sells'] / total * 100)
-        print(f"  • {symbol:<8} Buy: {buy_pct:>6.1f}%  Sell: {sell_pct:>6.1f}%  "
-              f"(Volume: {total:,} transactions)")
-
-    # Deduplication Statistics
-    print("\n3. DEDUPLICATION EFFECTIVENESS")
-    print("-"*100)
-    print(f"Total Transactions Processed: {dedup_stats['total_received']:,}")
-    print(f"Unique Transactions: {dedup_stats['total_transactions']:,}")
-    print(f"Duplicates Prevented: {dedup_stats['duplicates_caught']:,}")
-    print(f"Overall Deduplication Rate: {dedup_stats['dedup_ratio']:.1f}%")
-    
-    print("\nBy Blockchain:")
-    for chain, stats in dedup_stats['by_chain'].items():
-        if stats['total'] > 0:
-            dedup_rate = (stats['duplicates'] / stats['total']) * 100
-            print(f"  • {chain:<10}: {stats['duplicates']:,} duplicates of {stats['total']:,} "
-                  f"({dedup_rate:.1f}% dedup rate)")
-
-    # Token Volume Analysis
-    print("\n4. TOKEN VOLUME ANALYSIS")
-    print("-"*100)
-    print(f"{'TOKEN':<10} {'VOLUME (USD)':>15} {'UNIQUE TXS':>12} {'ADDRESSES':>12}")
-    print("-"*100)
-    
-    for symbol, stats in sorted_tokens:
-        print(f"{symbol:<10} ${stats['volume_usd']:>14,.2f} {stats['total']:>12,d} "
-              f"{len(stats['unique_addresses']):>12,d}")
+        # Deduplication Statistics
+        print("\n4. DEDUPLICATION EFFECTIVENESS")
+        print("-"*100)
+        print(f"Total Transactions Processed: {dedup_stats['total_received']:,}")
+        print(f"Unique Transactions: {dedup_stats['total_transactions']:,}")
+        print(f"Duplicates Prevented: {dedup_stats['duplicates_caught']:,}")
+        print(f"Overall Deduplication Rate: {dedup_stats['dedup_ratio']:.1f}%")
         
-    print("\n5. LATEST CRYPTO NEWS")
-    print("-"*100)
-    
-    # Get news for top tokens by volume
-    top_tokens = [symbol for symbol, _ in sorted_tokens[:3]]
-    for symbol in top_tokens:
-        print(f"\n📰 Latest news for {symbol}:")
-        news_items = get_news_for_token(symbol)
-        for item in news_items:
-            print(f"  • {item}")
-    
-    print("\nAnalysis complete.")
-    print("="*100)
+        print("\nBy Blockchain:")
+        for chain, stats in dedup_stats['by_chain'].items():
+            if stats['total'] > 0:
+                dedup_rate = (stats['duplicates'] / stats['total']) * 100
+                print(f"  • {chain:<10}: {stats['duplicates']:,} duplicates of {stats['total']:,} "
+                      f"({dedup_rate:.1f}% dedup rate)")
 
-    print("\nAnalysis complete.")
-    print("="*100)
+        # Token Volume Analysis
+        print("\n5. TOKEN VOLUME ANALYSIS")
+        print("-"*100)
+        print(f"{'TOKEN':<10} {'VOLUME (USD)':>15} {'UNIQUE TXS':>12} {'ADDRESSES':>12}")
+        print("-"*100)
+        
+        for symbol, stats in sorted(token_stats.items(), key=lambda x: x[1]['volume_usd'], reverse=True):
+            if stats['total'] > 0:
+                print(f"{symbol:<10} ${stats['volume_usd']:>14,.2f} {stats['total']:>12,d} "
+                      f"{len(stats['unique_addresses']):>12,d}")
+            
+        print("\n6. LATEST CRYPTO NEWS")
+        print("-"*100)
+        
+        # Get news for top tokens by volume
+        top_tokens = [symbol for symbol, _ in sorted(token_stats.items(), 
+                                               key=lambda x: x[1]['volume_usd'], 
+                                               reverse=True)[:3]]
+        for symbol in top_tokens:
+            print(f"\n📰 Latest news for {symbol}:")
+            news_items = get_news_for_token(symbol)
+            for item in news_items:
+                print(f"  • {item}")
+        
+        print("\nAnalysis complete.")
+        print("="*100)
+    except Exception as e:
+        print(f"Error in summary: {e}")
+        import traceback
+        traceback.print_exc()
 
 def record_transfer(token: str, amount: float, from_addr: str, to_addr: str, tx_hash: str = None) -> bool:
     """Record a transfer with basic deduplication"""

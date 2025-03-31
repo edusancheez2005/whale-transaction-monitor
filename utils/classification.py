@@ -157,37 +157,39 @@ def classify_erc20_transfer(tx_from: str, tx_to: str, token_symbol: str) -> str:
     return "transfer"
 
 def transaction_classifier(tx_from: str, tx_to: str, token_symbol: str = None, 
-                           amount: float = None, tx_hash: str = None, source: str = None) -> tuple:
+                          amount: float = None, tx_hash: str = None, source: str = None) -> tuple:
     # Standardize addresses
     from_addr = tx_from.lower() if tx_from else ""
     to_addr = tx_to.lower() if tx_to else ""
     
-    # First, if both sides are exchanges, we don't want to count this as a client trade.
+    # Skip if addresses are invalid
+    if not from_addr or not to_addr:
+        return ("transfer", 1)
+    
+    # First, check if both sides are exchanges (internal transfer)
     if from_addr in known_exchange_addresses and to_addr in known_exchange_addresses:
-        return ("transfer", 0)
+        return ("transfer", 3)
     
-    # If the tokens come from an exchange address (and go to a non-exchange),
-    # that means the exchange is sending tokens to the client → client is buying.
+    # Check exchange addresses - higher confidence classification
     if from_addr in known_exchange_addresses and to_addr not in known_exchange_addresses:
-        return ("buy", 4)
+        return ("buy", 4)  # Exchange sending to user = buy
     
-    # If the tokens go to an exchange address (and come from a non-exchange),
-    # then the client is selling tokens into the exchange.
     if to_addr in known_exchange_addresses and from_addr not in known_exchange_addresses:
-        return ("sell", 4)
+        return ("sell", 4)  # User sending to exchange = sell
     
     # Check for market maker addresses
     if from_addr in MARKET_MAKER_ADDRESSES:
-        return ("buy", 3)
+        return ("buy", 3)  # Market maker providing liquidity
     if to_addr in MARKET_MAKER_ADDRESSES:
-        return ("sell", 3)
+        return ("sell", 3)  # Market maker absorbing liquidity
     
-    # Fallback: use additional heuristics.
-    confidence_score = 0
-    classification = "unknown"
-    
+    # Use heuristic analysis for non-exchange addresses
     from_chars = analyze_address_characteristics(from_addr)
     to_chars = analyze_address_characteristics(to_addr)
+    
+    # More sophisticated scoring based on address characteristics
+    confidence_score = 0
+    classification = "transfer"  # Default to transfer instead of unknown
     
     if from_chars.get("is_exchange", False) and not to_chars.get("is_exchange", False):
         confidence_score += 2
@@ -196,20 +198,30 @@ def transaction_classifier(tx_from: str, tx_to: str, token_symbol: str = None,
         confidence_score += 2
         classification = "sell"
     
+    # Consider value - larger transactions might be more likely for institutional selling
     try:
         usd_value = float(amount) if amount is not None else 0
     except (ValueError, AttributeError):
         usd_value = 0
 
-    if usd_value > 3000:
+    # Boost confidence for large transactions
+    if usd_value > 50000:
         confidence_score += 1
 
-    # Fallback for transfers or unknown classifications
-    if classification == "unknown" or confidence_score < 1:
-        # Simple heuristic: for transfers, just default to "buy"
-        classification = "buy"
-        confidence_score = 1
-        
+    # Add pattern analysis
+    if classification == "unknown" or confidence_score < 2:
+        # If either address has exchange-like characteristics but isn't a known exchange
+        if from_chars.get("is_exchange", False) or to_chars.get("is_exchange", False):
+            confidence_score = max(confidence_score, 2)
+            
+            if from_chars.get("is_exchange", False):
+                classification = "buy"
+            else:
+                classification = "sell"
+        else:
+            classification = "transfer"
+            confidence_score = max(confidence_score, 1)
+
     return (classification, confidence_score)
 
 

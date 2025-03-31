@@ -25,7 +25,12 @@ from utils.dedup import get_dedup_stats, deduped_transactions, handle_event
 total_transfers_fetched = 0
 filtered_by_threshold = 0
 stablecoin_skip_count = 0
-connection_attempts = 0
+
+# ----------------------
+# WHALE ALERT WEBSOCKET FUNCTIONS
+# ----------------------
+
+# In whale_alert.py
 
 def on_whale_message(ws, message):
     try:
@@ -52,7 +57,6 @@ def on_whale_message(ws, message):
             usd_value = amt.get("value_usd", 0)
 
             if symbol.lower() in STABLE_COINS:
-                stablecoin_skip_count += 1
                 continue
 
             try:
@@ -83,7 +87,7 @@ def on_whale_message(ws, message):
                         total_usd_value += usd_value
 
             except (ValueError, TypeError) as e:
-                safe_print(f"Error converting values: {e}")
+                print(f"Error converting values: {e}")
                 continue
 
         if not valid_transfers:
@@ -120,111 +124,72 @@ def on_whale_message(ws, message):
             ts = data.get("timestamp", 0)
             human_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(ts))
             
-            safe_print("\n" + "="*50)
-            safe_print("🐋 WHALE ALERT DETECTED:")
-            safe_print("="*50)
-            safe_print(f"Time: {human_time}")
-            safe_print(f"Blockchain: {blockchain}")
-            safe_print(f"Transaction Type: {tx_type}")
-            safe_print(f"TX Hash: {tx_hash[:24]}...")
-            safe_print(f"From: {tx_from}")
-            safe_print(f"To:   {tx_to}")
-            safe_print(f"Classification: {classification.upper()} (confidence: {confidence})")
+            print("\n" + "="*50)
+            print("🐋 WHALE ALERT DETECTED:")
+            print("="*50)
+            print(f"Time: {human_time}")
+            print(f"Blockchain: {blockchain}")
+            print(f"Transaction Type: {tx_type}")
+            print(f"TX Hash: {tx_hash[:24]}...")
+            print(f"From: {tx_from}")
+            print(f"To:   {tx_to}")
+            print(f"Classification: {classification.upper()} (confidence: {confidence})")
             
-            safe_print("\nAmounts Transferred:")
+            print("\nAmounts Transferred:")
             for transfer in valid_transfers:
-                safe_print(f"  • {transfer['symbol']}: {transfer['amount']:,.2f} (~${transfer['usd_value']:,.2f} USD)")
+                print(f"  • {transfer['symbol']}: {transfer['amount']:,.2f} (~${transfer['usd_value']:,.2f} USD)")
             
-            safe_print(f"\nTotal USD Value: ${total_usd_value:,.2f}")
-            safe_print("="*50 + "\n")
+            print(f"\nTotal USD Value: ${total_usd_value:,.2f}")
+            print("="*50 + "\n")
 
     except Exception as e:
-        safe_print(f"Error processing Whale Alert message: {e}")
-        traceback.print_exc()
+        print(f"Error processing Whale Alert message: {e}")
 
 def on_whale_error(ws, error):
-    safe_print(f"\n[Whale Alert WS Error] {error}")
+    print(f"\n[Whale Alert WS Error] {error}")
     if "429" in str(error):
-        safe_print("Rate limit encountered – pausing 120 seconds before reconnect.")
+        print("Rate limit encountered – pausing 120 seconds before reconnect.")
         time.sleep(120)  # Longer pause for rate limits
 
 def on_whale_close(ws, close_status_code, close_msg):
-    global connection_attempts
-    connection_attempts += 1
-    safe_print(f"Whale Alert WS closed (code: {close_status_code}). Message: {close_msg}")
-    
-    # Implement exponential backoff
-    wait_time = min(120, 10 * (2 ** min(connection_attempts, 5)))
-    safe_print(f"Reconnecting in {wait_time} seconds... (attempt {connection_attempts})")
-    
-    if not shutdown_flag.is_set():
-        time.sleep(wait_time)
-        try:
-            connect_whale_websocket()
-        except Exception as e:
-            safe_print(f"Error reconnecting to Whale Alert: {e}")
-            traceback.print_exc()
+    print(f"Whale Alert WS closed (code: {close_status_code}). Message: {close_msg}")
+    wait_time = 30 if close_status_code else 120  # Increased wait times
+    print(f"Reconnecting in {wait_time} seconds...")
+    time.sleep(wait_time)
+    connect_whale_websocket()
 
 def on_whale_open(ws):
-    global connection_attempts
-    connection_attempts = 0
-    safe_print("Whale Alert WS connection established.")
-    try:
-        subscription_request = {
-            "type": "subscribe_alerts",
-            "min_value_usd": GLOBAL_USD_THRESHOLD,  # Dynamic threshold based on settings
-            "tx_types": ["transfer", "mint", "burn"],
-            "blockchain": [
-                "ethereum",
-                "bitcoin",
-                "solana",
-                "ripple",
-                "polygon",
-                "tron",
-                "algorand",
-                "bitcoin cash",
-                "dogecoin",
-                "litecoin"
-            ]
-        }
-        ws.send(json.dumps(subscription_request))
-        safe_print("Whale Alert subscription request sent with configuration:")
-        safe_print(json.dumps(subscription_request, indent=2))
-    except Exception as e:
-        safe_print(f"Error sending subscription request: {e}")
-        traceback.print_exc()
+    print("Whale Alert WS connection established.")
+    subscription_request = {
+        "type": "subscribe_alerts",
+        "min_value_usd": 100000,  # Updated threshold to $2M
+        "tx_types": ["transfer", "mint", "burn"],
+        "blockchain": [
+            "ethereum",
+            "bitcoin",
+            "solana",
+            "ripple",
+            "polygon",
+            "tron",
+            "algorand",
+            "bitcoin cash",
+            "dogecoin",
+            "litecoin"
+        ]
+    }
+    ws.send(json.dumps(subscription_request))
+    print("Whale Alert subscription request sent with configuration:")
+    print(json.dumps(subscription_request, indent=2))
 
 def connect_whale_websocket():
-    """
-    Connect to the Whale Alert websocket with proper error handling
-    """
-    try:
-        # Configure websocket
-        websocket.enableTrace(False)  # Set to True for debugging
-        ws_app = websocket.WebSocketApp(
-            WHALE_WS_URL,
-            on_open=on_whale_open,
-            on_message=on_whale_message,
-            on_error=on_whale_error,
-            on_close=on_whale_close
-        )
-        
-        # Run the websocket connection in its own thread
-        wst = threading.Thread(
-            target=lambda: ws_app.run_forever(
-                ping_interval=30,
-                ping_timeout=10,
-                ping_payload="ping",
-                sslopt={"cert_reqs": 0}  # Disable certificate verification if needed
-            ),
-            daemon=True
-        )
-        wst.start()
-        return wst
-    except Exception as e:
-        safe_print(f"Failed to connect to Whale Alert websocket: {e}")
-        traceback.print_exc()
-        return None
+    ws_app = websocket.WebSocketApp(
+        WHALE_WS_URL,
+        on_open=on_whale_open,
+        on_message=on_whale_message,
+        on_error=on_whale_error,
+        on_close=on_whale_close
+    )
+    ws_app.run_forever(ping_interval=60)  # Add ping_interval
 
 def start_whale_thread():
     """
