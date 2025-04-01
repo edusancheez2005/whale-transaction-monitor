@@ -6,3 +6,11 @@ urllib3==2.3.0
 websocket-client==1.8.0
 keyboard==0.13.5
 windows-curses==2.3.1; platform_system == "Windows"
+Flask==2.3.3
+requests==2.32.3
+websocket-client==1.8.0
+certifi==2025.1.31
+charset-normalizer==3.4.1
+idna==3.10
+urllib3==2.3.0
+keyboard==0.13.5

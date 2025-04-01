@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Crypto Whale Transaction Monitor</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+</head>
+<body>
+    <!-- Navigation Bar -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="#">
+                <i class="fas fa-whale me-2"></i>
+                Crypto Whale Monitor
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav me-auto">
+                    <li class="nav-item">
+                        <a class="nav-link active" href="#transactions">Transactions</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#stats">Statistics</a>
+                    </li>
+                </ul>
+                <!-- Transaction Value Filter -->
+                <div class="d-flex align-items-center text-light">
+                    <span class="me-2">Min Value ($):</span>
+                    <input type="number" id="min-value-input" class="form-control form-control-sm me-2" style="width: 100px;">
+                    <button id="set-min-value" class="btn btn-sm btn-primary">Apply</button>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <div class="container-fluid mt-3">
+        <!-- Transaction Filters -->
+        <div class="card mb-3">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0">Transaction Filters</h5>
+            </div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-3">
+                        <label class="form-label">Blockchain</label>
+                        <select id="blockchain-filter" class="form-select">
+                            <option value="">All Blockchains</option>
+                            <option value="ethereum">Ethereum</option>
+                            <option value="solana">Solana</option>
+                            <option value="xrp">XRP</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Token</label>
+                        <select id="token-filter" class="form-select">
+                            <option value="">All Tokens</option>
+                            <!-- Will be populated dynamically -->
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Transaction Type</label>
+                        <select id="type-filter" class="form-select">
+                            <option value="">All Types</option>
+                            <option value="buy">Buy</option>
+                            <option value="sell">Sell</option>
+                            <option value="transfer">Transfer</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Limit</label>
+                        <select id="limit-filter" class="form-select">
+                            <option value="50">50 Transactions</option>
+                            <option value="100">100 Transactions</option>
+                            <option value="200">200 Transactions</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <!-- Transactions Section -->
+            <div class="col-lg-8">
+                <div class="card" id="transactions">
+                    <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">Latest Whale Transactions</h5>
+                        <span id="transaction-count" class="badge bg-primary">0</span>
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="table-responsive">
+                            <table class="table table-hover table-striped mb-0">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>Blockchain</th>
+                                        <th>Token</th>
+                                        <th>Amount</th>
+                                        <th>USD Value</th>
+                                        <th>Type</th>
+                                        <th>Time</th>
+                                        <th>Transaction</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="transactions-table">
+                                    <!-- Transactions will be loaded here -->
+                                    <tr>
+                                        <td colspan="7" class="text-center py-4">Loading transactions...</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Statistics Section -->
+            <div class="col-lg-4">
+                <div class="card mb-3" id="stats">
+                    <div class="card-header bg-dark text-white">
+                        <h5 class="mb-0">Token Statistics</h5>
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="table-responsive">
+                            <table class="table table-hover table-striped mb-0">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>Token</th>
+                                        <th>Buys</th>
+                                        <th>Sells</th>
+                                        <th>Buy %</th>
+                                        <th>Trend</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="token-stats">
+                                    <!-- Token stats will be loaded here -->
+                                    <tr>
+                                        <td colspan="5" class="text-center py-3">Loading statistics...</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- System Status -->
+                <div class="card mb-3">
+                    <div class="card-header bg-info text-white">
+                        <h5 class="mb-0">System Status</h5>
+                    </div>
+                    <div class="card-body">
+                        <div id="active-monitors" class="mb-3">
+                            <h6>Active Monitors:</h6>
+                            <div id="monitor-badges" class="d-flex flex-wrap gap-2">
+                                <span class="badge bg-secondary">Loading...</span>
+                            </div>
+                        </div>
+                        <div id="dedup-stats">
+                            <h6>Deduplication Stats:</h6>
+                            <ul class="list-group list-group-flush">
+                                <li class="list-group-item d-flex justify-content-between align-items-center">
+                                    Total Transactions:
+                                    <span id="total-transactions" class="badge bg-primary rounded-pill">0</span>
+                                </li>
+                                <li class="list-group-item d-flex justify-content-between align-items-center">
+                                    Unique Transactions:
+                                    <span id="unique-transactions" class="badge bg-success rounded-pill">0</span>
+                                </li>
+                                <li class="list-group-item d-flex justify-content-between align-items-center">
+                                    Duplicates Caught:
+                                    <span id="duplicates-caught" class="badge bg-danger rounded-pill">0</span>
+                                </li>
+                                <li class="list-group-item d-flex justify-content-between align-items-center">
+                                    Deduplication Rate:
+                                    <span id="dedup-rate" class="badge bg-info rounded-pill">0%</span>
+                                </li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="bg-dark text-white text-center py-3 mt-4">
+        <div class="container">
+            <p class="mb-0">Crypto Whale Transaction Monitor &copy; 2025</p>
+        </div>
+    </footer>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- Custom JS -->
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>
