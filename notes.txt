@@ -1,8 +1,0 @@
-1) focus on really trying to get a good prediction on wether it is a sell 
-    or a buy. Maybe start developing an algorithm for this, and then, integrate
-    it by showing all of the transfers that are made.
-
-Structure:
-- Right now, we get ALL of the transactions, we get A LOT
-- However, we are not too sure about the probability of wether it is a buy or a sell
-- We are just using a classification system on wether they are from an KNOWN exchange address and stuff.
