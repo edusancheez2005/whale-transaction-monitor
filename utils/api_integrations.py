@@ -109,11 +109,11 @@ class EtherscanAPI(APIIntegrationBase):
         )
     
     def get_contract_creators(self, limit: int = 5000) -> List[AddressData]:
-        """Get addresses of contract creators from recent verified contracts (last 30 days)."""
+        """Get addresses of contract creators from recent verified contracts (last 3 days)."""
         addresses = []
         
         try:
-            # Calculate 30 days ago in block numbers (approximately 7200 blocks per day)
+            # Calculate 3 days ago in block numbers (approximately 7200 blocks per day)
             latest_params = {
                 'module': 'proxy',
                 'action': 'eth_blockNumber',
@@ -123,11 +123,11 @@ class EtherscanAPI(APIIntegrationBase):
             latest_response = self._make_request('', latest_params)
             if latest_response.get('result'):
                 latest_block = int(latest_response['result'], 16)
-                blocks_30_days = 7200 * 30  # Approximate blocks in 30 days
-                start_block = max(0, latest_block - blocks_30_days)
+                blocks_3_days = 7200 * 3  # Approximate blocks in 3 days
+                start_block = max(0, latest_block - blocks_3_days)
                 
                 # Get contract creations from recent blocks with pagination
-                max_blocks_to_check = min(1000, blocks_30_days // 100)  # Check every 100th block, max 1000 blocks
+                max_blocks_to_check = min(1000, blocks_3_days // 100)  # Check every 100th block, max 1000 blocks
                 blocks_checked = 0
                 
                 for block_offset in range(0, max_blocks_to_check):
@@ -159,7 +159,7 @@ class EtherscanAPI(APIIntegrationBase):
                                         address=tx['from'],
                                         blockchain='ethereum',
                                         source_system='etherscan_api',
-                                        initial_label='Contract Creator (30d)',
+                                        initial_label='Contract Creator (3d)',
                                         metadata={
                                             'transaction_hash': tx['hash'],
                                             'block_number': tx['blockNumber'],
@@ -181,7 +181,7 @@ class EtherscanAPI(APIIntegrationBase):
                         import time
                         time.sleep(0.5)
             
-            self.logger.info(f"Extracted {len(addresses)} contract creator addresses from Etherscan (last 30 days)")
+            self.logger.info(f"Extracted {len(addresses)} contract creator addresses from Etherscan (last 3 days)")
             return addresses
             
         except Exception as e:
@@ -189,7 +189,7 @@ class EtherscanAPI(APIIntegrationBase):
             return []
     
     def get_large_transaction_addresses(self, min_value_eth: float = 10, limit: int = 5000) -> List[AddressData]:
-        """Get addresses involved in large transactions (last 30 days)."""
+        """Get addresses involved in large transactions (last 3 days)."""
         addresses = []
         
         try:
@@ -204,12 +204,12 @@ class EtherscanAPI(APIIntegrationBase):
             if latest_response.get('result'):
                 latest_block = int(latest_response['result'], 16)
                 min_value_wei = int(min_value_eth * 10**18)
-                blocks_30_days = 7200 * 30  # Approximate blocks in 30 days
-                start_block = max(0, latest_block - blocks_30_days)
+                blocks_3_days = 7200 * 3  # Approximate blocks in 3 days
+                start_block = max(0, latest_block - blocks_3_days)
                 
                 # Check blocks in batches for large transactions
                 blocks_checked = 0
-                max_blocks_to_check = min(1000, blocks_30_days // 50)  # Check every 50th block, max 1000 blocks
+                max_blocks_to_check = min(1000, blocks_3_days // 50)  # Check every 50th block, max 1000 blocks
                 
                 for block_offset in range(0, max_blocks_to_check):  # Check every 50th block
                     if len(addresses) >= limit:
@@ -283,7 +283,7 @@ class EtherscanAPI(APIIntegrationBase):
                         self.logger.warning(f"Failed to process block {block_num}: {e}")
                         continue
             
-            self.logger.info(f"Extracted {len(addresses)} addresses from large transactions (last 30 days)")
+            self.logger.info(f"Extracted {len(addresses)} addresses from large transactions (last 3 days)")
             return addresses
             
         except Exception as e:
@@ -291,7 +291,7 @@ class EtherscanAPI(APIIntegrationBase):
             return []
     
     def get_top_accounts_by_balance(self, limit: int = 5000) -> List[AddressData]:
-        """Get active accounts from popular contract interactions (last 30 days)."""
+        """Get active accounts from popular contract interactions (last 3 days)."""
         addresses = []
         
         try:
@@ -307,7 +307,7 @@ class EtherscanAPI(APIIntegrationBase):
                 '0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599',  # WBTC
             ]
             
-            # Calculate 30 days ago in block numbers
+            # Calculate 3 days ago in block numbers
             latest_params = {
                 'module': 'proxy',
                 'action': 'eth_blockNumber',
@@ -317,8 +317,8 @@ class EtherscanAPI(APIIntegrationBase):
             latest_response = self._make_request('', latest_params)
             if latest_response.get('result'):
                 latest_block = int(latest_response['result'], 16)
-                blocks_30_days = 7200 * 30
-                start_block = max(0, latest_block - blocks_30_days)
+                blocks_3_days = 7200 * 3
+                start_block = max(0, latest_block - blocks_3_days)
                 
                 for contract in popular_contracts:
                     if len(addresses) >= limit:
@@ -366,7 +366,7 @@ class EtherscanAPI(APIIntegrationBase):
                                             address=tx['from'],
                                             blockchain='ethereum',
                                             source_system='etherscan_api',
-                                            initial_label=f'Active User ({contract[:10]}... - 30d)',
+                                            initial_label=f'Active User ({contract[:10]}... - 3d)',
                                             metadata={
                                                 'contract_interacted': contract,
                                                 'transaction_hash': tx['hash'],
@@ -389,7 +389,7 @@ class EtherscanAPI(APIIntegrationBase):
                         self.logger.error(f"Failed to get transactions for contract {contract}: {e}")
                         continue
             
-            self.logger.info(f"Extracted {len(addresses)} active user addresses from Etherscan (last 30 days)")
+            self.logger.info(f"Extracted {len(addresses)} active user addresses from Etherscan (last 3 days)")
             return addresses
             
         except Exception as e:
@@ -770,14 +770,14 @@ class CovalentAPI(APIIntegrationBase):
             return []
     
     def get_recent_transactions(self, chain_id: int = 1, limit: int = 5000) -> List[AddressData]:
-        """Get addresses from recent high-value transactions (last 30 days)."""
+        """Get addresses from recent high-value transactions (last 3 days)."""
         addresses = []
         
         try:
-            # Calculate date range for last 30 days
+            # Calculate date range for last 3 days
             from datetime import datetime, timedelta
             end_date = datetime.utcnow()
-            start_date = end_date - timedelta(days=30)
+            start_date = end_date - timedelta(days=3)
             
             # Get recent transactions with pagination
             page = 0
@@ -852,7 +852,7 @@ class CovalentAPI(APIIntegrationBase):
                 import time
                 time.sleep(0.5)
             
-            self.logger.info(f"Extracted {len(addresses)} addresses from high-value recent transactions (last 30 days)")
+            self.logger.info(f"Extracted {len(addresses)} addresses from high-value recent transactions (last 3 days)")
             return addresses
             
         except Exception as e:
@@ -1070,13 +1070,13 @@ class WhaleAlertAPI:
         return addresses
     
     def get_recent_transactions(self, min_value: int = 100000, limit: int = 5000) -> List[AddressData]:
-        """Get recent whale transactions via REST API (last 30 days)."""
+        """Get recent whale transactions via REST API (last 3 days)."""
         addresses = []
         
         try:
-            # Calculate timestamp for 30 days ago
+            # Calculate timestamp for 3 days ago
             from datetime import datetime, timedelta
-            start_time = int((datetime.utcnow() - timedelta(days=30)).timestamp())
+            start_time = int((datetime.utcnow() - timedelta(days=3)).timestamp())
             
             # Get transactions with pagination
             cursor = None
@@ -1156,7 +1156,7 @@ class WhaleAlertAPI:
                 else:
                     break  # No more data or error
             
-            self.logger.info(f"Extracted {len(addresses)} whale addresses from Whale Alert REST API (last 30 days)")
+            self.logger.info(f"Extracted {len(addresses)} whale addresses from Whale Alert REST API (last 3 days)")
             return addresses
             
         except Exception as e:
@@ -1178,14 +1178,14 @@ class BitqueryAPI(APIIntegrationBase):
         self.session.headers.update({'X-API-KEY': self.api_key})
     
     def get_dex_traders(self, limit: int = 5000) -> List[AddressData]:
-        """Get active DEX traders using GraphQL query (last 30 days, high-value trades)."""
+        """Get active DEX traders using GraphQL query (last 3 days, high-value trades)."""
         addresses = []
         
         try:
-            # Calculate date range for last 30 days
+            # Calculate date range for last 3 days
             from datetime import datetime, timedelta
             end_date = datetime.utcnow()
-            start_date = end_date - timedelta(days=30)
+            start_date = end_date - timedelta(days=3)
             
             # Query with pagination to get more data
             offset = 0
@@ -1302,7 +1302,7 @@ class BitqueryAPI(APIIntegrationBase):
                 else:
                     break  # No more data or error
             
-            self.logger.info(f"Extracted {len(addresses)} high-value DEX trader addresses from Bitquery (last 30 days)")
+            self.logger.info(f"Extracted {len(addresses)} high-value DEX trader addresses from Bitquery (last 3 days)")
             return addresses
             
         except Exception as e:
@@ -1403,69 +1403,67 @@ class APIIntegrationManager:
         self.logger.info(f"Initialized {len(self.apis)} API integrations")
     
     def collect_all_addresses(self) -> List[AddressData]:
-        """Collect addresses from all available APIs with enhanced volume and 30-day filtering."""
+        """Collect addresses from all available APIs with reduced limits and 3-day filtering."""
         all_addresses = []
         
         # Etherscan data - Enhanced collection (up to 5000 per method)
         if 'etherscan' in self.apis:
-            self.logger.info("Collecting from Etherscan API (enhanced volume, last 30 days)...")
+            self.logger.info("Collecting from Etherscan API (enhanced volume, last 3 days)...")
             all_addresses.extend(self.apis['etherscan'].get_contract_creators(limit=5000))
             all_addresses.extend(self.apis['etherscan'].get_large_transaction_addresses(min_value_eth=5, limit=5000))
             all_addresses.extend(self.apis['etherscan'].get_top_accounts_by_balance(limit=5000))
         
-        # Polygon data - Enhanced collection
+        # Polygon data - Reduced collection
         if 'polygonscan' in self.apis:
-            self.logger.info("Collecting from Polygonscan API (enhanced volume, last 30 days)...")
-            all_addresses.extend(self.apis['polygonscan'].get_top_accounts_by_balance(limit=5000))
+            self.logger.info("Collecting from Polygonscan API (reduced volume, last 3 days)...")
+            all_addresses.extend(self.apis['polygonscan'].get_top_accounts_by_balance(limit=20))
         
-        # Solana data - Enhanced collection
+        # Solana data - Reduced collection
         if 'solscan' in self.apis:
-            self.logger.info("Collecting from Solscan API (enhanced volume, significant holders)...")
-            all_addresses.extend(self.apis['solscan'].get_token_holders(limit=5000))
+            self.logger.info("Collecting from Solscan API (reduced volume, significant holders)...")
+            all_addresses.extend(self.apis['solscan'].get_token_holders(limit=20))
         
         if 'helius' in self.apis:
-            self.logger.info("Collecting from Helius API (enhanced volume, recent activity)...")
-            all_addresses.extend(self.apis['helius'].get_program_accounts(limit=5000))
+            self.logger.info("Collecting from Helius API (reduced volume, recent activity)...")
+            all_addresses.extend(self.apis['helius'].get_program_accounts(limit=20))
         
-        # Multi-chain data - Enhanced collection
+        # Multi-chain data - Reduced collection
         if 'covalent' in self.apis:
-            self.logger.info("Collecting from Covalent API (enhanced volume, last 30 days)...")
+            self.logger.info("Collecting from Covalent API (reduced volume, last 3 days)...")
             # Ethereum
-            all_addresses.extend(self.apis['covalent'].get_token_holders_multichain(chain_id=1, limit=5000))
-            all_addresses.extend(self.apis['covalent'].get_recent_transactions(chain_id=1, limit=5000))
+            all_addresses.extend(self.apis['covalent'].get_token_holders_multichain(chain_id=1, limit=20))
+            all_addresses.extend(self.apis['covalent'].get_recent_transactions(chain_id=1, limit=20))
             # Polygon
-            all_addresses.extend(self.apis['covalent'].get_token_holders_multichain(chain_id=137, limit=2500))
-            all_addresses.extend(self.apis['covalent'].get_recent_transactions(chain_id=137, limit=2500))
+            all_addresses.extend(self.apis['covalent'].get_token_holders_multichain(chain_id=137, limit=10))
+            all_addresses.extend(self.apis['covalent'].get_recent_transactions(chain_id=137, limit=10))
         
         if 'moralis' in self.apis:
-            self.logger.info("Collecting from Moralis API (enhanced volume, popular NFT collections)...")
+            self.logger.info("Collecting from Moralis API (reduced volume, popular NFT collections)...")
             try:
                 # Ethereum NFTs
-                all_addresses.extend(self.apis['moralis'].get_nft_owners(chain="eth", limit=5000))
+                all_addresses.extend(self.apis['moralis'].get_nft_owners(chain="eth", limit=20))
                 # Polygon NFTs
-                all_addresses.extend(self.apis['moralis'].get_nft_owners(chain="polygon", limit=2500))
+                all_addresses.extend(self.apis['moralis'].get_nft_owners(chain="polygon", limit=10))
             except Exception as e:
                 self.logger.error(f"Failed to get NFT owners: {e}")
         
-        # Whale Alert data - Enhanced collection
+        # Whale Alert data - Reduced collection
         if 'whale_alert' in self.apis:
-            self.logger.info("Collecting from Whale Alert API (enhanced volume, last 30 days)...")
-            all_addresses.extend(self.apis['whale_alert'].get_recent_transactions(min_value=100000, limit=5000))
+            self.logger.info("Collecting from Whale Alert API (reduced volume, last 3 days)...")
+            all_addresses.extend(self.apis['whale_alert'].get_recent_transactions(min_value=100000, limit=20))
         
-        # Bitquery data - Enhanced collection
+        # Bitquery data - Reduced collection
         if 'bitquery' in self.apis:
-            self.logger.info("Collecting from Bitquery API (enhanced volume, high-value DEX trades, last 30 days)...")
-            all_addresses.extend(self.apis['bitquery'].get_dex_traders(limit=5000))
+            self.logger.info("Collecting from Bitquery API (reduced volume, high-value DEX trades, last 3 days)...")
+            all_addresses.extend(self.apis['bitquery'].get_dex_traders(limit=20))
         
-        # Dune data - Enhanced collection
+        # Dune data - Reduced collection
         if 'dune' in self.apis:
-            self.logger.info("Collecting from Dune API (enhanced volume)...")
+            self.logger.info("Collecting from Dune API (reduced volume)...")
             # Popular public query IDs for whale/large holder analysis
             whale_query_ids = [
                 3237150,  # Example whale tracking query
                 3237151,  # Example large holder query
-                2030469,  # Example DEX volume query
-                1746140,  # Example token holder query
             ]
             for query_id in whale_query_ids:
                 try:
@@ -1473,7 +1471,7 @@ class APIIntegrationManager:
                 except Exception as e:
                     self.logger.error(f"Failed to get Dune query {query_id}: {e}")
         
-        self.logger.info(f"Collected {len(all_addresses)} total addresses from all APIs (enhanced collection)")
+        self.logger.info(f"Collected {len(all_addresses)} total addresses from all APIs (reduced collection)")
         return all_addresses
     
     async def collect_realtime_data(self, duration_minutes: int = 5) -> List[AddressData]:

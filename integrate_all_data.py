@@ -27,6 +27,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from utils.blockchain_data_processor import BlockchainDataProcessor
 from utils.api_integrations import AddressData
 from utils.github_data_extractor import GitHubAddressData
+from utils.direct_etl_manager import DirectETLManager
 
 # Import existing address data
 from data.addresses import DEX_ADDRESSES, SOLANA_DEX_ADDRESSES, MARKET_MAKER_ADDRESSES, known_exchange_addresses
@@ -215,6 +216,14 @@ class ComprehensiveDataIntegrator:
         self.deduplicator = AddressDeduplicator()
         self.logger = logging.getLogger(__name__)
         
+        # Initialize DirectETLManager with configuration
+        from config.api_keys import ETHEREUM_NODE_PROVIDER_URI, BITCOIN_NODE_PROVIDER_URI
+        self.direct_etl_config = {
+            'ETHEREUM_NODE_PROVIDER_URI': ETHEREUM_NODE_PROVIDER_URI,
+            'BITCOIN_NODE_PROVIDER_URI': BITCOIN_NODE_PROVIDER_URI
+        }
+        self.direct_etl_manager = DirectETLManager(self.direct_etl_config)
+        
     def load_existing_addresses(self):
         """Load addresses from existing Python files."""
         self.logger.info("Loading existing address data...")
@@ -383,6 +392,86 @@ class ComprehensiveDataIntegrator:
             )
         
         self.logger.info(f"Processed {len(public_dataset_addresses)} addresses from BigQuery public datasets")
+    
+    def collect_direct_etl_data(self):
+        """Collect data using direct ETL tools for recent blocks and specific contracts."""
+        self.logger.info("Collecting data using direct ETL tools...")
+        
+        # Check if provider URIs are configured
+        if not self.direct_etl_config.get('ETHEREUM_NODE_PROVIDER_URI'):
+            self.logger.warning("No Ethereum provider URI configured - skipping Ethereum ETL")
+        else:
+            try:
+                # Extract recent Ethereum data (last 100 blocks for demonstration)
+                # In production, you might want to make this configurable
+                self.logger.info("Extracting recent Ethereum blocks...")
+                recent_eth_addresses = self.direct_etl_manager.extract_ethereum_data_range(
+                    start_block=19000000,  # Example recent block range
+                    end_block=19000010,    # Small range for demonstration
+                )
+                
+                for addr_data in recent_eth_addresses:
+                    self.deduplicator.add_address(
+                        address=addr_data['address'],
+                        label=addr_data['label'],
+                        source_system=addr_data['source_system'],
+                        blockchain=addr_data['blockchain'],
+                        metadata=addr_data.get('metadata', {})
+                    )
+                
+                self.logger.info(f"Processed {len(recent_eth_addresses)} addresses from direct Ethereum ETL")
+                
+                # Example: Extract interactions with a popular DeFi contract (Uniswap V3 Router)
+                uniswap_v3_router = "0xE592427A0AEce92De3Edee1F18E0157C05861564"
+                self.logger.info(f"Extracting interactions with Uniswap V3 Router...")
+                contract_addresses = self.direct_etl_manager.extract_ethereum_contract_interactions(
+                    contract_address=uniswap_v3_router,
+                    start_block=19000000,
+                    end_block=19000010
+                )
+                
+                for addr_data in contract_addresses:
+                    self.deduplicator.add_address(
+                        address=addr_data['address'],
+                        label=addr_data['label'],
+                        source_system=addr_data['source_system'],
+                        blockchain=addr_data['blockchain'],
+                        metadata=addr_data.get('metadata', {})
+                    )
+                
+                self.logger.info(f"Processed {len(contract_addresses)} addresses from Uniswap V3 interactions")
+                
+            except Exception as e:
+                self.logger.error(f"Error in Ethereum ETL collection: {e}")
+        
+        if not self.direct_etl_config.get('BITCOIN_NODE_PROVIDER_URI'):
+            self.logger.warning("No Bitcoin provider URI configured - skipping Bitcoin ETL")
+        else:
+            try:
+                # Extract recent Bitcoin data (last few days for demonstration)
+                from datetime import datetime, timedelta
+                end_date = datetime.now()
+                start_date = end_date - timedelta(days=1)  # Last day for demonstration
+                
+                self.logger.info("Extracting recent Bitcoin transactions...")
+                recent_btc_addresses = self.direct_etl_manager.extract_bitcoin_data_range(
+                    start_date=start_date.strftime('%Y-%m-%d'),
+                    end_date=end_date.strftime('%Y-%m-%d')
+                )
+                
+                for addr_data in recent_btc_addresses:
+                    self.deduplicator.add_address(
+                        address=addr_data['address'],
+                        label=addr_data['label'],
+                        source_system=addr_data['source_system'],
+                        blockchain=addr_data['blockchain'],
+                        metadata=addr_data.get('metadata', {})
+                    )
+                
+                self.logger.info(f"Processed {len(recent_btc_addresses)} addresses from direct Bitcoin ETL")
+                
+            except Exception as e:
+                self.logger.error(f"Error in Bitcoin ETL collection: {e}")
     
     def store_to_supabase(self) -> bool:
         """Store all deduplicated addresses to Supabase."""
@@ -813,6 +902,7 @@ class ComprehensiveDataIntegrator:
         self.logger.info("   • Enhanced pagination and rate limiting")
         self.logger.info("   • BigQuery public datasets integration (Ethereum, Bitcoin)")
         self.logger.info("   • High-activity EOAs and smart contracts from public data")
+        self.logger.info("   • Direct ETL extraction for recent blocks and contract interactions")
         self.logger.info("   • Automated address classification and tagging")
         self.logger.info("   • Enriched Supabase data with analysis tags for whale algorithms")
         
@@ -831,7 +921,10 @@ class ComprehensiveDataIntegrator:
             # Step 4: Collect BigQuery public dataset data
             self.collect_bigquery_public_dataset_data()
             
-            # Step 5: Get statistics
+            # Step 5: Collect direct ETL data (optional, requires provider URIs)
+            self.collect_direct_etl_data()
+            
+            # Step 6: Get statistics
             stats = self.deduplicator.get_statistics()
             
             self.logger.info("=== Enhanced Integration Statistics ===")
@@ -844,18 +937,18 @@ class ComprehensiveDataIntegrator:
             for source, count in sorted(stats['sources'].items()):
                 self.logger.info(f"  {source}: {count:,} addresses")
             
-            # Step 6: Store to Supabase
+            # Step 7: Store to Supabase
             storage_success = self.store_to_supabase()
             
-            # Step 7: Setup BigQuery integration
+            # Step 8: Setup BigQuery integration
             bigquery_success = self.setup_bigquery_integration()
             
-            # Step 8: Run BigQuery analysis and get classification results
-            self.logger.info("=== Step 8: Running BigQuery Analysis ===")
+            # Step 9: Run BigQuery analysis and get classification results
+            self.logger.info("=== Step 9: Running BigQuery Analysis ===")
             analysis_data = self.run_bigquery_analysis()
             
-            # Step 9: Update Supabase with analysis tags
-            self.logger.info("=== Step 9: Updating Supabase with Analysis Tags ===")
+            # Step 10: Update Supabase with analysis tags
+            self.logger.info("=== Step 10: Updating Supabase with Analysis Tags ===")
             tagging_results = self.update_supabase_with_analysis_tags(analysis_data)
             
             end_time = datetime.utcnow()
