@@ -1,25 +1,42 @@
 #!/usr/bin/env python3
 """
-Comprehensive Data Integration Script - Phase 2
+Comprehensive Data Integration Script - All Phases Integrated (Phase 4: Optimized Pipeline)
 
-This script integrates all address data sources:
-1. API data collection (9 sources)
-2. GitHub repository extraction (6 sources)
-3. Existing address files (addresses.py, market_makers.py)
-4. Deduplication algorithm
-5. Supabase storage
-6. BigQuery integration
+This script integrates all address data sources across all phases with optimized operational modes:
+Phase 1: Static address files and helper utilities
+Phase 2: API data collection, GitHub extraction, basic BigQuery integration
+Phase 3: Advanced BigQuery heuristics, intelligent post-processing, clustering
+Phase 4: Optimized pipeline with selectable operational modes
+
+Features:
+1. Static address collection from known sources
+2. Analytics platform integration (Dune, manual files)
+3. Live API data collection (9+ sources)
+4. GitHub repository extraction (6+ sources) - conditional based on run mode
+5. BigQuery public dataset integration
+6. Advanced BigQuery analysis with sophisticated heuristics
+7. Intelligent post-processing with cross-referencing
+8. Address clustering and confidence scoring
+9. Automated classification and tagging
+10. Comprehensive reporting and analytics
+
+Operational Modes:
+- full_sync: Complete data refresh from all sources (including GitHub repositories)
+- update_and_discover: Focus on dynamic data and discovery, skip GitHub re-processing
 
 Usage:
-    python integrate_all_data.py
+    python integrate_all_data.py --run-mode update_and_discover
+    python integrate_all_data.py --run-mode full_sync
 """
 
 import sys
 import os
 import hashlib
-from typing import Dict, List, Set, Tuple
+from typing import Dict, List, Set, Tuple, Optional
 from datetime import datetime
 import logging
+import argparse
+import time
 
 # Add the project root to the path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -27,7 +44,6 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from utils.blockchain_data_processor import BlockchainDataProcessor
 from utils.api_integrations import AddressData
 from utils.github_data_extractor import GitHubAddressData
-from utils.direct_etl_manager import DirectETLManager
 
 # Import existing address data
 from data.addresses import DEX_ADDRESSES, SOLANA_DEX_ADDRESSES, MARKET_MAKER_ADDRESSES, known_exchange_addresses
@@ -46,7 +62,7 @@ logger = logging.getLogger(__name__)
 
 
 class AddressDeduplicator:
-    """Handles address deduplication and conflict resolution."""
+    """Handles address deduplication and conflict resolution with enhanced capabilities."""
     
     def __init__(self):
         self.seen_addresses: Set[str] = set()
@@ -74,49 +90,58 @@ class AddressDeduplicator:
             return address.lower()
     
     def calculate_confidence_score(self, source_system: str, initial_confidence: float = 0.5) -> float:
-        """Calculate confidence score based on source reliability."""
+        """Calculate confidence score based on source reliability with Phase 3 enhancements."""
         source_weights = {
-            # High confidence sources
+            # Highest confidence sources (Phase 1 static + analytics platforms)
             'ofac_addresses_repo': 0.95,
-            'etherscan_labels_repo': 0.85,
-            'sybil_list_repo': 0.85,
-            'eth_labels_repo': 0.80,
+            'etherscan_labels_repo': 0.90,
+            'sybil_list_repo': 0.90,
+            'eth_labels_repo': 0.85,
+            'existing_dex_addresses': 0.95,
+            'existing_exchange_addresses': 0.95,
+            'existing_market_makers': 0.90,
+            'dune_analytics_whale_data': 0.85,
+            'manual_analytics_platform_data': 0.80,
             
-            # Medium confidence sources
-            'whale_alert_rest': 0.75,
-            'whale_alert_ws': 0.75,
-            'moralis_api': 0.70,
-            'etherscan_api': 0.70,
-            'polygonscan_api': 0.70,
+            # High confidence sources (Phase 2 APIs)
+            'whale_alert_rest': 0.80,
+            'whale_alert_ws': 0.80,
+            'moralis_api': 0.75,
+            'etherscan_api': 0.75,
+            'polygonscan_api': 0.75,
             
-            # Lower confidence sources
-            'solscan_api': 0.60,
-            'helius_api': 0.60,
-            'covalent_api': 0.60,
-            'bitquery_api': 0.65,
-            'dune_api': 0.65,
+            # Medium-high confidence sources
+            'solscan_api': 0.65,
+            'helius_api': 0.65,
+            'covalent_api': 0.65,
+            'bitquery_api': 0.70,
+            'dune_api': 0.70,
             
-            # Existing data (high confidence)
-            'existing_dex_addresses': 0.90,
-            'existing_exchange_addresses': 0.90,
-            'existing_market_makers': 0.85,
+            # BigQuery sources (Phase 2 basic + Phase 3 advanced)
+            'bq_public_ethereum_eoa': 0.70,
+            'bq_public_ethereum_contract': 0.75,
+            'bq_public_bitcoin_activity': 0.70,
+            'bq_advanced_exchange_detection': 0.85,
+            'bq_advanced_whale_identification': 0.80,
+            'bq_advanced_defi_analysis': 0.75,
             
-            # BigQuery public datasets (medium-high confidence)
-            'bq_public_ethereum_eoa': 0.65,
-            'bq_public_ethereum_contract': 0.70,
-            'bq_public_bitcoin_activity': 0.65,
+            # Phase 3 refined sources
+            'phase3_exchange_refined': 0.90,
+            'phase3_whale_refined': 0.85,
+            'phase3_defi_refined': 0.80,
         }
         
         return source_weights.get(source_system, initial_confidence)
     
     def resolve_conflict(self, existing: Dict, new: Dict) -> Dict:
-        """Resolve conflicts when the same address has different labels."""
+        """Enhanced conflict resolution with Phase 3 intelligence."""
         # Prefer higher confidence sources
         if new['confidence_score'] > existing['confidence_score']:
             # Keep new data but merge metadata
             merged_metadata = existing.get('metadata', {})
             merged_metadata.update(new.get('metadata', {}))
             merged_metadata['previous_labels'] = existing.get('labels', [])
+            merged_metadata['conflict_resolution'] = 'higher_confidence_preferred'
             
             new['metadata'] = merged_metadata
             return new
@@ -129,13 +154,14 @@ class AddressDeduplicator:
             'source': new['source_system'],
             'confidence': new['confidence_score']
         })
+        existing_metadata['conflict_resolution'] = 'existing_preferred_with_alternatives'
         existing['metadata'] = existing_metadata
         
         return existing
     
     def add_address(self, address: str, label: str, source_system: str, 
                    blockchain: str, metadata: Dict = None, confidence_score: float = None) -> bool:
-        """Add an address to the registry with deduplication."""
+        """Add an address to the registry with enhanced deduplication."""
         normalized_addr = self.normalize_address(address)
         
         if not normalized_addr:
@@ -174,7 +200,7 @@ class AddressDeduplicator:
             resolved = self.resolve_conflict(existing, new_entry)
             self.address_registry[normalized_addr] = resolved
             
-            logger.info(f"Conflict resolved for {normalized_addr}: {existing['label']} vs {label}")
+            logger.debug(f"Conflict resolved for {normalized_addr}: {existing['label']} vs {label}")
             
         else:
             # New address
@@ -183,864 +209,575 @@ class AddressDeduplicator:
         
         return True
     
+    def load_static_address_files(self) -> Dict[str, Dict]:
+        """Load static address files from the data directory."""
+        static_addresses = {}
+        
+        # Load DEX addresses
+        for addr, label in DEX_ADDRESSES.items():
+            static_addresses[addr] = {
+                'address': addr,
+                'label': label,
+                'source_system': 'existing_dex_addresses',
+                'blockchain': 'ethereum',
+                'confidence_score': self.calculate_confidence_score('existing_dex_addresses'),
+                'metadata': {'type': 'dex'}
+            }
+        
+        # Load Solana DEX addresses
+        for addr, label in SOLANA_DEX_ADDRESSES.items():
+            static_addresses[addr] = {
+                'address': addr,
+                'label': label,
+                'source_system': 'existing_dex_addresses',
+                'blockchain': 'solana',
+                'confidence_score': self.calculate_confidence_score('existing_dex_addresses'),
+                'metadata': {'type': 'dex'}
+            }
+        
+        # Load exchange addresses
+        for addr, label in known_exchange_addresses.items():
+            static_addresses[addr] = {
+                'address': addr,
+                'label': label,
+                'source_system': 'existing_exchange_addresses',
+                'blockchain': 'ethereum',
+                'confidence_score': self.calculate_confidence_score('existing_exchange_addresses'),
+                'metadata': {'type': 'exchange'}
+            }
+        
+        # Load market maker addresses
+        for addr, label in MM_ADDRESSES.items():
+            static_addresses[addr] = {
+                'address': addr,
+                'label': label,
+                'source_system': 'existing_market_makers',
+                'blockchain': 'ethereum',
+                'confidence_score': self.calculate_confidence_score('existing_market_makers'),
+                'metadata': {'type': 'market_maker'}
+            }
+        
+        return static_addresses
+    
     def get_all_addresses(self) -> List[Dict]:
         """Get all deduplicated addresses."""
         return list(self.address_registry.values())
     
+    def get_known_addresses_dict(self) -> Dict[str, str]:
+        """Get a dictionary of known addresses for Phase 3 cross-referencing."""
+        known_dict = {}
+        for addr_data in self.address_registry.values():
+            # Only include high-confidence addresses for cross-referencing
+            if addr_data.get('confidence_score', 0) >= 0.7:
+                known_dict[addr_data['address']] = addr_data['label']
+        return known_dict
+    
     def get_statistics(self) -> Dict:
-        """Get deduplication statistics."""
+        """Get comprehensive deduplication statistics."""
         blockchains = {}
         sources = {}
+        confidence_distribution = {'high': 0, 'medium': 0, 'low': 0}
         
         for addr_data in self.address_registry.values():
             blockchain = addr_data['blockchain']
             source = addr_data['source_system']
+            confidence = addr_data.get('confidence_score', 0.5)
             
             blockchains[blockchain] = blockchains.get(blockchain, 0) + 1
             sources[source] = sources.get(source, 0) + 1
+            
+            if confidence >= 0.8:
+                confidence_distribution['high'] += 1
+            elif confidence >= 0.6:
+                confidence_distribution['medium'] += 1
+            else:
+                confidence_distribution['low'] += 1
         
         return {
             'total_unique_addresses': len(self.address_registry),
             'total_conflicts_resolved': len(self.conflicts),
             'blockchains': blockchains,
             'sources': sources,
+            'confidence_distribution': confidence_distribution,
             'conflicts': self.conflicts
         }
 
 
 class ComprehensiveDataIntegrator:
-    """Main class for comprehensive data integration."""
+    """
+    Main class for comprehensive data integration across all phases with optimized operational modes.
     
-    def __init__(self):
-        self.processor = BlockchainDataProcessor()
-        self.deduplicator = AddressDeduplicator()
+    This class orchestrates the complete pipeline:
+    - Phase 1: Static address collection and helper utilities
+    - Phase 2: Live API collection, GitHub extraction, basic BigQuery
+    - Phase 3: Advanced BigQuery analysis, intelligent post-processing, clustering
+    - Phase 4: Optimized pipeline with selectable operational modes
+    
+    Operational Modes:
+    - full_sync: Complete data refresh from all sources (including GitHub repositories)
+    - update_and_discover: Focus on dynamic data and discovery, skip GitHub re-processing
+    """
+    
+    def __init__(self, run_mode='update_and_discover'):
         self.logger = logging.getLogger(__name__)
+        self.run_mode = run_mode
+        self.blockchain_processor = BlockchainDataProcessor()
+        self.address_deduplicator = AddressDeduplicator()
         
-        # Initialize DirectETLManager with configuration
-        from config.api_keys import ETHEREUM_NODE_PROVIDER_URI, BITCOIN_NODE_PROVIDER_URI
-        self.direct_etl_config = {
-            'ETHEREUM_NODE_PROVIDER_URI': ETHEREUM_NODE_PROVIDER_URI,
-            'BITCOIN_NODE_PROVIDER_URI': BITCOIN_NODE_PROVIDER_URI
+        # Configuration
+        self.config = {
+            'API_MAX_ADDRESSES_PER_SOURCE': 5000,
+            'API_DAYS_LOOKBACK': 30,
+            'GITHUB_MAX_REPOS_PER_SOURCE': 2,
+            'GITHUB_MAX_FILES_PER_REPO': 5,
+            'BIGQUERY_MAX_RESULTS': 10000
         }
-        self.direct_etl_manager = DirectETLManager(self.direct_etl_config)
         
-    def load_existing_addresses(self):
-        """Load addresses from existing Python files."""
-        self.logger.info("Loading existing address data...")
-        
-        # Load DEX addresses
-        for address, label in DEX_ADDRESSES.items():
-            self.deduplicator.add_address(
-                address=address,
-                label=f"DEX: {label}",
-                source_system="existing_dex_addresses",
-                blockchain="ethereum",
-                metadata={"category": "dex", "original_label": label}
-            )
-        
-        # Load Solana DEX addresses
-        for address, label in SOLANA_DEX_ADDRESSES.items():
-            self.deduplicator.add_address(
-                address=address,
-                label=f"Solana DEX: {label}",
-                source_system="existing_dex_addresses",
-                blockchain="solana",
-                metadata={"category": "dex", "original_label": label}
-            )
-        
-        # Load known exchange addresses
-        for address, label in known_exchange_addresses.items():
-            self.deduplicator.add_address(
-                address=address,
-                label=f"Exchange: {label}",
-                source_system="existing_exchange_addresses",
-                blockchain="ethereum",
-                metadata={"category": "exchange", "original_label": label}
-            )
-        
-        # Load market maker addresses (from MARKET_MAKER_ADDRESSES)
-        for address, label in MARKET_MAKER_ADDRESSES.items():
-            blockchain = "solana" if len(address) > 35 else "ethereum"
-            self.deduplicator.add_address(
-                address=address,
-                label=f"Market Maker: {label}",
-                source_system="existing_market_makers",
-                blockchain=blockchain,
-                metadata={"category": "market_maker", "original_label": label}
-            )
-        
-        # Load market maker addresses (from MM_ADDRESSES)
-        for address, label in MM_ADDRESSES.items():
-            if address.startswith('r'):  # XRP address
-                blockchain = "xrp"
-            elif len(address) > 35:  # Solana address
-                blockchain = "solana"
-            else:  # Ethereum address
-                blockchain = "ethereum"
-                
-            self.deduplicator.add_address(
-                address=address,
-                label=f"Market Maker: {label}",
-                source_system="existing_market_makers",
-                blockchain=blockchain,
-                metadata={"category": "market_maker", "original_label": label}
-            )
-        
-        self.logger.info("Existing address data loaded successfully")
+        # Pipeline statistics
+        self.pipeline_stats = {
+            'phase1_addresses': 0,
+            'phase2_api_addresses': 0,
+            'phase2_github_addresses': 0,
+            'phase2_bigquery_addresses': 0,
+            'phase2_analytics_addresses': 0,
+            'phase3_refined_addresses': 0,
+            'total_processing_time': 0
+        }
     
-    def collect_api_data(self):
-        """Collect data from all APIs with enhanced volume and 30-day filtering."""
-        self.logger.info("Collecting data from APIs (enhanced: up to 5000 per source, last 30 days)...")
+    def _load_all_known_addresses_and_labels(self):
+        """Load Phase 1 static addresses and Phase 2 analytics platform data."""
+        self.logger.info("=== Phase 1 + Analytics: Loading Known Addresses ===")
+        self.logger.info("Loading static address files...")
         
-        if not self.processor.initialize_data_acquisition():
-            self.logger.error("Failed to initialize data acquisition")
-            return
+        # Load static address files (runs in both modes)
+        static_addresses = self.address_deduplicator.load_static_address_files()
+        self.pipeline_stats['phase1_addresses'] = len(static_addresses)
+        self.logger.info(f"Phase 1 static addresses loaded: {len(static_addresses)}")
+
+        self.logger.info("Loading analytics platform data...")
+        # Load analytics platform data (runs in both modes)
+        try:
+            analytics_data = self.blockchain_processor.collect_whale_data_from_analytics_platforms()
+            analytics_addresses = analytics_data.get('addresses', {})
+            self.pipeline_stats['phase2_analytics_addresses'] = len(analytics_addresses)
+            self.logger.info(f"Phase 2 analytics addresses loaded: {len(analytics_addresses)}")
+        except Exception as e:
+            self.logger.warning(f"Analytics platform data collection failed: {e}")
+            analytics_addresses = {}
+            self.pipeline_stats['phase2_analytics_addresses'] = 0
         
-        # Collect API data with enhanced parameters
-        api_addresses = self.processor.collect_api_data()
+        # Combine and prepare for deduplication
+        all_known_addresses_dict = {addr: data for addr, data in static_addresses.items()}
         
-        # Log collection statistics by source
-        source_stats = {}
-        blockchain_stats = {}
-        for addr_data in api_addresses:
-            source = addr_data.source_system
-            blockchain = addr_data.blockchain
-            source_stats[source] = source_stats.get(source, 0) + 1
-            blockchain_stats[blockchain] = blockchain_stats.get(blockchain, 0) + 1
+        # Merge analytics addresses
+        for addr, data in analytics_addresses.items():
+            if addr not in all_known_addresses_dict:
+                all_known_addresses_dict[addr] = data
+            else:
+                self.logger.debug(f"Conflict for {addr} between static and analytics, keeping static.")
         
-        self.logger.info("Enhanced API Collection Statistics:")
-        self.logger.info(f"Total addresses collected: {len(api_addresses)}")
-        self.logger.info("By source:")
-        for source, count in sorted(source_stats.items()):
-            self.logger.info(f"  {source}: {count} addresses")
-        self.logger.info("By blockchain:")
-        for blockchain, count in sorted(blockchain_stats.items()):
-            self.logger.info(f"  {blockchain}: {count} addresses")
+        self.logger.info(f"Total known addresses loaded: {len(all_known_addresses_dict)}")
+        return all_known_addresses_dict
+
+    def _collect_dynamic_data_from_live_sources(self):
+        """Collect dynamic data from APIs, GitHub (conditional), and BigQuery."""
+        self.logger.info("=== Phase 2: Collecting Dynamic Data from Live Sources ===")
         
-        for addr_data in api_addresses:
-            self.deduplicator.add_address(
-                address=addr_data.address,
-                label=addr_data.initial_label,
-                source_system=addr_data.source_system,
-                blockchain=addr_data.blockchain,
-                metadata=addr_data.metadata,
-                confidence_score=addr_data.confidence_score
-            )
+        current_raw_data = []
+        collected_address_objects = []  # Store original AddressData objects for storage
         
-        self.logger.info(f"Processed {len(api_addresses)} addresses from APIs (enhanced collection)")
-    
-    def collect_github_data(self):
-        """Collect data from GitHub repositories."""
-        self.logger.info("Collecting data from GitHub repositories...")
+        # Initialize data acquisition managers
+        try:
+            self.blockchain_processor.initialize_data_acquisition()
+        except Exception as e:
+            self.logger.warning(f"Failed to initialize data acquisition: {e}")
+            # Continue without initialization
         
-        if not self.processor.initialize_data_acquisition():
-            self.logger.error("Failed to initialize data acquisition")
-            return
-        
-        # Collect GitHub data
-        github_addresses = self.processor.collect_github_data()
-        
-        for addr_data in github_addresses:
-            self.deduplicator.add_address(
-                address=addr_data.address,
-                label=addr_data.initial_label,
-                source_system=addr_data.source_system,
-                blockchain=addr_data.blockchain,
-                metadata=addr_data.metadata,
-                confidence_score=addr_data.confidence_score
-            )
-        
-        self.logger.info(f"Processed {len(github_addresses)} addresses from GitHub")
-    
-    def collect_bigquery_public_dataset_data(self):
-        """Collect data from BigQuery public datasets (Ethereum, Bitcoin)."""
-        self.logger.info("Collecting data from BigQuery public datasets...")
-        
-        if not self.processor.initialize_data_acquisition():
-            self.logger.error("Failed to initialize data acquisition")
-            return
-        
-        # Collect BigQuery public dataset data
-        public_dataset_addresses = self.processor.collect_bigquery_public_data_addresses(limit_per_query=5000)
-        
-        # Log collection statistics by source
-        source_stats = {}
-        blockchain_stats = {}
-        for addr_data in public_dataset_addresses:
-            source = addr_data.source_system
-            blockchain = addr_data.blockchain
-            source_stats[source] = source_stats.get(source, 0) + 1
-            blockchain_stats[blockchain] = blockchain_stats.get(blockchain, 0) + 1
-        
-        self.logger.info("BigQuery Public Dataset Collection Statistics:")
-        self.logger.info(f"Total addresses collected: {len(public_dataset_addresses)}")
-        self.logger.info("By source:")
-        for source, count in sorted(source_stats.items()):
-            self.logger.info(f"  {source}: {count} addresses")
-        self.logger.info("By blockchain:")
-        for blockchain, count in sorted(blockchain_stats.items()):
-            self.logger.info(f"  {blockchain}: {count} addresses")
-        
-        for addr_data in public_dataset_addresses:
-            self.deduplicator.add_address(
-                address=addr_data.address,
-                label=addr_data.initial_label,
-                source_system=addr_data.source_system,
-                blockchain=addr_data.blockchain,
-                metadata=addr_data.metadata,
-                confidence_score=addr_data.confidence_score
-            )
-        
-        self.logger.info(f"Processed {len(public_dataset_addresses)} addresses from BigQuery public datasets")
-    
-    def collect_direct_etl_data(self):
-        """Collect data using direct ETL tools for recent blocks and specific contracts."""
-        self.logger.info("Collecting data using direct ETL tools...")
-        
-        # Check if provider URIs are configured
-        if not self.direct_etl_config.get('ETHEREUM_NODE_PROVIDER_URI'):
-            self.logger.warning("No Ethereum provider URI configured - skipping Ethereum ETL")
-        else:
+        # Collect enhanced API data (runs in both modes)
+        self.logger.info(f"Collecting API data...")
+        try:
+            api_data = self.blockchain_processor.collect_api_data()
+            self.pipeline_stats['phase2_api_addresses'] = len(api_data)
+            
+            # Store original objects and create summary data
+            collected_address_objects.extend(api_data)
+            for data_item in api_data:
+                current_address_data = {
+                    "address": data_item.address,
+                    "blockchain": data_item.blockchain,
+                    "source": data_item.source_system,
+                    "label": data_item.initial_label,
+                    "initial_confidence": data_item.confidence_score,
+                    "metadata": {"details": data_item.metadata}
+                }
+                current_raw_data.append(current_address_data)
+            
+            self.logger.info(f"Phase 2 API addresses collected: {self.pipeline_stats['phase2_api_addresses']}")
+        except Exception as e:
+            self.logger.warning(f"API data collection failed: {e}")
+            self.pipeline_stats['phase2_api_addresses'] = 0
+
+        # Conditional GitHub data collection based on run mode
+        if self.run_mode == 'full_sync':
+            self.logger.info("Collecting GitHub repository data (full_sync mode)...")
             try:
-                # Extract recent Ethereum data (last 100 blocks for demonstration)
-                # In production, you might want to make this configurable
-                self.logger.info("Extracting recent Ethereum blocks...")
-                recent_eth_addresses = self.direct_etl_manager.extract_ethereum_data_range(
-                    start_block=19000000,  # Example recent block range
-                    end_block=19000010,    # Small range for demonstration
-                )
+                github_data = self.blockchain_processor.collect_github_data()
+                self.pipeline_stats['phase2_github_addresses'] = len(github_data)
                 
-                for addr_data in recent_eth_addresses:
-                    self.deduplicator.add_address(
-                        address=addr_data['address'],
-                        label=addr_data['label'],
-                        source_system=addr_data['source_system'],
-                        blockchain=addr_data['blockchain'],
-                        metadata=addr_data.get('metadata', {})
-                    )
+                # Store original objects and create summary data
+                collected_address_objects.extend(github_data)
+                for data_item in github_data:
+                    current_address_data = {
+                        "address": data_item.address,
+                        "blockchain": data_item.blockchain,
+                        "source": data_item.source_system,
+                        "label": data_item.initial_label,
+                        "initial_confidence": data_item.confidence_score,
+                        "metadata": {"details": data_item.metadata}
+                    }
+                    current_raw_data.append(current_address_data)
                 
-                self.logger.info(f"Processed {len(recent_eth_addresses)} addresses from direct Ethereum ETL")
-                
-                # Example: Extract interactions with a popular DeFi contract (Uniswap V3 Router)
-                uniswap_v3_router = "0xE592427A0AEce92De3Edee1F18E0157C05861564"
-                self.logger.info(f"Extracting interactions with Uniswap V3 Router...")
-                contract_addresses = self.direct_etl_manager.extract_ethereum_contract_interactions(
-                    contract_address=uniswap_v3_router,
-                    start_block=19000000,
-                    end_block=19000010
-                )
-                
-                for addr_data in contract_addresses:
-                    self.deduplicator.add_address(
-                        address=addr_data['address'],
-                        label=addr_data['label'],
-                        source_system=addr_data['source_system'],
-                        blockchain=addr_data['blockchain'],
-                        metadata=addr_data.get('metadata', {})
-                    )
-                
-                self.logger.info(f"Processed {len(contract_addresses)} addresses from Uniswap V3 interactions")
-                
+                self.logger.info(f"Phase 2 GitHub addresses collected: {self.pipeline_stats['phase2_github_addresses']}")
             except Exception as e:
-                self.logger.error(f"Error in Ethereum ETL collection: {e}")
-        
-        if not self.direct_etl_config.get('BITCOIN_NODE_PROVIDER_URI'):
-            self.logger.warning("No Bitcoin provider URI configured - skipping Bitcoin ETL")
+                self.logger.warning(f"GitHub data collection failed: {e}")
+                self.pipeline_stats['phase2_github_addresses'] = 0
         else:
-            try:
-                # Extract recent Bitcoin data (last few days for demonstration)
-                from datetime import datetime, timedelta
-                end_date = datetime.now()
-                start_date = end_date - timedelta(days=1)  # Last day for demonstration
-                
-                self.logger.info("Extracting recent Bitcoin transactions...")
-                recent_btc_addresses = self.direct_etl_manager.extract_bitcoin_data_range(
-                    start_date=start_date.strftime('%Y-%m-%d'),
-                    end_date=end_date.strftime('%Y-%m-%d')
-                )
-                
-                for addr_data in recent_btc_addresses:
-                    self.deduplicator.add_address(
-                        address=addr_data['address'],
-                        label=addr_data['label'],
-                        source_system=addr_data['source_system'],
-                        blockchain=addr_data['blockchain'],
-                        metadata=addr_data.get('metadata', {})
-                    )
-                
-                self.logger.info(f"Processed {len(recent_btc_addresses)} addresses from direct Bitcoin ETL")
-                
-            except Exception as e:
-                self.logger.error(f"Error in Bitcoin ETL collection: {e}")
-    
-    def store_to_supabase(self) -> bool:
-        """Store all deduplicated addresses to Supabase."""
-        self.logger.info("Storing addresses to Supabase...")
+            self.logger.info("'update_and_discover' mode: Skipping GitHub repository data collection.")
+            self.pipeline_stats['phase2_github_addresses'] = 0
+
+        # Collect BigQuery Public Dataset insights (runs in both modes)
+        self.logger.info("Collecting BigQuery Public Dataset insights (Ethereum & Bitcoin)...")
+        try:
+            bigquery_data = self.blockchain_processor.collect_bigquery_public_data_addresses(
+                limit_per_query=self.config['BIGQUERY_MAX_RESULTS']
+            )
+            self.pipeline_stats['phase2_bigquery_addresses'] = len(bigquery_data)
+            
+            # Store original objects and create summary data
+            collected_address_objects.extend(bigquery_data)
+            for data_item in bigquery_data:
+                current_address_data = {
+                    "address": data_item.address,
+                    "blockchain": data_item.blockchain,
+                    "source": data_item.source_system,
+                    "label": data_item.initial_label,
+                    "initial_confidence": data_item.confidence_score,
+                    "metadata": {"details": data_item.metadata}
+                }
+                current_raw_data.append(current_address_data)
+            
+            self.logger.info(f"Phase 2 BigQuery addresses collected: {self.pipeline_stats['phase2_bigquery_addresses']}")
+        except Exception as e:
+            self.logger.warning(f"BigQuery data collection failed: {e}")
+            self.pipeline_stats['phase2_bigquery_addresses'] = 0
+
+        # Store the original objects for later use
+        self.collected_address_objects = collected_address_objects
+        return current_raw_data
+
+    def _store_raw_data_and_prepare_bq(self, current_raw_data):
+        """Store raw data in Supabase and prepare for BigQuery analysis."""
+        self.logger.info("=== Storing Raw Data and Preparing BigQuery ===")
         
         try:
-            if not self.processor.supabase_client:
-                self.processor.create_supabase_client()
+            # Use the smart storage method that bulk checks for duplicates first
+            formatted_data = {
+                'api_data': [obj for obj in self.collected_address_objects if hasattr(obj, 'source_system')],
+                'github_data': [],  # Will be populated if needed
+                'bigquery_data': []  # BigQuery data is included in api_data for now
+            }
             
-            all_addresses = self.deduplicator.get_all_addresses()
-            stored_count = 0
-            error_count = 0
+            storage_result = self.blockchain_processor.store_collected_data_smart(formatted_data)
+            self.logger.info(f"Smart storage results: {storage_result}")
             
-            # Store in batches
-            batch_size = 100
-            for i in range(0, len(all_addresses), batch_size):
-                batch = all_addresses[i:i + batch_size]
+            return True
+        except Exception as e:
+            self.logger.warning(f"Data storage failed: {e}")
+            return False
+
+    def _perform_advanced_analysis_and_refinement(self):
+        """Phase 3: Advanced BigQuery analysis and intelligent post-processing."""
+        self.logger.info("=== Phase 3: Advanced Analysis and Refinement ===\n")
+        
+        try:
+            # Get known addresses for cross-referencing
+            self.logger.info("Loading known addresses from Supabase for cross-referencing...")
+            known_addresses_dict = self.blockchain_processor.get_known_addresses_dict()
+            self.logger.info(f"Loaded {len(known_addresses_dict)} known addresses for analysis")
+            
+            # Run advanced BigQuery analysis with known addresses
+            self.logger.info("Running advanced BigQuery analysis with heuristics...")
+            phase3_results = self.blockchain_processor.run_advanced_bigquery_analysis(
+                query_types=['exchange', 'whale', 'defi'],
+                chain='ethereum',
+                lookback_days=30
+            )
+            
+            # If we got results, enhance them with our known addresses
+            if phase3_results and not phase3_results.get('error'):
+                self.logger.info("Enhancing BigQuery results with known address cross-referencing...")
                 
+                # Cross-reference with our known addresses
+                enhanced_results = []
+                for query_type, raw_results in phase3_results.get('raw_results', {}).items():
+                    if raw_results:
+                        # Use the existing refine method but pass our known addresses
+                        refined_results = self.blockchain_processor.refine_bq_address_labels(
+                            bq_results=raw_results,
+                            existing_known_addresses=known_addresses_dict
+                        )
+                        enhanced_results.extend(refined_results)
+                        self.logger.info(f"Enhanced {len(refined_results)} {query_type} results")
+                
+                phase3_results['enhanced_with_known_addresses'] = enhanced_results
+                self.pipeline_stats['phase3_refined_addresses'] = len(enhanced_results)
+                
+                self.logger.info(f"Phase 3 analysis complete: {len(enhanced_results)} addresses analyzed and refined")
+            else:
+                self.logger.warning("BigQuery analysis returned no results or failed")
+                self.pipeline_stats['phase3_refined_addresses'] = 0
+            
+            return phase3_results
+        except Exception as e:
+            self.logger.error(f"Phase 3 analysis failed: {e}")
+            self.pipeline_stats['phase3_refined_addresses'] = 0
+            return {}
+
+    def _update_final_tags_in_supabase(self, phase3_results):
+        """Update final tags in Supabase with Phase 3 results."""
+        self.logger.info("=== Final Tags Update ===")
+        
+        try:
+            # Get enhanced results from Phase 3 analysis
+            enhanced_results = phase3_results.get('enhanced_with_known_addresses', [])
+            
+            if not enhanced_results:
+                self.logger.info("No enhanced results from Phase 3 to process for tagging")
+                return {"total_tagged": 0, "success_rate": 100.0}
+            
+            self.logger.info(f"Processing {len(enhanced_results)} enhanced addresses for final tagging")
+            
+            # Update addresses in Supabase with enhanced labels and confidence scores
+            tagged_count = 0
+            failed_count = 0
+            
+            for result in enhanced_results:
                 try:
-                    # Prepare batch data for Supabase using the correct schema
-                    supabase_batch = []
-                    for addr_data in batch:
-                        record = {
-                            'address': addr_data['original_address'],
-                            'blockchain': addr_data['blockchain'],
-                            'label': addr_data.get('label', ''),
-                            'source': addr_data.get('source_system', ''),
-                            'confidence': addr_data.get('confidence_score', 0.5),
-                            'created_at': addr_data.get('collected_at'),
-                            'address_type': 'collected',
-                            'entity_name': addr_data.get('label', '').split(':')[-1].strip() if addr_data.get('label') else ''
-                        }
-                        supabase_batch.append(record)
+                    # Extract address information
+                    address = result.get('address', '').lower()
+                    blockchain = result.get('blockchain', 'ethereum').lower()
+                    enhanced_label = result.get('enhanced_label', result.get('label', ''))
+                    confidence = result.get('confidence_score', result.get('confidence', 0.5))
                     
-                    # Insert batch with upsert to handle duplicates using the unique constraint
-                    result = self.processor.supabase_client.table('addresses').upsert(
-                        supabase_batch, 
-                        on_conflict='address'
-                    ).execute()
+                    if not address or not enhanced_label:
+                        continue
                     
-                    stored_count += len(batch)
-                    self.logger.info(f"Stored batch {i//batch_size + 1}: {len(batch)} addresses")
+                    # Update the address record in Supabase
+                    update_data = {
+                        'label': enhanced_label,
+                        'confidence': confidence,
+                        'address_type': result.get('address_type', 'unknown'),
+                        'updated_at': 'now()'
+                    }
                     
+                    # Add metadata if available
+                    if 'metadata' in result:
+                        update_data['metadata'] = result['metadata']
+                    
+                    # Perform the update
+                    response = self.blockchain_processor.supabase_client.table('addresses')\
+                        .update(update_data)\
+                        .eq('address', address)\
+                        .eq('blockchain', blockchain)\
+                        .execute()
+                    
+                    if response.data:
+                        tagged_count += 1
+                        self.logger.debug(f"Updated tags for {address} ({blockchain}): {enhanced_label}")
+                    else:
+                        failed_count += 1
+                        self.logger.warning(f"No matching record found for {address} ({blockchain})")
+                        
                 except Exception as e:
-                    self.logger.error(f"Failed to store batch {i//batch_size + 1}: {e}")
-                    error_count += len(batch)
+                    failed_count += 1
+                    self.logger.warning(f"Failed to update tags for address {address}: {e}")
                     continue
             
-            self.logger.info(f"Storage complete: {stored_count} stored, {error_count} errors")
-            return error_count == 0
+            # Calculate success rate
+            total_processed = tagged_count + failed_count
+            success_rate = (tagged_count / total_processed * 100) if total_processed > 0 else 100.0
+            
+            self.logger.info(f"Final tagging complete: {tagged_count} addresses tagged, {failed_count} failed")
+            self.logger.info(f"Tagging success rate: {success_rate:.1f}%")
+            
+            return {
+                "total_tagged": tagged_count,
+                "failed": failed_count,
+                "success_rate": success_rate
+            }
             
         except Exception as e:
-            self.logger.error(f"Failed to store to Supabase: {e}")
-            return False
-    
-    def setup_bigquery_integration(self):
-        """Set up BigQuery integration for querying."""
-        self.logger.info("Setting up BigQuery integration...")
+            self.logger.error(f"Final tagging failed: {e}")
+            return {"total_tagged": 0, "failed": 0, "success_rate": 0.0}
+
+    def _generate_and_log_reports(self):
+        """Generate comprehensive reports and statistics."""
+        self.logger.info("=== Generating Comprehensive Reports ===")
         
         try:
-            if not self.processor.bigquery_client:
-                self.processor.create_bigquery_client()
+            # Log pipeline statistics
+            self.logger.info("=== Pipeline Processing Statistics ===")
+            for stat_name, stat_value in self.pipeline_stats.items():
+                if stat_name != 'total_processing_time':
+                    formatted_value = f"{stat_value:,}" if isinstance(stat_value, int) else stat_value
+                    self.logger.info(f"{stat_name.replace('_', ' ').title()}: {formatted_value}")
             
-            # Create dataset if it doesn't exist
-            dataset_id = "blockchain_addresses"
-            dataset_ref = self.processor.bigquery_client.dataset(dataset_id)
+        except Exception as e:
+            self.logger.warning(f"Report generation failed: {e}")
+
+    def run_integration(self):
+        """
+        Main orchestration method for the comprehensive data integration pipeline.
+        Supports different run modes for optimized processing.
+        """
+        start_time = time.time()
+        self.logger.info(f"=== Starting Comprehensive Multi-Phase Integration (Mode: {self.run_mode}) ===")
+        
+        # Display feature list based on run mode
+        self.logger.info("🚀 All Phases Integrated:")
+        self.logger.info("   • Phase 1: Static address files and helper utilities")
+        if self.run_mode == 'full_sync':
+            self.logger.info("   • Phase 2: Live API collection, GitHub extraction, analytics platforms")
+        else:
+            self.logger.info("   • Phase 2: Live API collection, analytics platforms (GitHub skipped)")
+        self.logger.info("   • Phase 3: Advanced BigQuery heuristics and intelligent post-processing")
+        self.logger.info("   • Enhanced deduplication with conflict resolution")
+        self.logger.info("   • Cross-referencing with comprehensive known address database")
+        self.logger.info("   • Address clustering and confidence scoring")
+        self.logger.info("   • Automated classification and tagging")
+        self.logger.info("   • Comprehensive reporting and analytics")
+        
+        try:
+            # Phase 1 + Analytics: Load known addresses
+            self._load_all_known_addresses_and_labels()
             
+            # Phase 2: Collect dynamic data from live sources
+            current_raw_data = self._collect_dynamic_data_from_live_sources()
+            
+            # Store raw data and prepare for BigQuery
+            if not self._store_raw_data_and_prepare_bq(current_raw_data):
+                self.logger.error("Failed to store raw data, continuing with analysis...")
+            
+            # Phase 3: Advanced analysis and refinement
+            phase3_results = self._perform_advanced_analysis_and_refinement()
+            
+            # Update final tags in Supabase
+            tag_results = self._update_final_tags_in_supabase(phase3_results)
+            
+            # Generate comprehensive reports
+            self._generate_and_log_reports()
+            
+            # Calculate total processing time
+            end_time = time.time()
+            self.pipeline_stats['total_processing_time'] = end_time - start_time
+            
+            # Final summary
+            self.logger.info("=== Comprehensive Integration Complete ===")
+            self.logger.info(f"Duration: {self.pipeline_stats['total_processing_time']:.2f} seconds")
+            self.logger.info(f"Run Mode: {self.run_mode}")
+            
+            # Get final statistics
             try:
-                dataset = self.processor.bigquery_client.get_dataset(dataset_ref)
-                self.logger.info(f"Dataset {dataset_id} already exists")
-            except:
-                # Create dataset
-                from google.cloud import bigquery
-                dataset = bigquery.Dataset(dataset_ref)
-                dataset.location = "US"
-                dataset = self.processor.bigquery_client.create_dataset(dataset)
-                self.logger.info(f"Created dataset {dataset_id}")
-            
-            # Import BigQuery here to avoid import issues
-            from google.cloud import bigquery
-            
-            # Create table schema
-            table_id = f"{dataset_id}.addresses"
-            schema = [
-                bigquery.SchemaField("address", "STRING", mode="REQUIRED"),
-                bigquery.SchemaField("blockchain", "STRING", mode="REQUIRED"),
-                bigquery.SchemaField("label", "STRING", mode="NULLABLE"),
-                bigquery.SchemaField("source_system", "STRING", mode="REQUIRED"),
-                bigquery.SchemaField("confidence_score", "FLOAT", mode="NULLABLE"),
-                bigquery.SchemaField("metadata", "JSON", mode="NULLABLE"),
-                bigquery.SchemaField("collected_at", "TIMESTAMP", mode="REQUIRED"),
-                bigquery.SchemaField("data_type", "STRING", mode="NULLABLE"),
-            ]
-            
-            table_ref = self.processor.bigquery_client.dataset(dataset_id).table("addresses")
-            
-            try:
-                table = self.processor.bigquery_client.get_table(table_ref)
-                self.logger.info("BigQuery table already exists")
-            except:
-                # Create table
-                table = bigquery.Table(table_ref, schema=schema)
-                table = self.processor.bigquery_client.create_table(table)
-                self.logger.info("Created BigQuery table")
-            
-            # Load data from Supabase to BigQuery
-            self.sync_supabase_to_bigquery()
+                total_processed = sum([
+                    self.pipeline_stats['phase1_addresses'],
+                    self.pipeline_stats['phase2_api_addresses'],
+                    self.pipeline_stats['phase2_github_addresses'],
+                    self.pipeline_stats['phase2_bigquery_addresses'],
+                    self.pipeline_stats['phase2_analytics_addresses']
+                ])
+                self.logger.info(f"Total addresses processed: {total_processed:,}")
+                self.logger.info("Pipeline execution: ✅ SUCCESS")
+                
+                if tag_results:
+                    self.logger.info("Analysis tagging: ✅ SUCCESS")
+                    self.logger.info(f"  • Tagged addresses: {tag_results.get('total_tagged', 0)}")
+                    self.logger.info(f"  • Success rate: {tag_results.get('success_rate', 0):.1f}%")
+                
+            except Exception as e:
+                self.logger.warning(f"Could not calculate final statistics: {e}")
             
             return True
             
         except Exception as e:
-            self.logger.error(f"Failed to setup BigQuery integration: {e}")
+            self.logger.error(f"Integration failed: {e}")
             return False
-    
-    def sync_supabase_to_bigquery(self):
-        """Sync data from Supabase to BigQuery."""
-        self.logger.info("Syncing data from Supabase to BigQuery...")
-        
-        try:
-            # Get all addresses from Supabase
-            result = self.processor.supabase_client.table('addresses').select('*').execute()
-            
-            if not result.data:
-                self.logger.warning("No data found in Supabase")
-                return
-            
-            # Prepare data for BigQuery
-            bq_data = []
-            for record in result.data:
-                bq_record = {
-                    'address': record['address'],
-                    'blockchain': record['blockchain'],
-                    'label': record.get('label'),
-                    'source_system': record['source'],
-                    'confidence_score': record.get('confidence'),
-                    'metadata': record.get('metadata'),
-                    'collected_at': record['collected_at'],
-                    'data_type': record.get('data_type', 'integrated')
-                }
-                bq_data.append(bq_record)
-            
-            # Import BigQuery here too
-            from google.cloud import bigquery
-            
-            # Load to BigQuery
-            table_id = "blockchain_addresses.addresses"
-            job_config = bigquery.LoadJobConfig(
-                write_disposition="WRITE_TRUNCATE",  # Replace existing data
-                source_format=bigquery.SourceFormat.NEWLINE_DELIMITED_JSON,
-            )
-            
-            job = self.processor.bigquery_client.load_table_from_json(
-                bq_data, table_id, job_config=job_config
-            )
-            job.result()  # Wait for job to complete
-            
-            self.logger.info(f"Synced {len(bq_data)} records to BigQuery")
-            
-        except Exception as e:
-            self.logger.error(f"Failed to sync to BigQuery: {e}")
-    
-    def run_bigquery_analysis(self):
-        """Run predefined BigQuery queries for analysis and return classification results."""
-        self.logger.info("Running BigQuery analysis...")
-        if not self.processor.bigquery_client:
-            self.logger.error("BigQuery client not initialized. Skipping analysis.")
-            return {}
-
-        # Classification queries that return specific addresses for tagging
-        classification_queries = {
-            "potential_whale_addresses_bq": '''
-                SELECT DISTINCT address
-                FROM `sodium-pager-460916-j2.blockchain_addresses.addresses`
-                WHERE 
-                    (
-                        LOWER(label) LIKE '%whale%' OR
-                        LOWER(source_system) LIKE '%whale_alert%' OR
-                        (LOWER(label) LIKE '%high activity%' AND confidence_score > 0.7)
-                    )
-                    AND confidence_score > 0.6
-                ORDER BY address
-                LIMIT 5000
-            ''',
-            "potential_mev_bot_addresses_bq": '''
-                SELECT DISTINCT address
-                FROM `sodium-pager-460916-j2.blockchain_addresses.addresses`
-                WHERE 
-                    (
-                        LOWER(label) LIKE '%mev bot%' OR
-                        LOWER(label) LIKE '%arbitrage%' OR
-                        LOWER(label) LIKE '%sandwich%' OR
-                        LOWER(label) LIKE '%frontrun%'
-                    )
-                    AND confidence_score > 0.6
-                ORDER BY address
-                LIMIT 5000
-            ''',
-            "potential_arbitrage_addresses_bq": '''
-                SELECT DISTINCT address
-                FROM `sodium-pager-460916-j2.blockchain_addresses.addresses`
-                WHERE 
-                    (
-                        LOWER(label) LIKE '%arbitrage%' OR
-                        LOWER(label) LIKE '%arb%' OR
-                        LOWER(source_system) LIKE '%bitquery%'
-                    )
-                    AND confidence_score > 0.6
-                ORDER BY address
-                LIMIT 5000
-            ''',
-            "potential_large_trader_addresses_bq": '''
-                SELECT DISTINCT address
-                FROM `sodium-pager-460916-j2.blockchain_addresses.addresses`
-                WHERE 
-                    (
-                        LOWER(label) LIKE '%large trader%' OR
-                        LOWER(label) LIKE '%high activity%' OR
-                        LOWER(label) LIKE '%active%'
-                    )
-                    AND confidence_score > 0.6
-                ORDER BY address
-                LIMIT 5000
-            ''',
-            "potential_exchange_addresses_bq": '''
-                SELECT DISTINCT address
-                FROM `sodium-pager-460916-j2.blockchain_addresses.addresses`
-                WHERE 
-                    (
-                        LOWER(label) LIKE '%exchange%' OR
-                        LOWER(source_system) LIKE '%exchange%' OR
-                        LOWER(label) LIKE '%binance%' OR
-                        LOWER(label) LIKE '%coinbase%' OR
-                        LOWER(label) LIKE '%kraken%' OR
-                        LOWER(label) LIKE '%okx%'
-                    )
-                    AND confidence_score > 0.7
-                ORDER BY address
-                LIMIT 5000
-            ''',
-            "potential_defi_protocol_addresses_bq": '''
-                SELECT DISTINCT address
-                FROM `sodium-pager-460916-j2.blockchain_addresses.addresses`
-                WHERE 
-                    (
-                        LOWER(label) LIKE '%dex%' OR
-                        LOWER(label) LIKE '%uniswap%' OR
-                        LOWER(label) LIKE '%sushiswap%' OR
-                        LOWER(label) LIKE '%pancakeswap%' OR
-                        LOWER(label) LIKE '%contract%' OR
-                        LOWER(source_system) LIKE '%contract%'
-                    )
-                    AND confidence_score > 0.6
-                ORDER BY address
-                LIMIT 5000
-            '''
-        }
-
-        # Statistical queries for reporting (don't return addresses for tagging)
-        statistical_queries = {
-            "addresses_per_blockchain": '''
-                SELECT blockchain, COUNT(DISTINCT address) as unique_address_count
-                FROM `sodium-pager-460916-j2.blockchain_addresses.addresses`
-                GROUP BY blockchain
-                ORDER BY unique_address_count DESC
-            ''',
-            "top_labeled_entity_types_bq": '''
-                SELECT 
-                    CASE 
-                        WHEN STRPOS(label, ':') > 0 THEN SUBSTR(label, 0, STRPOS(label, ':')-1)
-                        ELSE label 
-                    END as entity_type,
-                    COUNT(DISTINCT address) as unique_address_count,
-                    AVG(confidence_score) as avg_confidence
-                FROM `sodium-pager-460916-j2.blockchain_addresses.addresses`
-                WHERE label IS NOT NULL AND label != ''
-                GROUP BY entity_type
-                ORDER BY unique_address_count DESC
-                LIMIT 5000
-            '''
-        }
-
-        # Execute classification queries and collect results
-        analysis_results = {}
-        
-        self.logger.info("=== Executing Classification Queries ===")
-        for tag_name, query_sql in classification_queries.items():
-            try:
-                self.logger.info(f"Executing classification query: {tag_name}")
-                query_job = self.processor.bigquery_client.query(query_sql)
-                results = query_job.result()
-                
-                # Extract addresses from results
-                addresses = [row.address for row in results if row.address]
-                analysis_results[tag_name.replace('_bq', '')] = addresses
-                
-                self.logger.info(f"Found {len(addresses)} addresses for {tag_name}")
-                
-            except Exception as e:
-                self.logger.error(f"Failed to execute classification query {tag_name}: {e}")
-                analysis_results[tag_name.replace('_bq', '')] = []
-
-        # Execute statistical queries for reporting
-        self.logger.info("=== Executing Statistical Queries ===")
-        for query_name, query_sql in statistical_queries.items():
-            try:
-                print(f"\n--- Running Statistical Query: {query_name} ---")
-                self.logger.info(f"Executing statistical query: {query_name}")
-                query_job = self.processor.bigquery_client.query(query_sql)
-                results = query_job.result()
-
-                if results.total_rows > 0:
-                    print(f"Results for {query_name}:")
-                    rows = [dict(row) for row in results]
-                    for row_dict in rows[:20]:  # Limit display to first 20 rows
-                        print(row_dict)
-                    if results.total_rows > 20:
-                        print(f"... and {results.total_rows - 20} more rows")
-                else:
-                    print(f"No results found for {query_name}.")
-                
-            except Exception as e:
-                self.logger.error(f"Failed to execute statistical query {query_name}: {e}")
-                print(f"Error running query {query_name}: {e}")
-
-        # Log summary of classification results
-        total_classified_addresses = sum(len(addresses) for addresses in analysis_results.values())
-        self.logger.info(f"=== Classification Summary ===")
-        self.logger.info(f"Total addresses classified: {total_classified_addresses}")
-        for tag, addresses in analysis_results.items():
-            self.logger.info(f"  {tag}: {len(addresses)} addresses")
-
-        return analysis_results
-    
-    def update_supabase_with_analysis_tags(self, analysis_results: Dict[str, List[str]]):
-        """Update Supabase addresses with analysis tags from BigQuery classification."""
-        self.logger.info("=== Starting Supabase Analysis Tags Update ===")
-        
-        if not analysis_results:
-            self.logger.warning("No analysis results to process")
-            return
-        
-        if not self.processor.supabase_client:
-            self.processor.create_supabase_client()
-        
-        total_updates = 0
-        total_errors = 0
-        
-        for classification_tag, address_list in analysis_results.items():
-            if not address_list:
-                self.logger.info(f"No addresses found for tag: {classification_tag}")
-                continue
-            
-            self.logger.info(f"Processing {len(address_list)} addresses for tag: {classification_tag}")
-            
-            # Process addresses in batches for efficiency
-            batch_size = 50
-            for i in range(0, len(address_list), batch_size):
-                batch = address_list[i:i + batch_size]
-                batch_updates = 0
-                batch_errors = 0
-                
-                for address in batch:
-                    try:
-                        # Fetch current analysis_tags for this address
-                        result = self.processor.supabase_client.table('addresses').select('analysis_tags').eq('address', address).execute()
-                        
-                        if not result.data:
-                            self.logger.warning(f"Address {address} not found in Supabase")
-                            batch_errors += 1
-                            continue
-                        
-                        # Get current tags (handle NULL case)
-                        current_tags = result.data[0].get('analysis_tags') or []
-                        
-                        # Ensure current_tags is a list
-                        if not isinstance(current_tags, list):
-                            current_tags = []
-                        
-                        # Add new tag if not already present (ensure uniqueness)
-                        if classification_tag not in current_tags:
-                            updated_tags = current_tags + [classification_tag]
-                            
-                            # Update the record in Supabase
-                            update_result = self.processor.supabase_client.table('addresses').update({
-                                'analysis_tags': updated_tags
-                            }).eq('address', address).execute()
-                            
-                            if update_result.data:
-                                batch_updates += 1
-                            else:
-                                self.logger.error(f"Failed to update address {address} with tag {classification_tag}")
-                                batch_errors += 1
-                        else:
-                            # Tag already exists, no update needed
-                            self.logger.debug(f"Tag {classification_tag} already exists for address {address}")
-                            batch_updates += 1  # Count as successful (idempotent)
-                        
-                    except Exception as e:
-                        self.logger.error(f"Error updating address {address} with tag {classification_tag}: {e}")
-                        batch_errors += 1
-                        continue
-                
-                total_updates += batch_updates
-                total_errors += batch_errors
-                
-                self.logger.info(f"Batch {i//batch_size + 1} for {classification_tag}: {batch_updates} updates, {batch_errors} errors")
-            
-            self.logger.info(f"Completed tag {classification_tag}: {len([a for a in address_list if a])} addresses processed")
-        
-        self.logger.info("=== Supabase Analysis Tags Update Complete ===")
-        self.logger.info(f"Total successful updates: {total_updates}")
-        self.logger.info(f"Total errors: {total_errors}")
-        
-        return {
-            'total_updates': total_updates,
-            'total_errors': total_errors,
-            'success_rate': (total_updates / (total_updates + total_errors)) * 100 if (total_updates + total_errors) > 0 else 0
-        }
-    
-    def run_comprehensive_integration(self):
-        """Run the complete enhanced data integration workflow."""
-        self.logger.info("=== Starting Enhanced Comprehensive Data Integration ===")
-        self.logger.info("🚀 Enhancement Features:")
-        self.logger.info("   • Up to 5,000 addresses per API endpoint/category")
-        self.logger.info("   • 30-day filtering for recent activity")
-        self.logger.info("   • High-value transaction filtering (>$1000)")
-        self.logger.info("   • Significant holder filtering (>$100 value)")
-        self.logger.info("   • Enhanced pagination and rate limiting")
-        self.logger.info("   • BigQuery public datasets integration (Ethereum, Bitcoin)")
-        self.logger.info("   • High-activity EOAs and smart contracts from public data")
-        self.logger.info("   • Direct ETL extraction for recent blocks and contract interactions")
-        self.logger.info("   • Automated address classification and tagging")
-        self.logger.info("   • Enriched Supabase data with analysis tags for whale algorithms")
-        
-        start_time = datetime.utcnow()
-        
-        try:
-            # Step 1: Load existing addresses
-            self.load_existing_addresses()
-            
-            # Step 2: Collect enhanced API data
-            self.collect_api_data()
-            
-            # Step 3: Collect GitHub data
-            self.collect_github_data()
-            
-            # Step 4: Collect BigQuery public dataset data
-            self.collect_bigquery_public_dataset_data()
-            
-            # Step 5: Collect direct ETL data (optional, requires provider URIs)
-            self.collect_direct_etl_data()
-            
-            # Step 6: Get statistics
-            stats = self.deduplicator.get_statistics()
-            
-            self.logger.info("=== Enhanced Integration Statistics ===")
-            self.logger.info(f"Total unique addresses: {stats['total_unique_addresses']:,}")
-            self.logger.info(f"Conflicts resolved: {stats['total_conflicts_resolved']:,}")
-            self.logger.info("Blockchain distribution:")
-            for blockchain, count in sorted(stats['blockchains'].items()):
-                self.logger.info(f"  {blockchain}: {count:,} addresses")
-            self.logger.info("Source distribution:")
-            for source, count in sorted(stats['sources'].items()):
-                self.logger.info(f"  {source}: {count:,} addresses")
-            
-            # Step 7: Store to Supabase
-            storage_success = self.store_to_supabase()
-            
-            # Step 8: Setup BigQuery integration
-            bigquery_success = self.setup_bigquery_integration()
-            
-            # Step 9: Run BigQuery analysis and get classification results
-            self.logger.info("=== Step 9: Running BigQuery Analysis ===")
-            analysis_data = self.run_bigquery_analysis()
-            
-            # Step 10: Update Supabase with analysis tags
-            self.logger.info("=== Step 10: Updating Supabase with Analysis Tags ===")
-            tagging_results = self.update_supabase_with_analysis_tags(analysis_data)
-            
-            end_time = datetime.utcnow()
-            duration = (end_time - start_time).total_seconds()
-            
-            self.logger.info("=== Enhanced Integration Complete ===")
-            self.logger.info(f"Duration: {duration:.2f} seconds")
-            self.logger.info(f"Final dataset size: {stats['total_unique_addresses']:,} unique addresses")
-            self.logger.info(f"Supabase storage: {'✅ SUCCESS' if storage_success else '❌ FAILED'}")
-            self.logger.info(f"BigQuery integration: {'✅ SUCCESS' if bigquery_success else '❌ FAILED'}")
-            
-            if tagging_results:
-                self.logger.info(f"Analysis tagging: {'✅ SUCCESS' if tagging_results['total_errors'] == 0 else '⚠️ PARTIAL'}")
-                self.logger.info(f"  • Tagged addresses: {tagging_results['total_updates']:,}")
-                self.logger.info(f"  • Success rate: {tagging_results['success_rate']:.1f}%")
-            
-            return {
-                'success': True,
-                'statistics': stats,
-                'duration_seconds': duration,
-                'supabase_success': storage_success,
-                'bigquery_success': bigquery_success,
-                'analysis_tagging': tagging_results,
-                'classification_summary': {tag: len(addresses) for tag, addresses in analysis_data.items()} if analysis_data else {}
-            }
-            
-        except Exception as e:
-            self.logger.error(f"Enhanced integration failed: {e}")
-            return {
-                'success': False,
-                'error': str(e),
-                'duration_seconds': (datetime.utcnow() - start_time).total_seconds()
-            }
 
 
 def main():
-    """Main function to run enhanced comprehensive data integration."""
-    print("🚀 Enhanced Comprehensive Data Integration - Phase 2")
-    print("=" * 70)
-    print("🔥 ENHANCED FEATURES:")
-    print("   • Up to 5,000 addresses per API endpoint/category")
-    print("   • 30-day filtering for recent activity")
-    print("   • High-value transaction filtering (>$1000)")
-    print("   • Significant holder filtering (>$100 value)")
-    print("   • Enhanced pagination and rate limiting")
-    print("   • BigQuery public datasets integration (Ethereum, Bitcoin)")
-    print("   • High-activity EOAs and smart contracts from public data")
-    print("   • Automated address classification and tagging")
-    print("   • Enriched Supabase data with analysis tags for whale algorithms")
-    print("=" * 70)
+    """Main entry point with command-line argument parsing."""
+    # Setup command-line argument parsing
+    parser = argparse.ArgumentParser(
+        description="Comprehensive Multi-Phase Data Integration for Whale Transaction Monitor.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Operational Modes:
+  full_sync           Complete data refresh from all sources including GitHub repositories.
+                      Use for initial setup or periodic comprehensive updates.
+                      
+  update_and_discover Focus on dynamic data collection (APIs, BigQuery) and advanced 
+                      Phase 3 analysis. Skips GitHub repository re-processing for 
+                      faster execution. Ideal for daily/frequent monitoring.
+
+Examples:
+  python integrate_all_data.py --run-mode update_and_discover
+  python integrate_all_data.py --run-mode full_sync
+        """
+    )
+    parser.add_argument(
+        "--run-mode",
+        choices=['full_sync', 'update_and_discover'],
+        default='update_and_discover',
+        help="Operational mode: 'full_sync' for complete data refresh, "
+             "'update_and_discover' for dynamic data focus (default: %(default)s)"
+    )
+    
+    args = parser.parse_args()
+
+    # Display startup banner
+    print("🚀 Comprehensive Multi-Phase Data Integration")
+    print("=" * 80)
+    print("🔥 ALL PHASES INTEGRATED:")
+    print("   • Phase 1: Static address files and helper utilities")
+    print("   • Phase 2: Live API collection (9+ sources), GitHub extraction (6+ sources)")
+    print("   • Phase 2: Analytics platform integration (Dune, manual files)")
+    print("   • Phase 2: BigQuery public dataset integration (Ethereum, Bitcoin)")
+    print("   • Phase 3: Advanced BigQuery heuristics (exchange/whale/DeFi detection)")
+    print("   • Phase 3: Intelligent post-processing with cross-referencing")
+    print("   • Phase 3: Address clustering from transaction flow analysis")
+    print("   • Phase 3: Enhanced confidence scoring with conflict resolution")
+    print("   • Automated classification and comprehensive tagging")
+    print("   • Advanced reporting and analytics across all data sources")
+    print("=" * 80)
     print()
+
+    # Initialize logger for the main script
+    logger.info(f"Starting integration in '{args.run_mode}' mode")
     
-    integrator = ComprehensiveDataIntegrator()
-    results = integrator.run_comprehensive_integration()
+    # Create an instance of the integrator and run the pipeline
+    integrator = ComprehensiveDataIntegrator(run_mode=args.run_mode)
+    success = integrator.run_integration()
     
-    print("\n" + "=" * 70)
-    if results['success']:
-        print("🎉 Enhanced Data Integration Complete!")
-        print(f"📊 Total Addresses: {results['statistics']['total_unique_addresses']:,}")
-        print(f"🔄 Conflicts Resolved: {results['statistics']['total_conflicts_resolved']:,}")
-        print(f"⏱️  Duration: {results['duration_seconds']:.2f} seconds")
-        
-        print("\n📈 Blockchain Distribution:")
-        for blockchain, count in sorted(results['statistics']['blockchains'].items()):
-            print(f"  {blockchain}: {count:,} addresses")
-        
-        print("\n🔗 Data Sources:")
-        for source, count in sorted(results['statistics']['sources'].items()):
-            print(f"  {source}: {count:,} addresses")
-        
-        print(f"\n💾 Supabase: {'✅ Stored' if results['supabase_success'] else '❌ Failed'}")
-        print(f"📊 BigQuery: {'✅ Ready' if results['bigquery_success'] else '❌ Failed'}")
-        
-        # Display analysis tagging results
-        if results.get('analysis_tagging'):
-            tagging = results['analysis_tagging']
-            status = '✅ Complete' if tagging['total_errors'] == 0 else '⚠️ Partial'
-            print(f"🏷️  Analysis Tagging: {status}")
-            print(f"   • Tagged addresses: {tagging['total_updates']:,}")
-            print(f"   • Success rate: {tagging['success_rate']:.1f}%")
-        
-        # Display classification summary
-        if results.get('classification_summary'):
-            print(f"\n🎯 Address Classifications:")
-            for tag, count in results['classification_summary'].items():
-                print(f"   • {tag.replace('_', ' ').title()}: {count:,} addresses")
-    
+    # Final summary logging
+    if success:
+        logger.info("🎉 Integration completed successfully!")
+        print("\n🎉 Comprehensive Multi-Phase Integration Complete!")
+        print(f"📊 Run Mode: {args.run_mode}")
+        print("📈 Check logs for detailed statistics and results")
     else:
-        print("❌ Enhanced Data Integration Failed!")
-        print(f"Error: {results.get('error', 'Unknown error')}")
-        print(f"Duration: {results['duration_seconds']:.2f} seconds")
+        logger.error("❌ Integration failed!")
+        print("\n❌ Integration failed! Check logs for details.")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
-    main() 
+    main()

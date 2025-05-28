@@ -109,11 +109,11 @@ class EtherscanAPI(APIIntegrationBase):
         )
     
     def get_contract_creators(self, limit: int = 5000) -> List[AddressData]:
-        """Get addresses of contract creators from recent verified contracts (last 3 days)."""
+        """Get addresses of contract creators from recent verified contracts (last 30 days)."""
         addresses = []
         
         try:
-            # Calculate 3 days ago in block numbers (approximately 7200 blocks per day)
+            # Calculate 30 days ago in block numbers (approximately 7200 blocks per day)
             latest_params = {
                 'module': 'proxy',
                 'action': 'eth_blockNumber',
@@ -123,11 +123,11 @@ class EtherscanAPI(APIIntegrationBase):
             latest_response = self._make_request('', latest_params)
             if latest_response.get('result'):
                 latest_block = int(latest_response['result'], 16)
-                blocks_3_days = 7200 * 3  # Approximate blocks in 3 days
-                start_block = max(0, latest_block - blocks_3_days)
+                blocks_30_days = 7200 * 30  # Approximate blocks in 30 days
+                start_block = max(0, latest_block - blocks_30_days)
                 
                 # Get contract creations from recent blocks with pagination
-                max_blocks_to_check = min(1000, blocks_3_days // 100)  # Check every 100th block, max 1000 blocks
+                max_blocks_to_check = min(1000, blocks_30_days // 100)  # Check every 100th block, max 1000 blocks
                 blocks_checked = 0
                 
                 for block_offset in range(0, max_blocks_to_check):
@@ -159,7 +159,7 @@ class EtherscanAPI(APIIntegrationBase):
                                         address=tx['from'],
                                         blockchain='ethereum',
                                         source_system='etherscan_api',
-                                        initial_label='Contract Creator (3d)',
+                                        initial_label='Contract Creator (30d)',
                                         metadata={
                                             'transaction_hash': tx['hash'],
                                             'block_number': tx['blockNumber'],
@@ -181,7 +181,7 @@ class EtherscanAPI(APIIntegrationBase):
                         import time
                         time.sleep(0.5)
             
-            self.logger.info(f"Extracted {len(addresses)} contract creator addresses from Etherscan (last 3 days)")
+            self.logger.info(f"Extracted {len(addresses)} contract creator addresses from Etherscan (last 30 days)")
             return addresses
             
         except Exception as e:
@@ -189,7 +189,7 @@ class EtherscanAPI(APIIntegrationBase):
             return []
     
     def get_large_transaction_addresses(self, min_value_eth: float = 10, limit: int = 5000) -> List[AddressData]:
-        """Get addresses involved in large transactions (last 3 days)."""
+        """Get addresses involved in large transactions (last 30 days)."""
         addresses = []
         
         try:
@@ -204,12 +204,12 @@ class EtherscanAPI(APIIntegrationBase):
             if latest_response.get('result'):
                 latest_block = int(latest_response['result'], 16)
                 min_value_wei = int(min_value_eth * 10**18)
-                blocks_3_days = 7200 * 3  # Approximate blocks in 3 days
-                start_block = max(0, latest_block - blocks_3_days)
+                blocks_30_days = 7200 * 30  # Approximate blocks in 30 days
+                start_block = max(0, latest_block - blocks_30_days)
                 
                 # Check blocks in batches for large transactions
                 blocks_checked = 0
-                max_blocks_to_check = min(1000, blocks_3_days // 50)  # Check every 50th block, max 1000 blocks
+                max_blocks_to_check = min(1000, blocks_30_days // 50)  # Check every 50th block, max 1000 blocks
                 
                 for block_offset in range(0, max_blocks_to_check):  # Check every 50th block
                     if len(addresses) >= limit:
@@ -283,7 +283,7 @@ class EtherscanAPI(APIIntegrationBase):
                         self.logger.warning(f"Failed to process block {block_num}: {e}")
                         continue
             
-            self.logger.info(f"Extracted {len(addresses)} addresses from large transactions (last 3 days)")
+            self.logger.info(f"Extracted {len(addresses)} addresses from large transactions (last 30 days)")
             return addresses
             
         except Exception as e:
@@ -291,7 +291,7 @@ class EtherscanAPI(APIIntegrationBase):
             return []
     
     def get_top_accounts_by_balance(self, limit: int = 5000) -> List[AddressData]:
-        """Get active accounts from popular contract interactions (last 3 days)."""
+        """Get active accounts from popular contract interactions (last 30 days)."""
         addresses = []
         
         try:
@@ -307,7 +307,7 @@ class EtherscanAPI(APIIntegrationBase):
                 '0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599',  # WBTC
             ]
             
-            # Calculate 3 days ago in block numbers
+            # Calculate 30 days ago in block numbers
             latest_params = {
                 'module': 'proxy',
                 'action': 'eth_blockNumber',
@@ -317,8 +317,8 @@ class EtherscanAPI(APIIntegrationBase):
             latest_response = self._make_request('', latest_params)
             if latest_response.get('result'):
                 latest_block = int(latest_response['result'], 16)
-                blocks_3_days = 7200 * 3
-                start_block = max(0, latest_block - blocks_3_days)
+                blocks_30_days = 7200 * 30
+                start_block = max(0, latest_block - blocks_30_days)
                 
                 for contract in popular_contracts:
                     if len(addresses) >= limit:
@@ -366,7 +366,7 @@ class EtherscanAPI(APIIntegrationBase):
                                             address=tx['from'],
                                             blockchain='ethereum',
                                             source_system='etherscan_api',
-                                            initial_label=f'Active User ({contract[:10]}... - 3d)',
+                                            initial_label=f'Active User ({contract[:10]}... - 30d)',
                                             metadata={
                                                 'contract_interacted': contract,
                                                 'transaction_hash': tx['hash'],
@@ -389,7 +389,7 @@ class EtherscanAPI(APIIntegrationBase):
                         self.logger.error(f"Failed to get transactions for contract {contract}: {e}")
                         continue
             
-            self.logger.info(f"Extracted {len(addresses)} active user addresses from Etherscan (last 3 days)")
+            self.logger.info(f"Extracted {len(addresses)} active user addresses from Etherscan (last 30 days)")
             return addresses
             
         except Exception as e:
@@ -770,14 +770,14 @@ class CovalentAPI(APIIntegrationBase):
             return []
     
     def get_recent_transactions(self, chain_id: int = 1, limit: int = 5000) -> List[AddressData]:
-        """Get addresses from recent high-value transactions (last 3 days)."""
+        """Get addresses from recent high-value transactions (last 30 days)."""
         addresses = []
         
         try:
-            # Calculate date range for last 3 days
+            # Calculate date range for last 30 days
             from datetime import datetime, timedelta
             end_date = datetime.utcnow()
-            start_date = end_date - timedelta(days=3)
+            start_date = end_date - timedelta(days=30)
             
             # Get recent transactions with pagination
             page = 0
@@ -852,7 +852,7 @@ class CovalentAPI(APIIntegrationBase):
                 import time
                 time.sleep(0.5)
             
-            self.logger.info(f"Extracted {len(addresses)} addresses from high-value recent transactions (last 3 days)")
+            self.logger.info(f"Extracted {len(addresses)} addresses from high-value recent transactions (last 30 days)")
             return addresses
             
         except Exception as e:
@@ -1070,13 +1070,13 @@ class WhaleAlertAPI:
         return addresses
     
     def get_recent_transactions(self, min_value: int = 100000, limit: int = 5000) -> List[AddressData]:
-        """Get recent whale transactions via REST API (last 3 days)."""
+        """Get recent whale transactions via REST API (last 30 days)."""
         addresses = []
         
         try:
-            # Calculate timestamp for 3 days ago
+            # Calculate timestamp for 30 days ago
             from datetime import datetime, timedelta
-            start_time = int((datetime.utcnow() - timedelta(days=3)).timestamp())
+            start_time = int((datetime.utcnow() - timedelta(days=30)).timestamp())
             
             # Get transactions with pagination
             cursor = None
@@ -1156,7 +1156,7 @@ class WhaleAlertAPI:
                 else:
                     break  # No more data or error
             
-            self.logger.info(f"Extracted {len(addresses)} whale addresses from Whale Alert REST API (last 3 days)")
+            self.logger.info(f"Extracted {len(addresses)} whale addresses from Whale Alert REST API (last 30 days)")
             return addresses
             
         except Exception as e:
@@ -1178,14 +1178,14 @@ class BitqueryAPI(APIIntegrationBase):
         self.session.headers.update({'X-API-KEY': self.api_key})
     
     def get_dex_traders(self, limit: int = 5000) -> List[AddressData]:
-        """Get active DEX traders using GraphQL query (last 3 days, high-value trades)."""
+        """Get active DEX traders using GraphQL query (last 30 days, high-value trades)."""
         addresses = []
         
         try:
-            # Calculate date range for last 3 days
+            # Calculate date range for last 30 days
             from datetime import datetime, timedelta
             end_date = datetime.utcnow()
-            start_date = end_date - timedelta(days=3)
+            start_date = end_date - timedelta(days=30)
             
             # Query with pagination to get more data
             offset = 0
@@ -1302,7 +1302,7 @@ class BitqueryAPI(APIIntegrationBase):
                 else:
                     break  # No more data or error
             
-            self.logger.info(f"Extracted {len(addresses)} high-value DEX trader addresses from Bitquery (last 3 days)")
+            self.logger.info(f"Extracted {len(addresses)} high-value DEX trader addresses from Bitquery (last 30 days)")
             return addresses
             
         except Exception as e:
@@ -1403,67 +1403,69 @@ class APIIntegrationManager:
         self.logger.info(f"Initialized {len(self.apis)} API integrations")
     
     def collect_all_addresses(self) -> List[AddressData]:
-        """Collect addresses from all available APIs with reduced limits and 3-day filtering."""
+        """Collect addresses from all available APIs with enhanced limits and 30-day filtering."""
         all_addresses = []
         
         # Etherscan data - Enhanced collection (up to 5000 per method)
         if 'etherscan' in self.apis:
-            self.logger.info("Collecting from Etherscan API (enhanced volume, last 3 days)...")
+            self.logger.info("Collecting from Etherscan API (enhanced volume, last 30 days)...")
             all_addresses.extend(self.apis['etherscan'].get_contract_creators(limit=5000))
             all_addresses.extend(self.apis['etherscan'].get_large_transaction_addresses(min_value_eth=5, limit=5000))
             all_addresses.extend(self.apis['etherscan'].get_top_accounts_by_balance(limit=5000))
         
-        # Polygon data - Reduced collection
+        # Polygon data - Enhanced collection
         if 'polygonscan' in self.apis:
-            self.logger.info("Collecting from Polygonscan API (reduced volume, last 3 days)...")
-            all_addresses.extend(self.apis['polygonscan'].get_top_accounts_by_balance(limit=20))
+            self.logger.info("Collecting from Polygonscan API (enhanced volume, last 30 days)...")
+            all_addresses.extend(self.apis['polygonscan'].get_top_accounts_by_balance(limit=2000))
         
-        # Solana data - Reduced collection
+        # Solana data - Enhanced collection
         if 'solscan' in self.apis:
-            self.logger.info("Collecting from Solscan API (reduced volume, significant holders)...")
-            all_addresses.extend(self.apis['solscan'].get_token_holders(limit=20))
+            self.logger.info("Collecting from Solscan API (enhanced volume, significant holders)...")
+            all_addresses.extend(self.apis['solscan'].get_token_holders(limit=1000))
         
         if 'helius' in self.apis:
-            self.logger.info("Collecting from Helius API (reduced volume, recent activity)...")
-            all_addresses.extend(self.apis['helius'].get_program_accounts(limit=20))
+            self.logger.info("Collecting from Helius API (enhanced volume, recent activity)...")
+            all_addresses.extend(self.apis['helius'].get_program_accounts(limit=1500))
         
-        # Multi-chain data - Reduced collection
+        # Multi-chain data - Enhanced collection
         if 'covalent' in self.apis:
-            self.logger.info("Collecting from Covalent API (reduced volume, last 3 days)...")
+            self.logger.info("Collecting from Covalent API (enhanced volume, last 30 days)...")
             # Ethereum
-            all_addresses.extend(self.apis['covalent'].get_token_holders_multichain(chain_id=1, limit=20))
-            all_addresses.extend(self.apis['covalent'].get_recent_transactions(chain_id=1, limit=20))
+            all_addresses.extend(self.apis['covalent'].get_token_holders_multichain(chain_id=1, limit=1000))
+            all_addresses.extend(self.apis['covalent'].get_recent_transactions(chain_id=1, limit=1000))
             # Polygon
-            all_addresses.extend(self.apis['covalent'].get_token_holders_multichain(chain_id=137, limit=10))
-            all_addresses.extend(self.apis['covalent'].get_recent_transactions(chain_id=137, limit=10))
+            all_addresses.extend(self.apis['covalent'].get_token_holders_multichain(chain_id=137, limit=500))
+            all_addresses.extend(self.apis['covalent'].get_recent_transactions(chain_id=137, limit=500))
         
         if 'moralis' in self.apis:
-            self.logger.info("Collecting from Moralis API (reduced volume, popular NFT collections)...")
+            self.logger.info("Collecting from Moralis API (enhanced volume, popular NFT collections)...")
             try:
                 # Ethereum NFTs
-                all_addresses.extend(self.apis['moralis'].get_nft_owners(chain="eth", limit=20))
+                all_addresses.extend(self.apis['moralis'].get_nft_owners(chain="eth", limit=1000))
                 # Polygon NFTs
-                all_addresses.extend(self.apis['moralis'].get_nft_owners(chain="polygon", limit=10))
+                all_addresses.extend(self.apis['moralis'].get_nft_owners(chain="polygon", limit=500))
             except Exception as e:
                 self.logger.error(f"Failed to get NFT owners: {e}")
         
-        # Whale Alert data - Reduced collection
+        # Whale Alert data - Enhanced collection
         if 'whale_alert' in self.apis:
-            self.logger.info("Collecting from Whale Alert API (reduced volume, last 3 days)...")
-            all_addresses.extend(self.apis['whale_alert'].get_recent_transactions(min_value=100000, limit=20))
+            self.logger.info("Collecting from Whale Alert API (enhanced volume, last 30 days)...")
+            all_addresses.extend(self.apis['whale_alert'].get_recent_transactions(min_value=100000, limit=500))
         
-        # Bitquery data - Reduced collection
+        # Bitquery data - Enhanced collection
         if 'bitquery' in self.apis:
-            self.logger.info("Collecting from Bitquery API (reduced volume, high-value DEX trades, last 3 days)...")
-            all_addresses.extend(self.apis['bitquery'].get_dex_traders(limit=20))
+            self.logger.info("Collecting from Bitquery API (enhanced volume, high-value DEX trades, last 30 days)...")
+            all_addresses.extend(self.apis['bitquery'].get_dex_traders(limit=1000))
         
-        # Dune data - Reduced collection
+        # Dune data - Enhanced collection
         if 'dune' in self.apis:
-            self.logger.info("Collecting from Dune API (reduced volume)...")
+            self.logger.info("Collecting from Dune API (enhanced volume)...")
             # Popular public query IDs for whale/large holder analysis
             whale_query_ids = [
                 3237150,  # Example whale tracking query
                 3237151,  # Example large holder query
+                2847284,  # DEX Aggregators
+                2847285,  # MEV Bots
             ]
             for query_id in whale_query_ids:
                 try:
@@ -1471,7 +1473,7 @@ class APIIntegrationManager:
                 except Exception as e:
                     self.logger.error(f"Failed to get Dune query {query_id}: {e}")
         
-        self.logger.info(f"Collected {len(all_addresses)} total addresses from all APIs (reduced collection)")
+        self.logger.info(f"Collected {len(all_addresses)} total addresses from all APIs (enhanced collection)")
         return all_addresses
     
     async def collect_realtime_data(self, duration_minutes: int = 5) -> List[AddressData]:
@@ -1482,4 +1484,388 @@ class APIIntegrationManager:
             whale_addresses = await self.apis['whale_alert'].connect_websocket(duration_minutes)
             addresses.extend(whale_addresses)
         
-        return addresses 
+        return addresses
+
+
+# ============================================================================
+# ANALYTICS PLATFORM INTEGRATIONS FOR PHASE 2 - WHALE IDENTIFICATION
+# ============================================================================
+
+class DuneAnalyticsAPI(APIIntegrationBase):
+    """Enhanced Dune Analytics API integration for whale identification queries."""
+    
+    def __init__(self, api_key: str):
+        super().__init__(
+            api_key=api_key,
+            base_url="https://api.dune.com/api/v1",
+            rate_limit_per_second=1  # Conservative rate limit for Dune
+        )
+        self.session.headers.update({
+            'X-Dune-API-Key': api_key
+        })
+    
+    def fetch_dune_analytics_query_results(self, query_id: int, max_retries: int = 3) -> List[Dict[str, Any]]:
+        """
+        Fetches results from a pre-defined Dune Analytics query for whale identification.
+        
+        Args:
+            query_id: The Dune query ID to execute
+            max_retries: Maximum number of retry attempts
+            
+        Returns:
+            List of dictionaries containing query results
+        """
+        addresses_data = []
+        
+        try:
+            # First, execute the query
+            execute_endpoint = f"query/{query_id}/execute"
+            execute_response = self._make_request(execute_endpoint, method='POST')
+            
+            if not execute_response.get('execution_id'):
+                self.logger.error(f"Failed to execute Dune query {query_id}")
+                return addresses_data
+            
+            execution_id = execute_response['execution_id']
+            self.logger.info(f"Dune query {query_id} execution started with ID: {execution_id}")
+            
+            # Poll for results
+            results_endpoint = f"execution/{execution_id}/results"
+            
+            for attempt in range(max_retries):
+                time.sleep(5)  # Wait before checking results
+                
+                results_response = self._make_request(results_endpoint)
+                
+                if results_response.get('state') == 'QUERY_STATE_COMPLETED':
+                    rows = results_response.get('result', {}).get('rows', [])
+                    
+                    for row in rows:
+                        # Extract address and whale-related data
+                        address = row.get('address') or row.get('wallet_address') or row.get('trader')
+                        
+                        if address and isinstance(address, str) and address.startswith('0x'):
+                            whale_data = {
+                                'address': address.lower(),
+                                'dune_query_id': query_id,
+                                'whale_score': row.get('whale_score', 0.5),
+                                'total_volume': row.get('total_volume_usd', 0),
+                                'transaction_count': row.get('tx_count', 0),
+                                'unique_tokens': row.get('unique_tokens', 0),
+                                'first_seen': row.get('first_tx_date'),
+                                'last_seen': row.get('last_tx_date'),
+                                'labels': row.get('labels', []),
+                                'raw_data': row
+                            }
+                            addresses_data.append(whale_data)
+                    
+                    self.logger.info(f"Successfully fetched {len(addresses_data)} whale addresses from Dune query {query_id}")
+                    break
+                    
+                elif results_response.get('state') == 'QUERY_STATE_FAILED':
+                    self.logger.error(f"Dune query {query_id} failed")
+                    break
+                    
+                else:
+                    self.logger.info(f"Dune query {query_id} still running, attempt {attempt + 1}/{max_retries}")
+            
+            return addresses_data
+            
+        except Exception as e:
+            self.logger.error(f"Error fetching Dune Analytics query results for {query_id}: {e}")
+            return addresses_data
+    
+    def _make_request(self, endpoint: str, params: Dict[str, Any] = None, method: str = 'GET') -> Dict[str, Any]:
+        """Override to support POST requests for Dune API."""
+        url = f"{self.base_url}/{endpoint.lstrip('/')}"
+        
+        try:
+            if method.upper() == 'POST':
+                response = self.session.post(url, json=params or {}, timeout=30)
+            else:
+                response = self.session.get(url, params=params, timeout=30)
+                
+            response.raise_for_status()
+            return response.json()
+            
+        except requests.exceptions.RequestException as e:
+            self.logger.error(f"Dune API request failed for {endpoint}: {e}")
+            return {}
+        except (ValueError, TypeError) as e:
+            self.logger.error(f"JSON parsing failed for Dune API {endpoint}: {e}")
+            return {}
+
+
+class AnalyticsPlatformDataParser:
+    """Parser for manually downloaded analytics platform data (CSV/JSON files)."""
+    
+    def __init__(self):
+        self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
+    
+    def parse_nansen_whale_report_csv(self, csv_filepath: str) -> Dict[str, Dict[str, Any]]:
+        """
+        Parses a manually downloaded Nansen whale report CSV.
+        
+        Args:
+            csv_filepath: Path to the Nansen CSV file
+            
+        Returns:
+            Dictionary mapping addresses to their whale data
+        """
+        whale_addresses = {}
+        
+        try:
+            import csv
+            
+            with open(csv_filepath, 'r', encoding='utf-8') as csvfile:
+                # Detect delimiter
+                sample = csvfile.read(1024)
+                csvfile.seek(0)
+                sniffer = csv.Sniffer()
+                delimiter = sniffer.sniff(sample).delimiter
+                
+                reader = csv.DictReader(csvfile, delimiter=delimiter)
+                
+                for row in reader:
+                    # Common Nansen CSV column variations
+                    address = (row.get('address') or row.get('Address') or 
+                              row.get('wallet_address') or row.get('Wallet Address'))
+                    
+                    if address and address.startswith('0x'):
+                        whale_data = {
+                            'nansen_label': row.get('label') or row.get('Label') or 'Smart Money',
+                            'portfolio_value': self._safe_float(row.get('portfolio_value') or row.get('Portfolio Value')),
+                            'profit_loss': self._safe_float(row.get('pnl') or row.get('PnL')),
+                            'win_rate': self._safe_float(row.get('win_rate') or row.get('Win Rate')),
+                            'total_transactions': self._safe_int(row.get('total_txs') or row.get('Total Transactions')),
+                            'first_transaction': row.get('first_tx') or row.get('First Transaction'),
+                            'last_transaction': row.get('last_tx') or row.get('Last Transaction'),
+                            'tags': (row.get('tags') or row.get('Tags') or '').split(','),
+                            'source': 'nansen_csv',
+                            'raw_data': dict(row)
+                        }
+                        whale_addresses[address.lower()] = whale_data
+            
+            self.logger.info(f"Parsed {len(whale_addresses)} whale addresses from Nansen CSV: {csv_filepath}")
+            return whale_addresses
+            
+        except Exception as e:
+            self.logger.error(f"Error parsing Nansen CSV {csv_filepath}: {e}")
+            return {}
+    
+    def parse_glassnode_whale_data_json(self, json_filepath: str) -> Dict[str, Dict[str, Any]]:
+        """
+        Parses manually downloaded Glassnode whale data in JSON format.
+        
+        Args:
+            json_filepath: Path to the Glassnode JSON file
+            
+        Returns:
+            Dictionary mapping addresses to their whale data
+        """
+        whale_addresses = {}
+        
+        try:
+            with open(json_filepath, 'r', encoding='utf-8') as jsonfile:
+                data = json.load(jsonfile)
+            
+            # Handle different JSON structures
+            if isinstance(data, list):
+                for item in data:
+                    address = item.get('address')
+                    if address and address.startswith('0x'):
+                        whale_data = {
+                            'glassnode_category': item.get('category', 'whale'),
+                            'balance_btc': self._safe_float(item.get('balance_btc')),
+                            'balance_usd': self._safe_float(item.get('balance_usd')),
+                            'entity_type': item.get('entity_type'),
+                            'confidence_score': self._safe_float(item.get('confidence', 0.7)),
+                            'last_active': item.get('last_active'),
+                            'source': 'glassnode_json',
+                            'raw_data': item
+                        }
+                        whale_addresses[address.lower()] = whale_data
+            
+            elif isinstance(data, dict):
+                # Handle nested structure
+                for key, value in data.items():
+                    if isinstance(value, dict) and value.get('address'):
+                        address = value['address']
+                        if address.startswith('0x'):
+                            whale_data = {
+                                'glassnode_category': value.get('category', 'whale'),
+                                'balance_btc': self._safe_float(value.get('balance_btc')),
+                                'balance_usd': self._safe_float(value.get('balance_usd')),
+                                'entity_type': value.get('entity_type'),
+                                'confidence_score': self._safe_float(value.get('confidence', 0.7)),
+                                'source': 'glassnode_json',
+                                'raw_data': value
+                            }
+                            whale_addresses[address.lower()] = whale_data
+            
+            self.logger.info(f"Parsed {len(whale_addresses)} whale addresses from Glassnode JSON: {json_filepath}")
+            return whale_addresses
+            
+        except Exception as e:
+            self.logger.error(f"Error parsing Glassnode JSON {json_filepath}: {e}")
+            return {}
+    
+    def parse_arkham_intelligence_csv(self, csv_filepath: str) -> Dict[str, Dict[str, Any]]:
+        """
+        Parses manually downloaded Arkham Intelligence data CSV.
+        
+        Args:
+            csv_filepath: Path to the Arkham CSV file
+            
+        Returns:
+            Dictionary mapping addresses to their whale data
+        """
+        whale_addresses = {}
+        
+        try:
+            import csv
+            
+            with open(csv_filepath, 'r', encoding='utf-8') as csvfile:
+                reader = csv.DictReader(csvfile)
+                
+                for row in reader:
+                    address = row.get('address') or row.get('Address')
+                    
+                    if address and address.startswith('0x'):
+                        whale_data = {
+                            'arkham_entity': row.get('entity') or row.get('Entity'),
+                            'arkham_label': row.get('label') or row.get('Label'),
+                            'total_balance_usd': self._safe_float(row.get('total_balance_usd')),
+                            'entity_type': row.get('entity_type') or row.get('Type'),
+                            'risk_score': self._safe_float(row.get('risk_score')),
+                            'activity_score': self._safe_float(row.get('activity_score')),
+                            'source': 'arkham_csv',
+                            'raw_data': dict(row)
+                        }
+                        whale_addresses[address.lower()] = whale_data
+            
+            self.logger.info(f"Parsed {len(whale_addresses)} addresses from Arkham CSV: {csv_filepath}")
+            return whale_addresses
+            
+        except Exception as e:
+            self.logger.error(f"Error parsing Arkham CSV {csv_filepath}: {e}")
+            return {}
+    
+    def _safe_float(self, value: Any) -> float:
+        """Safely convert value to float."""
+        try:
+            if value is None or value == '':
+                return 0.0
+            return float(str(value).replace(',', '').replace('$', ''))
+        except (ValueError, TypeError):
+            return 0.0
+    
+    def _safe_int(self, value: Any) -> int:
+        """Safely convert value to int."""
+        try:
+            if value is None or value == '':
+                return 0
+            return int(float(str(value).replace(',', '')))
+        except (ValueError, TypeError):
+            return 0
+
+
+class AnalyticsPlatformIntegrationManager:
+    """Manager for coordinating analytics platform data collection."""
+    
+    def __init__(self, api_keys: Dict[str, str]):
+        self.api_keys = api_keys
+        self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
+        
+        # Initialize available integrations
+        self.dune_api = None
+        self.data_parser = AnalyticsPlatformDataParser()
+        
+        self._initialize_apis()
+    
+    def _initialize_apis(self):
+        """Initialize available API integrations."""
+        try:
+            if self.api_keys.get('DUNE_API_KEY'):
+                self.dune_api = DuneAnalyticsAPI(self.api_keys['DUNE_API_KEY'])
+                self.logger.info("Dune Analytics API initialized")
+        except Exception as e:
+            self.logger.warning(f"Failed to initialize some analytics APIs: {e}")
+    
+    def collect_dune_whale_data(self, whale_query_ids: List[int]) -> List[Dict[str, Any]]:
+        """
+        Collect whale data from multiple Dune Analytics queries.
+        
+        Args:
+            whale_query_ids: List of Dune query IDs that identify whales
+            
+        Returns:
+            List of whale address data
+        """
+        all_whale_data = []
+        
+        if not self.dune_api:
+            self.logger.warning("Dune API not available - skipping Dune whale data collection")
+            return all_whale_data
+        
+        for query_id in whale_query_ids:
+            try:
+                self.logger.info(f"Fetching whale data from Dune query {query_id}")
+                query_results = self.dune_api.fetch_dune_analytics_query_results(query_id)
+                all_whale_data.extend(query_results)
+                
+                # Rate limiting between queries
+                time.sleep(2)
+                
+            except Exception as e:
+                self.logger.error(f"Failed to fetch data from Dune query {query_id}: {e}")
+                continue
+        
+        self.logger.info(f"Collected {len(all_whale_data)} whale addresses from {len(whale_query_ids)} Dune queries")
+        return all_whale_data
+    
+    def collect_manual_analytics_data(self, file_paths: Dict[str, str]) -> Dict[str, Dict[str, Any]]:
+        """
+        Collect whale data from manually downloaded analytics platform files.
+        
+        Args:
+            file_paths: Dictionary mapping platform names to file paths
+                       e.g., {'nansen': 'path/to/nansen.csv', 'glassnode': 'path/to/glassnode.json'}
+        
+        Returns:
+            Dictionary mapping addresses to consolidated whale data
+        """
+        all_whale_data = {}
+        
+        for platform, file_path in file_paths.items():
+            try:
+                if not os.path.exists(file_path):
+                    self.logger.warning(f"File not found for {platform}: {file_path}")
+                    continue
+                
+                platform_data = {}
+                
+                if platform.lower() == 'nansen' and file_path.endswith('.csv'):
+                    platform_data = self.data_parser.parse_nansen_whale_report_csv(file_path)
+                elif platform.lower() == 'glassnode' and file_path.endswith('.json'):
+                    platform_data = self.data_parser.parse_glassnode_whale_data_json(file_path)
+                elif platform.lower() == 'arkham' and file_path.endswith('.csv'):
+                    platform_data = self.data_parser.parse_arkham_intelligence_csv(file_path)
+                else:
+                    self.logger.warning(f"Unsupported platform/file type: {platform} - {file_path}")
+                    continue
+                
+                # Merge platform data into consolidated results
+                for address, data in platform_data.items():
+                    if address not in all_whale_data:
+                        all_whale_data[address] = {}
+                    all_whale_data[address][f'{platform}_data'] = data
+                
+                self.logger.info(f"Processed {len(platform_data)} addresses from {platform}")
+                
+            except Exception as e:
+                self.logger.error(f"Failed to process {platform} data from {file_path}: {e}")
+                continue
+        
+        self.logger.info(f"Collected whale data for {len(all_whale_data)} unique addresses from manual analytics files")
+        return all_whale_data 
