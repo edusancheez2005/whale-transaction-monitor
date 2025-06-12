@@ -22,8 +22,6 @@ import aiohttp
 from tenacity import retry, stop_after_attempt, wait_exponential
 from ratelimit import limits, sleep_and_retry
 import backoff
-from bs4 import BeautifulSoup
-import re
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -31,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class AddressData:
-    """Standard format for collected address data with enhanced trader metrics."""
+    """Standard format for collected address data."""
     address: str
     blockchain: str
     source_system: str
@@ -39,16 +37,6 @@ class AddressData:
     confidence_score: float = 0.5
     metadata: Optional[Dict[str, Any]] = None
     collected_at: Optional[datetime] = None
-    
-    # Enhanced trader-focused fields
-    whale_type: Optional[str] = None  # 'Hybrid', 'Trader', 'Holder', etc.
-    total_volume_usd_30d: Optional[float] = None
-    tx_count_30d: Optional[int] = None
-    entity_category: Optional[str] = None  # 'individual_trader', 'protocol', 'exchange', etc.
-    
-    # Optional balance fields (enriched later)
-    balance_native: Optional[float] = None
-    balance_usd: Optional[float] = None
     
     def __post_init__(self):
         if self.collected_at is None:
@@ -74,7 +62,7 @@ class APIIntegrationBase:
         })
     
     @sleep_and_retry
-    @limits(calls=2, period=1)  # More conservative rate limit for stability
+    @limits(calls=5, period=1)  # Default rate limit
     def _make_request(self, endpoint: str, params: Dict[str, Any] = None) -> Dict[str, Any]:
         """Make a rate-limited API request."""
         url = f"{self.base_url}/{endpoint.lstrip('/')}"
@@ -1503,1529 +1491,381 @@ class APIIntegrationManager:
 # ANALYTICS PLATFORM INTEGRATIONS FOR PHASE 2 - WHALE IDENTIFICATION
 # ============================================================================
 
-class DuneAnalyticsAPI:
-    """Production-grade Dune Analytics API integration for whale discovery."""
+class DuneAnalyticsAPI(APIIntegrationBase):
+    """Enhanced Dune Analytics API integration for whale identification queries."""
     
     def __init__(self, api_key: str):
-        self.api_key = api_key
-        self.base_url = "https://api.dune.com/api/v1"
-        self.session = requests.Session()
+        super().__init__(
+            api_key=api_key,
+            base_url="https://api.dune.com/api/v1",
+            rate_limit_per_second=1  # Conservative rate limit for Dune
+        )
         self.session.headers.update({
-            'X-Dune-API-Key': api_key,
-            'Content-Type': 'application/json'
+            'X-Dune-API-Key': api_key
         })
-        self.logger = logging.getLogger(f"{__name__}.DuneAnalyticsAPI")
-        
-        # Production whale query IDs (verified working queries)
-        self.whale_query_ids = {
-            'ethereum': {
-                'top_eth_holders': 2857442,  # Top 1000 Ethereum holders by ETH balance
-                'eth_whale_transactions': 3055014,  # High-value ETH Transfers — frequent large senders
-                'btc_on_eth_bridged': 3424379,  # wBTC/hBTC top holders (Ethereum bridged BTC)
-            },
-            'polygon': {
-                'matic_top_holders': 3260658,  # MATIC (Polygon) Top Holders by balance
-            },
-            # Additional chains can be added as working query IDs become available
-        }
     
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
-    def execute_query(self, query_id: int, parameters: Dict[str, Any] = None) -> Optional[str]:
-        """Execute a Dune query and return execution ID."""
+    def fetch_dune_analytics_query_results(self, query_id: int, max_retries: int = 3) -> List[Dict[str, Any]]:
+        """
+        Fetches results from a pre-defined Dune Analytics query for whale identification.
+        
+        Args:
+            query_id: The Dune query ID to execute
+            max_retries: Maximum number of retry attempts
+            
+        Returns:
+            List of dictionaries containing query results
+        """
+        addresses_data = []
+        
         try:
-            self.logger.info(f"Executing Dune query {query_id}")
+            # First, execute the query
+            execute_endpoint = f"query/{query_id}/execute"
+            execute_response = self._make_request(execute_endpoint, method='POST')
             
-            payload = {}
-            if parameters:
-                payload['query_parameters'] = parameters
+            if not execute_response.get('execution_id'):
+                self.logger.error(f"Failed to execute Dune query {query_id}")
+                return addresses_data
             
-            response = self.session.post(
-                f"{self.base_url}/query/{query_id}/execute",
-                json=payload,
-                timeout=30
-            )
+            execution_id = execute_response['execution_id']
+            self.logger.info(f"Dune query {query_id} execution started with ID: {execution_id}")
             
-            if response.status_code == 200:
-                result = response.json()
-                execution_id = result.get('execution_id')
-                self.logger.info(f"Query {query_id} execution started: {execution_id}")
-                return execution_id
-            else:
-                self.logger.error(f"Failed to execute query {query_id}: {response.status_code} - {response.text}")
-                return None
+            # Poll for results
+            results_endpoint = f"execution/{execution_id}/results"
+            
+            for attempt in range(max_retries):
+                time.sleep(5)  # Wait before checking results
                 
-        except Exception as e:
-            self.logger.error(f"Error executing Dune query {query_id}: {e}")
-            raise
-    
-    def poll_execution_status(self, execution_id: str, max_wait_seconds: int = 300) -> Optional[Dict[str, Any]]:
-        """Poll execution status until completion with timeout."""
-        start_time = time.time()
-        poll_interval = 5  # Start with 5 second intervals
-        
-        while time.time() - start_time < max_wait_seconds:
-            try:
-                response = self.session.get(
-                    f"{self.base_url}/execution/{execution_id}/status",
-                    timeout=30
-                )
+                results_response = self._make_request(results_endpoint)
                 
-                if response.status_code == 200:
-                    status_data = response.json()
-                    state = status_data.get('state')
+                if results_response.get('state') == 'QUERY_STATE_COMPLETED':
+                    rows = results_response.get('result', {}).get('rows', [])
                     
-                    self.logger.debug(f"Execution {execution_id} state: {state}")
+                    for row in rows:
+                        # Extract address and whale-related data
+                        address = row.get('address') or row.get('wallet_address') or row.get('trader')
+                        
+                        if address and isinstance(address, str) and address.startswith('0x'):
+                            whale_data = {
+                                'address': address.lower(),
+                                'dune_query_id': query_id,
+                                'whale_score': row.get('whale_score', 0.5),
+                                'total_volume': row.get('total_volume_usd', 0),
+                                'transaction_count': row.get('tx_count', 0),
+                                'unique_tokens': row.get('unique_tokens', 0),
+                                'first_seen': row.get('first_tx_date'),
+                                'last_seen': row.get('last_tx_date'),
+                                'labels': row.get('labels', []),
+                                'raw_data': row
+                            }
+                            addresses_data.append(whale_data)
                     
-                    if state == 'QUERY_STATE_COMPLETED':
-                        self.logger.info(f"Query execution {execution_id} completed successfully")
-                        return status_data
-                    elif state == 'QUERY_STATE_FAILED':
-                        self.logger.error(f"Query execution {execution_id} failed: {status_data.get('error')}")
-                        return None
-                    elif state in ['QUERY_STATE_EXECUTING', 'QUERY_STATE_PENDING']:
-                        # Continue polling
-                        time.sleep(min(poll_interval, 30))  # Cap at 30 seconds
-                        poll_interval = min(poll_interval * 1.2, 30)  # Exponential backoff
-                    else:
-                        self.logger.warning(f"Unknown execution state: {state}")
-                        time.sleep(poll_interval)
+                    self.logger.info(f"Successfully fetched {len(addresses_data)} whale addresses from Dune query {query_id}")
+                    break
+                    
+                elif results_response.get('state') == 'QUERY_STATE_FAILED':
+                    self.logger.error(f"Dune query {query_id} failed")
+                    break
+                    
                 else:
-                    self.logger.warning(f"Failed to get execution status: {response.status_code}")
-                    time.sleep(poll_interval)
-                    
-            except Exception as e:
-                self.logger.warning(f"Error polling execution status: {e}")
-                time.sleep(poll_interval)
-        
-        self.logger.error(f"Query execution {execution_id} timed out after {max_wait_seconds} seconds")
-        return None
-    
-    def get_execution_results(self, execution_id: str) -> List[Dict[str, Any]]:
-        """Get results from completed query execution."""
-        try:
-            response = self.session.get(
-                f"{self.base_url}/execution/{execution_id}/results",
-                timeout=60
-            )
+                    self.logger.info(f"Dune query {query_id} still running, attempt {attempt + 1}/{max_retries}")
             
-            if response.status_code == 200:
-                result_data = response.json()
-                rows = result_data.get('result', {}).get('rows', [])
-                self.logger.info(f"Retrieved {len(rows)} rows from execution {execution_id}")
-                return rows
-            else:
-                self.logger.error(f"Failed to get execution results: {response.status_code} - {response.text}")
-                return []
-                
-        except Exception as e:
-            self.logger.error(f"Error getting execution results: {e}")
-            return []
-    
-    def fetch_dune_analytics_query_results(self, query_id: int, parameters: Dict[str, Any] = None, max_results: int = 5000) -> List[Dict[str, Any]]:
-        """Execute query and fetch results with comprehensive error handling."""
-        try:
-            # Execute the query
-            execution_id = self.execute_query(query_id, parameters)
-            if not execution_id:
-                return []
-            
-            # Poll for completion
-            status_data = self.poll_execution_status(execution_id)
-            if not status_data:
-                return []
-            
-            # Get results
-            rows = self.get_execution_results(execution_id)
-            
-            # Process and clean results
-            processed_results = []
-            for row in rows[:max_results]:
-                if self._is_valid_whale_result(row):
-                    processed_row = self._process_dune_result_row(row, query_id)
-                    if processed_row:
-                        processed_results.append(processed_row)
-            
-            self.logger.info(f"Processed {len(processed_results)} valid whale results from query {query_id}")
-            return processed_results
+            return addresses_data
             
         except Exception as e:
             self.logger.error(f"Error fetching Dune Analytics query results for {query_id}: {e}")
-            return []
+            return addresses_data
     
-    def get_whale_addresses_from_query(self, query_id: int, limit: int = 1000) -> List[AddressData]:
-        """Get whale addresses from a specific Dune query and convert to AddressData format."""
-        addresses = []
+    def _make_request(self, endpoint: str, params: Dict[str, Any] = None, method: str = 'GET') -> Dict[str, Any]:
+        """Override to support POST requests for Dune API."""
+        url = f"{self.base_url}/{endpoint.lstrip('/')}"
         
         try:
-            # Fetch data using the existing method
-            whale_data_list = self.fetch_dune_analytics_query_results(query_id, max_results=limit)
+            if method.upper() == 'POST':
+                response = self.session.post(url, json=params or {}, timeout=30)
+            else:
+                response = self.session.get(url, params=params, timeout=30)
+                
+            response.raise_for_status()
+            return response.json()
             
-            for whale_data in whale_data_list:
-                if whale_data.get('address'):
-                    addresses.append(AddressData(
-                        address=whale_data['address'],
-                        blockchain=whale_data.get('blockchain', 'ethereum'),
-                        source_system='Dune-Analytics',
-                        initial_label=whale_data.get('label', 'whale'),
-                        metadata={
-                            'balance_native': whale_data.get('balance_native'),
-                            'balance_usd': whale_data.get('balance_usd'),
-                            'transaction_count': whale_data.get('transaction_count'),
-                            'query_id': query_id,
-                            'dune_metadata': whale_data,
-                            'detection_method': 'dune_analytics_query',
-                            'source_details': f'Dune-Query-{query_id}',
-                            'discovered_at': datetime.utcnow().isoformat()
-                        },
-                        confidence_score=whale_data.get('confidence_score', 0.9)
-                    ))
+        except requests.exceptions.RequestException as e:
+            self.logger.error(f"Dune API request failed for {endpoint}: {e}")
+            return {}
+        except (ValueError, TypeError) as e:
+            self.logger.error(f"JSON parsing failed for Dune API {endpoint}: {e}")
+            return {}
+
+
+class AnalyticsPlatformDataParser:
+    """Parser for manually downloaded analytics platform data (CSV/JSON files)."""
+    
+    def __init__(self):
+        self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
+    
+    def parse_nansen_whale_report_csv(self, csv_filepath: str) -> Dict[str, Dict[str, Any]]:
+        """
+        Parses a manually downloaded Nansen whale report CSV.
+        
+        Args:
+            csv_filepath: Path to the Nansen CSV file
             
-            self.logger.info(f"Converted {len(addresses)} Dune results to AddressData format")
-            return addresses
+        Returns:
+            Dictionary mapping addresses to their whale data
+        """
+        whale_addresses = {}
+        
+        try:
+            import csv
+            
+            with open(csv_filepath, 'r', encoding='utf-8') as csvfile:
+                # Detect delimiter
+                sample = csvfile.read(1024)
+                csvfile.seek(0)
+                sniffer = csv.Sniffer()
+                delimiter = sniffer.sniff(sample).delimiter
+                
+                reader = csv.DictReader(csvfile, delimiter=delimiter)
+                
+                for row in reader:
+                    # Common Nansen CSV column variations
+                    address = (row.get('address') or row.get('Address') or 
+                              row.get('wallet_address') or row.get('Wallet Address'))
+                    
+                    if address and address.startswith('0x'):
+                        whale_data = {
+                            'nansen_label': row.get('label') or row.get('Label') or 'Smart Money',
+                            'portfolio_value': self._safe_float(row.get('portfolio_value') or row.get('Portfolio Value')),
+                            'profit_loss': self._safe_float(row.get('pnl') or row.get('PnL')),
+                            'win_rate': self._safe_float(row.get('win_rate') or row.get('Win Rate')),
+                            'total_transactions': self._safe_int(row.get('total_txs') or row.get('Total Transactions')),
+                            'first_transaction': row.get('first_tx') or row.get('First Transaction'),
+                            'last_transaction': row.get('last_tx') or row.get('Last Transaction'),
+                            'tags': (row.get('tags') or row.get('Tags') or '').split(','),
+                            'source': 'nansen_csv',
+                            'raw_data': dict(row)
+                        }
+                        whale_addresses[address.lower()] = whale_data
+            
+            self.logger.info(f"Parsed {len(whale_addresses)} whale addresses from Nansen CSV: {csv_filepath}")
+            return whale_addresses
             
         except Exception as e:
-            self.logger.error(f"Error converting Dune query results to addresses: {e}")
-            return []
+            self.logger.error(f"Error parsing Nansen CSV {csv_filepath}: {e}")
+            return {}
     
-    def discover_whales_by_blockchain(self, blockchain: str, limit_per_query: int = 1000) -> List[AddressData]:
-        """Discover whales for a specific blockchain using multiple queries."""
-        addresses = []
+    def parse_glassnode_whale_data_json(self, json_filepath: str) -> Dict[str, Dict[str, Any]]:
+        """
+        Parses manually downloaded Glassnode whale data in JSON format.
         
-        if blockchain not in self.whale_query_ids:
-            self.logger.warning(f"No whale queries configured for blockchain: {blockchain}")
-            return addresses
+        Args:
+            json_filepath: Path to the Glassnode JSON file
+            
+        Returns:
+            Dictionary mapping addresses to their whale data
+        """
+        whale_addresses = {}
         
-        queries = self.whale_query_ids[blockchain]
-        self.logger.info(f"Running {len(queries)} whale discovery queries for {blockchain}")
+        try:
+            with open(json_filepath, 'r', encoding='utf-8') as jsonfile:
+                data = json.load(jsonfile)
+            
+            # Handle different JSON structures
+            if isinstance(data, list):
+                for item in data:
+                    address = item.get('address')
+                    if address and address.startswith('0x'):
+                        whale_data = {
+                            'glassnode_category': item.get('category', 'whale'),
+                            'balance_btc': self._safe_float(item.get('balance_btc')),
+                            'balance_usd': self._safe_float(item.get('balance_usd')),
+                            'entity_type': item.get('entity_type'),
+                            'confidence_score': self._safe_float(item.get('confidence', 0.7)),
+                            'last_active': item.get('last_active'),
+                            'source': 'glassnode_json',
+                            'raw_data': item
+                        }
+                        whale_addresses[address.lower()] = whale_data
+            
+            elif isinstance(data, dict):
+                # Handle nested structure
+                for key, value in data.items():
+                    if isinstance(value, dict) and value.get('address'):
+                        address = value['address']
+                        if address.startswith('0x'):
+                            whale_data = {
+                                'glassnode_category': value.get('category', 'whale'),
+                                'balance_btc': self._safe_float(value.get('balance_btc')),
+                                'balance_usd': self._safe_float(value.get('balance_usd')),
+                                'entity_type': value.get('entity_type'),
+                                'confidence_score': self._safe_float(value.get('confidence', 0.7)),
+                                'source': 'glassnode_json',
+                                'raw_data': value
+                            }
+                            whale_addresses[address.lower()] = whale_data
+            
+            self.logger.info(f"Parsed {len(whale_addresses)} whale addresses from Glassnode JSON: {json_filepath}")
+            return whale_addresses
+            
+        except Exception as e:
+            self.logger.error(f"Error parsing Glassnode JSON {json_filepath}: {e}")
+            return {}
+    
+    def parse_arkham_intelligence_csv(self, csv_filepath: str) -> Dict[str, Dict[str, Any]]:
+        """
+        Parses manually downloaded Arkham Intelligence data CSV.
         
-        for query_name, query_id in queries.items():
-            try:
-                query_addresses = self.get_whale_addresses_from_query(query_id, limit_per_query)
-                addresses.extend(query_addresses)
+        Args:
+            csv_filepath: Path to the Arkham CSV file
+            
+        Returns:
+            Dictionary mapping addresses to their whale data
+        """
+        whale_addresses = {}
+        
+        try:
+            import csv
+            
+            with open(csv_filepath, 'r', encoding='utf-8') as csvfile:
+                reader = csv.DictReader(csvfile)
                 
-                self.logger.info(f"Query '{query_name}' ({query_id}): Found {len(query_addresses)} addresses")
+                for row in reader:
+                    address = row.get('address') or row.get('Address')
+                    
+                    if address and address.startswith('0x'):
+                        whale_data = {
+                            'arkham_entity': row.get('entity') or row.get('Entity'),
+                            'arkham_label': row.get('label') or row.get('Label'),
+                            'total_balance_usd': self._safe_float(row.get('total_balance_usd')),
+                            'entity_type': row.get('entity_type') or row.get('Type'),
+                            'risk_score': self._safe_float(row.get('risk_score')),
+                            'activity_score': self._safe_float(row.get('activity_score')),
+                            'source': 'arkham_csv',
+                            'raw_data': dict(row)
+                        }
+                        whale_addresses[address.lower()] = whale_data
+            
+            self.logger.info(f"Parsed {len(whale_addresses)} addresses from Arkham CSV: {csv_filepath}")
+            return whale_addresses
+            
+        except Exception as e:
+            self.logger.error(f"Error parsing Arkham CSV {csv_filepath}: {e}")
+            return {}
+    
+    def _safe_float(self, value: Any) -> float:
+        """Safely convert value to float."""
+        try:
+            if value is None or value == '':
+                return 0.0
+            return float(str(value).replace(',', '').replace('$', ''))
+        except (ValueError, TypeError):
+            return 0.0
+    
+    def _safe_int(self, value: Any) -> int:
+        """Safely convert value to int."""
+        try:
+            if value is None or value == '':
+                return 0
+            return int(float(str(value).replace(',', '')))
+        except (ValueError, TypeError):
+            return 0
+
+
+class AnalyticsPlatformIntegrationManager:
+    """Manager for coordinating analytics platform data collection."""
+    
+    def __init__(self, api_keys: Dict[str, str]):
+        self.api_keys = api_keys
+        self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
+        
+        # Initialize available integrations
+        self.dune_api = None
+        self.data_parser = AnalyticsPlatformDataParser()
+        
+        self._initialize_apis()
+    
+    def _initialize_apis(self):
+        """Initialize available API integrations."""
+        try:
+            if self.api_keys.get('DUNE_API_KEY'):
+                self.dune_api = DuneAnalyticsAPI(self.api_keys['DUNE_API_KEY'])
+                self.logger.info("Dune Analytics API initialized")
+        except Exception as e:
+            self.logger.warning(f"Failed to initialize some analytics APIs: {e}")
+    
+    def collect_dune_whale_data(self, whale_query_ids: List[int]) -> List[Dict[str, Any]]:
+        """
+        Collect whale data from multiple Dune Analytics queries.
+        
+        Args:
+            whale_query_ids: List of Dune query IDs that identify whales
+            
+        Returns:
+            List of whale address data
+        """
+        all_whale_data = []
+        
+        if not self.dune_api:
+            self.logger.warning("Dune API not available - skipping Dune whale data collection")
+            return all_whale_data
+        
+        for query_id in whale_query_ids:
+            try:
+                self.logger.info(f"Fetching whale data from Dune query {query_id}")
+                query_results = self.dune_api.fetch_dune_analytics_query_results(query_id)
+                all_whale_data.extend(query_results)
                 
                 # Rate limiting between queries
                 time.sleep(2)
                 
             except Exception as e:
-                self.logger.error(f"Failed to run query '{query_name}' ({query_id}): {e}")
+                self.logger.error(f"Failed to fetch data from Dune query {query_id}: {e}")
                 continue
         
-        # Remove duplicates while preserving order
-        unique_addresses = []
-        seen_addresses = set()
-        
-        for addr in addresses:
-            addr_key = f"{addr.address}_{addr.blockchain}"
-            if addr_key not in seen_addresses:
-                unique_addresses.append(addr)
-                seen_addresses.add(addr_key)
-        
-        self.logger.info(f"Discovered {len(unique_addresses)} unique whale addresses for {blockchain}")
-        return unique_addresses
+        self.logger.info(f"Collected {len(all_whale_data)} whale addresses from {len(whale_query_ids)} Dune queries")
+        return all_whale_data
     
-    def _is_valid_whale_result(self, row: Dict[str, Any]) -> bool:
-        """Validate if a Dune result row contains valid whale data."""
-        # Must have an address
-        address = row.get('address') or row.get('wallet') or row.get('user_address')
-        if not address:
-            return False
+    def collect_manual_analytics_data(self, file_paths: Dict[str, str]) -> Dict[str, Dict[str, Any]]:
+        """
+        Collect whale data from manually downloaded analytics platform files.
         
-        # Address format validation
-        address_str = str(address)
-        if not (address_str.startswith('0x') and len(address_str) == 42):
-            # For Bitcoin/other chains, add other validations
-            if not any(address_str.startswith(prefix) for prefix in ['1', '3', 'bc1', 'D', 'L', 'M', 'X', 'T']):
-                return False
+        Args:
+            file_paths: Dictionary mapping platform names to file paths
+                       e.g., {'nansen': 'path/to/nansen.csv', 'glassnode': 'path/to/glassnode.json'}
         
-        # Should have some meaningful whale indicators
-        balance = row.get('balance') or row.get('balance_usd') or row.get('value_usd')
-        tx_count = row.get('transaction_count') or row.get('tx_count') or row.get('activity_count')
+        Returns:
+            Dictionary mapping addresses to consolidated whale data
+        """
+        all_whale_data = {}
         
-        if balance:
+        for platform, file_path in file_paths.items():
             try:
-                balance_value = float(balance)
-                if balance_value < 10000:  # Minimum $10k for whale consideration
-                    return False
-            except (ValueError, TypeError):
-                pass
-        
-        return True
-    
-    def _process_dune_result_row(self, row: Dict[str, Any], query_id: int) -> Optional[Dict[str, Any]]:
-        """Process a Dune result row into standardized whale data."""
-        try:
-            # Extract address with multiple field name attempts
-            address = (row.get('address') or 
-                      row.get('wallet') or 
-                      row.get('user_address') or 
-                      row.get('from_address') or 
-                      row.get('to_address'))
-            
-            if not address:
-                return None
-            
-            # Standardize address format
-            address = str(address).strip()
-            
-            # Extract blockchain info
-            blockchain = (row.get('blockchain') or 
-                         row.get('chain') or 
-                         row.get('network') or 
-                         self._detect_blockchain_from_query(query_id))
-            
-            # Extract balance information
-            balance_native = self._extract_numeric_value(row, [
-                'balance', 'balance_native', 'amount', 'native_balance'
-            ])
-            
-            balance_usd = self._extract_numeric_value(row, [
-                'balance_usd', 'value_usd', 'usd_value', 'amount_usd'
-            ])
-            
-            # Extract transaction/activity data
-            transaction_count = self._extract_numeric_value(row, [
-                'transaction_count', 'tx_count', 'activity_count', 'num_transactions'
-            ])
-            
-            # Extract labels/tags
-            label = (row.get('label') or 
-                    row.get('tag') or 
-                    row.get('entity_name') or 
-                    row.get('name') or 
-                    'whale')
-            
-            # Calculate confidence score based on data quality
-            confidence_score = self._calculate_confidence_score(row, balance_usd, transaction_count)
-            
-            return {
-                'address': address,
-                'blockchain': blockchain,
-                'balance_native': balance_native,
-                'balance_usd': balance_usd,
-                'transaction_count': transaction_count,
-                'label': label,
-                'confidence_score': confidence_score,
-                'raw_data': row
-            }
-            
-        except Exception as e:
-            self.logger.debug(f"Error processing Dune result row: {e}")
-            return None
-    
-    def _extract_numeric_value(self, row: Dict[str, Any], field_names: List[str]) -> Optional[float]:
-        """Extract numeric value from row using multiple field name attempts."""
-        for field_name in field_names:
-            if field_name in row:
-                try:
-                    value = row[field_name]
-                    if value is not None:
-                        return float(value)
-                except (ValueError, TypeError):
+                if not os.path.exists(file_path):
+                    self.logger.warning(f"File not found for {platform}: {file_path}")
                     continue
-        return None
-    
-    def _detect_blockchain_from_query(self, query_id: int) -> str:
-        """Detect blockchain from query ID mapping."""
-        for blockchain, queries in self.whale_query_ids.items():
-            if query_id in queries.values():
-                return blockchain
-        return 'ethereum'  # Default fallback
-    
-    def _calculate_confidence_score(self, row: Dict[str, Any], balance_usd: Optional[float], 
-                                  transaction_count: Optional[float]) -> float:
-        """Calculate confidence score based on data completeness and whale indicators."""
-        score = 0.7  # Base score
-        
-        # Boost for high USD balance
-        if balance_usd:
-            if balance_usd > 10_000_000:  # $10M+
-                score += 0.2
-            elif balance_usd > 1_000_000:  # $1M+
-                score += 0.15
-            elif balance_usd > 100_000:  # $100K+
-                score += 0.1
-        
-        # Boost for high transaction activity
-        if transaction_count:
-            if transaction_count > 1000:
-                score += 0.1
-            elif transaction_count > 100:
-                score += 0.05
-        
-        # Boost for additional metadata
-        if row.get('label') or row.get('entity_name'):
-            score += 0.05
-        
-        if row.get('first_seen') or row.get('last_seen'):
-            score += 0.05
-        
-        return min(score, 1.0)  # Cap at 1.0
-
-
-class PriceService:
-    """Service for fetching cryptocurrency prices."""
-    
-    def __init__(self):
-        self.session = requests.Session()
-        self.base_url = "https://api.coingecko.com/api/v3"
-        self.price_cache = {}
-        self.cache_expiry = {}
-        self.logger = logging.getLogger(f"{__name__}.PriceService")
-    
-    def get_price(self, symbol: str) -> float:
-        """Get current USD price for a cryptocurrency symbol."""
-        # Check cache first
-        if symbol in self.price_cache and symbol in self.cache_expiry:
-            if datetime.utcnow() < self.cache_expiry[symbol]:
-                return self.price_cache[symbol]
-        
-        try:
-            # Map common symbols to CoinGecko IDs
-            symbol_map = {
-                'ETH': 'ethereum',
-                'BTC': 'bitcoin',
-                'MATIC': 'matic-network',
-                'SOL': 'solana',
-                'AVAX': 'avalanche-2',
-                'ARB': 'arbitrum',
-                'OP': 'optimism'
-            }
-            
-            coin_id = symbol_map.get(symbol, symbol.lower())
-            
-            response = self.session.get(
-                f"{self.base_url}/simple/price",
-                params={'ids': coin_id, 'vs_currencies': 'usd'},
-                timeout=10
-            )
-            response.raise_for_status()
-            
-            data = response.json()
-            price = data.get(coin_id, {}).get('usd', 0)
-            
-            # Cache the price
-            self.price_cache[symbol] = price
-            self.cache_expiry[symbol] = datetime.utcnow() + timedelta(minutes=5)
-            
-            return price
-            
-        except Exception as e:
-            self.logger.warning(f"Failed to fetch price for {symbol}: {e}")
-            # Return fallback prices
-            fallback_prices = {
-                'ETH': 3000, 'BTC': 45000, 'MATIC': 0.8, 'SOL': 100,
-                'AVAX': 35, 'ARB': 1.2, 'OP': 2.5
-            }
-            return fallback_prices.get(symbol, 1.0)
-
-
-class RichListScraper:
-    """Enhanced scraper for rich lists from block explorers with robust HTML parsing."""
-    
-    def __init__(self, price_service: PriceService):
-        self.price_service = price_service
-        self.session = requests.Session()
-        self.session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-        })
-        self.logger = logging.getLogger(f"{__name__}.RichListScraper")
-    
-    def scrape_etherscan_rich_list(self, limit: int = 10000) -> List[AddressData]:
-        """Scrape Etherscan rich list with robust parsing for top ETH holders."""
-        addresses = []
-        
-        try:
-            self.logger.info(f"Scraping Etherscan rich list (target: {limit} addresses)...")
-            
-            # Get ETH price for USD conversion
-            eth_price = self.price_service.get_price('ETH')
-            self.logger.info(f"Current ETH price: ${eth_price:,.2f}")
-            
-            # Calculate pages needed (approximately 100 addresses per page)
-            pages_to_scrape = min(100, (limit // 100) + 1)
-            self.logger.info(f"Scraping {pages_to_scrape} pages to target {limit} addresses")
-            
-            for page in range(1, pages_to_scrape + 1):
-                if len(addresses) >= limit:
-                    break
-                    
-                try:
-                    page_addresses = self._scrape_etherscan_page(page, eth_price)
-                    addresses.extend(page_addresses)
-                    
-                    self.logger.info(f"Page {page}: Found {len(page_addresses)} addresses (Total: {len(addresses)})")
-                    
-                    # Respectful rate limiting
-                    time.sleep(1.5)
-                    
-                except Exception as e:
-                    self.logger.warning(f"Failed to scrape Etherscan page {page}: {e}")
+                
+                platform_data = {}
+                
+                if platform.lower() == 'nansen' and file_path.endswith('.csv'):
+                    platform_data = self.data_parser.parse_nansen_whale_report_csv(file_path)
+                elif platform.lower() == 'glassnode' and file_path.endswith('.json'):
+                    platform_data = self.data_parser.parse_glassnode_whale_data_json(file_path)
+                elif platform.lower() == 'arkham' and file_path.endswith('.csv'):
+                    platform_data = self.data_parser.parse_arkham_intelligence_csv(file_path)
+                else:
+                    self.logger.warning(f"Unsupported platform/file type: {platform} - {file_path}")
                     continue
-            
-            self.logger.info(f"Successfully scraped {len(addresses)} addresses from Etherscan rich list")
-            return addresses[:limit]  # Ensure we don't exceed the limit
-            
-        except Exception as e:
-            self.logger.error(f"Failed to scrape Etherscan rich list: {e}")
-            return []
-    
-    def _scrape_etherscan_page(self, page: int, eth_price: float) -> List[AddressData]:
-        """Scrape a single Etherscan accounts page with multiple parsing strategies."""
-        addresses = []
-        
-        try:
-            url = f"https://etherscan.io/accounts/{page}"
-            response = self.session.get(url, timeout=30)
-            response.raise_for_status()
-            
-            soup = BeautifulSoup(response.content, 'html.parser')
-            
-            # Strategy 1: Try to find the main table
-            table = None
-            table_selectors = [
-                'table.table',
-                'table',
-                'div.table-responsive table',
-                '.table-responsive table'
-            ]
-            
-            for selector in table_selectors:
-                table = soup.select_one(selector)
-                if table:
-                    break
-            
-            if not table:
-                self.logger.warning(f"No table found on Etherscan page {page}")
-                return addresses
-            
-            # Strategy 2: Find all rows with flexible detection
-            rows = table.find_all('tr')
-            if len(rows) <= 1:
-                self.logger.warning(f"No data rows found on Etherscan page {page}")
-                return addresses
-            
-            # Skip header row
-            data_rows = rows[1:]
-            
-            for i, row in enumerate(data_rows):
-                try:
-                    address_data = self._parse_etherscan_row(row, page, i + 1, eth_price)
-                    if address_data:
-                        addresses.append(address_data)
-                except Exception as e:
-                    self.logger.debug(f"Failed to parse row {i+1} on page {page}: {e}")
-                    continue
-            
-            return addresses
-            
-        except Exception as e:
-            self.logger.error(f"Error scraping Etherscan page {page}: {e}")
-            return []
-    
-    def _parse_etherscan_row(self, row, page: int, row_index: int, eth_price: float) -> Optional[AddressData]:
-        """Parse a single row from Etherscan with multiple fallback strategies."""
-        try:
-            # Get all cells
-            cells = row.find_all(['td', 'th'])
-            if len(cells) < 2:
-                return None
-            
-            # Strategy 1: Extract address from links
-            address = None
-            name_tag = None
-            
-            for cell in cells:
-                # Look for address links
-                links = cell.find_all('a')
-                for link in links:
-                    href = link.get('href', '')
-                    if '/address/' in href:
-                        addr_candidate = href.split('/address/')[-1].split('?')[0]
-                        if self._is_valid_ethereum_address(addr_candidate):
-                            address = addr_candidate
-                            
-                            # Look for name tag in the same cell
-                            name_spans = cell.find_all('span')
-                            for span in name_spans:
-                                span_class = span.get('class', [])
-                                if any('text-muted' in str(cls) for cls in span_class):
-                                    name_tag = span.get_text(strip=True)
-                            break
                 
-                if address:
-                    break
-            
-            if not address:
-                # Fallback: Use regex to find addresses in row text
-                row_text = row.get_text()
-                import re
-                addr_matches = re.findall(r'0x[a-fA-F0-9]{40}', row_text)
-                if addr_matches:
-                    address = addr_matches[0]
-            
-            if not address:
-                return None
-            
-            # Strategy 2: Extract balance with multiple approaches
-            balance_eth = None
-            
-            # Look for balance in cells
-            for cell in cells:
-                cell_text = cell.get_text(strip=True)
+                # Merge platform data into consolidated results
+                for address, data in platform_data.items():
+                    if address not in all_whale_data:
+                        all_whale_data[address] = {}
+                    all_whale_data[address][f'{platform}_data'] = data
                 
-                # Try to find ETH balance
-                if 'ETH' in cell_text or any(char.isdigit() for char in cell_text):
-                    # Extract numbers from the cell
-                    import re
-                    
-                    # Look for patterns like "123,456.78" or "123456.78"
-                    balance_patterns = [
-                        r'([\d,]+\.?\d*)\s*ETH',  # "123,456.78 ETH"
-                        r'([\d,]+\.?\d*)',        # Just numbers
-                    ]
-                    
-                    for pattern in balance_patterns:
-                        matches = re.findall(pattern, cell_text)
-                        if matches:
-                            try:
-                                balance_str = matches[0].replace(',', '')
-                                balance_eth = float(balance_str)
-                                break
-                            except (ValueError, IndexError):
-                                continue
-                    
-                    if balance_eth is not None:
-                        break
-            
-            # If still no balance found, try to extract from anywhere in the row
-            if balance_eth is None:
-                row_text = row.get_text()
-                import re
-                # Look for any number that could be a balance
-                numbers = re.findall(r'[\d,]+\.?\d*', row_text)
-                for num_str in numbers:
-                    try:
-                        num = float(num_str.replace(',', ''))
-                        # ETH balances for rich list should be substantial
-                        if num > 100:  # Minimum 100 ETH for rich list
-                            balance_eth = num
-                            break
-                    except ValueError:
-                        continue
-            
-            if balance_eth is None or balance_eth <= 0:
-                return None
-            
-            # Calculate USD value
-            balance_usd = balance_eth * eth_price
-            
-            # Determine if this is likely an exchange
-            is_exchange = False
-            if name_tag:
-                exchange_keywords = ['exchange', 'binance', 'coinbase', 'kraken', 'gate.io', 'huobi', 'okx', 'upbit', 'bitfinex']
-                is_exchange = any(keyword in name_tag.lower() for keyword in exchange_keywords)
-            
-            # Calculate rank (approximate)
-            rank = (page - 1) * 100 + row_index
-            
-            return AddressData(
-                address=address,
-                blockchain='ethereum',
-                source_system='Etherscan-RichList',
-                initial_label='exchange' if is_exchange else 'whale',
-                metadata={
-                    'rank': rank,
-                    'balance_eth': balance_eth,
-                    'balance_usd': balance_usd,
-                    'name_tag': name_tag,
-                    'is_exchange': is_exchange,
-                    'detection_method': 'rich_list_scraping',
-                    'source_page': page,
-                    'source_details': f'Etherscan Rich List Page {page}',
-                    'discovered_at': datetime.utcnow().isoformat()
-                },
-                confidence_score=0.95 if not is_exchange else 0.4
-            )
-            
-        except Exception as e:
-            self.logger.debug(f"Error parsing Etherscan row: {e}")
-            return None
-    
-    def scrape_polygonscan_rich_list(self, limit: int = 10000) -> List[AddressData]:
-        """Scrape Polygonscan rich list with robust parsing for top MATIC holders."""
-        addresses = []
-        
-        try:
-            self.logger.info(f"Scraping Polygonscan rich list (target: {limit} addresses)...")
-            
-            # Get MATIC price for USD conversion
-            matic_price = self.price_service.get_price('MATIC')
-            self.logger.info(f"Current MATIC price: ${matic_price:.4f}")
-            
-            # Calculate pages needed
-            pages_to_scrape = min(100, (limit // 100) + 1)
-            self.logger.info(f"Scraping {pages_to_scrape} pages to target {limit} addresses")
-            
-            for page in range(1, pages_to_scrape + 1):
-                if len(addresses) >= limit:
-                    break
-                    
-                try:
-                    page_addresses = self._scrape_polygonscan_page(page, matic_price)
-                    addresses.extend(page_addresses)
-                    
-                    self.logger.info(f"Page {page}: Found {len(page_addresses)} addresses (Total: {len(addresses)})")
-                    
-                    # Respectful rate limiting
-                    time.sleep(1.5)
-                    
-                except Exception as e:
-                    self.logger.warning(f"Failed to scrape Polygonscan page {page}: {e}")
-                    continue
-            
-            self.logger.info(f"Successfully scraped {len(addresses)} addresses from Polygonscan rich list")
-            return addresses[:limit]
-            
-        except Exception as e:
-            self.logger.error(f"Failed to scrape Polygonscan rich list: {e}")
-            return []
-    
-    def _scrape_polygonscan_page(self, page: int, matic_price: float) -> List[AddressData]:
-        """Scrape a single Polygonscan accounts page."""
-        addresses = []
-        
-        try:
-            url = f"https://polygonscan.com/accounts/{page}"
-            response = self.session.get(url, timeout=30)
-            response.raise_for_status()
-            
-            soup = BeautifulSoup(response.content, 'html.parser')
-            
-            # Find table using multiple strategies
-            table = None
-            table_selectors = [
-                'table.table',
-                'table',
-                'div.table-responsive table',
-                '.table-responsive table'
-            ]
-            
-            for selector in table_selectors:
-                table = soup.select_one(selector)
-                if table:
-                    break
-            
-            if not table:
-                self.logger.warning(f"No table found on Polygonscan page {page}")
-                return addresses
-            
-            rows = table.find_all('tr')
-            if len(rows) <= 1:
-                return addresses
-            
-            data_rows = rows[1:]
-            
-            for i, row in enumerate(data_rows):
-                try:
-                    address_data = self._parse_polygonscan_row(row, page, i + 1, matic_price)
-                    if address_data:
-                        addresses.append(address_data)
-                except Exception as e:
-                    self.logger.debug(f"Failed to parse Polygonscan row {i+1} on page {page}: {e}")
-                    continue
-            
-            return addresses
-            
-        except Exception as e:
-            self.logger.error(f"Error scraping Polygonscan page {page}: {e}")
-            return []
-    
-    def _parse_polygonscan_row(self, row, page: int, row_index: int, matic_price: float) -> Optional[AddressData]:
-        """Parse a single row from Polygonscan with fallback strategies."""
-        try:
-            cells = row.find_all(['td', 'th'])
-            if len(cells) < 2:
-                return None
-            
-            # Extract address
-            address = None
-            name_tag = None
-            
-            for cell in cells:
-                links = cell.find_all('a')
-                for link in links:
-                    href = link.get('href', '')
-                    if '/address/' in href:
-                        addr_candidate = href.split('/address/')[-1].split('?')[0]
-                        if self._is_valid_ethereum_address(addr_candidate):
-                            address = addr_candidate
-                            
-                            # Look for name tag
-                            name_spans = cell.find_all('span')
-                            for span in name_spans:
-                                span_class = span.get('class', [])
-                                if any('text-muted' in str(cls) for cls in span_class):
-                                    name_tag = span.get_text(strip=True)
-                            break
-                
-                if address:
-                    break
-            
-            if not address:
-                # Fallback regex
-                row_text = row.get_text()
-                import re
-                addr_matches = re.findall(r'0x[a-fA-F0-9]{40}', row_text)
-                if addr_matches:
-                    address = addr_matches[0]
-            
-            if not address:
-                return None
-            
-            # Extract balance
-            balance_matic = None
-            
-            for cell in cells:
-                cell_text = cell.get_text(strip=True)
-                
-                if 'MATIC' in cell_text or any(char.isdigit() for char in cell_text):
-                    import re
-                    balance_patterns = [
-                        r'([\d,]+\.?\d*)\s*MATIC',
-                        r'([\d,]+\.?\d*)',
-                    ]
-                    
-                    for pattern in balance_patterns:
-                        matches = re.findall(pattern, cell_text)
-                        if matches:
-                            try:
-                                balance_str = matches[0].replace(',', '')
-                                balance_matic = float(balance_str)
-                                break
-                            except (ValueError, IndexError):
-                                continue
-                    
-                    if balance_matic is not None:
-                        break
-            
-            if balance_matic is None:
-                # Try to find any substantial number in the row
-                row_text = row.get_text()
-                import re
-                numbers = re.findall(r'[\d,]+\.?\d*', row_text)
-                for num_str in numbers:
-                    try:
-                        num = float(num_str.replace(',', ''))
-                        if num > 1000:  # Minimum 1000 MATIC for rich list
-                            balance_matic = num
-                            break
-                    except ValueError:
-                        continue
-            
-            if balance_matic is None or balance_matic <= 0:
-                return None
-            
-            balance_usd = balance_matic * matic_price
-            
-            # Check if exchange
-            is_exchange = False
-            if name_tag:
-                exchange_keywords = ['exchange', 'binance', 'coinbase', 'kraken', 'gate.io', 'huobi', 'okx']
-                is_exchange = any(keyword in name_tag.lower() for keyword in exchange_keywords)
-            
-            rank = (page - 1) * 100 + row_index
-            
-            return AddressData(
-                address=address,
-                blockchain='polygon',
-                source_system='Polygonscan-RichList',
-                initial_label='exchange' if is_exchange else 'whale',
-                metadata={
-                    'rank': rank,
-                    'balance_matic': balance_matic,
-                    'balance_usd': balance_usd,
-                    'name_tag': name_tag,
-                    'is_exchange': is_exchange,
-                    'detection_method': 'rich_list_scraping',
-                    'source_page': page,
-                    'source_details': f'Polygonscan Rich List Page {page}',
-                    'discovered_at': datetime.utcnow().isoformat()
-                },
-                confidence_score=0.95 if not is_exchange else 0.4
-            )
-            
-        except Exception as e:
-            self.logger.debug(f"Error parsing Polygonscan row: {e}")
-            return None
-    
-    def _is_valid_ethereum_address(self, address: str) -> bool:
-        """Validate Ethereum address format."""
-        import re
-        return bool(re.match(r'^0x[a-fA-F0-9]{40}$', address))
-
-
-class GitHubWhaleDataCollector:
-    """Advanced GitHub collector for whale addresses from specific repositories."""
-    
-    def __init__(self, github_token: Optional[str] = None):
-        self.github_token = github_token
-        self.session = requests.Session()
-        if github_token:
-            self.session.headers['Authorization'] = f'token {github_token}'
-        self.session.headers['User-Agent'] = 'Whale-Discovery-Agent/1.0'
-        self.logger = logging.getLogger(f"{__name__}.GitHubWhaleDataCollector")
-    
-    def collect_from_repositories(self, repo_targets: List[Dict[str, str]], limit: int = 5000) -> List[AddressData]:
-        """Collect whale addresses from specified GitHub repositories with advanced parsing."""
-        addresses = []
-        
-        # Production repositories with comprehensive whale address data
-        production_targets = [
-            {
-                'repo': 'Pymmdrza/Rich-Address-Wallet',
-                'files': [
-                    # Bitcoin addresses
-                    'BITCOIN/P2PKH.txt.gz',
-                    'BITCOIN/P2SH.txt.gz', 
-                    'BITCOIN/BECH32.txt.gz',
-                    'Bitcoin/ALL.txt',
-                    '30000BTCRichWalletAdd.txt',
-                    '10000BitcoinRichWalletAdd.txt',
-                    
-                    # Ethereum addresses
-                    'ETHEREUM/ALL.txt',
-                    'ETHEREUM/P2PKH.txt.gz',
-                    '10000ETHRichAddress.md',
-                    '10000richAddressETH.txt',
-                    
-                    # Other cryptocurrencies
-                    'LITECOIN/ALL.txt',
-                    'DOGECOIN/ALL.txt',
-                    'DASH/ALL.txt',
-                    'BITCOIN-CASH/ALL.txt',
-                    'TRON/ALL.txt',
-                    'ZCASH/ALL.txt'
-                ],
-                'format': 'mixed'
-            },
-            {
-                'repo': 'Parms-Crypto/SolanaWhaleWatcher', 
-                'files': [
-                    'Holders_Balances_Master.json',
-                    'Holders_Master.json',
-                    'data/whale_addresses.json',
-                    'data/top_holders.json'
-                ],
-                'format': 'json'
-            }
-        ]
-        
-        # Use provided targets or production defaults
-        targets = repo_targets if repo_targets else production_targets
-        
-        self.logger.info(f"Collecting from {len(targets)} GitHub repositories (target: {limit} addresses)")
-        
-        for target in targets:
-            if len(addresses) >= limit:
-                break
-                
-            try:
-                repo_addresses = self._collect_from_single_repo(target, limit - len(addresses))
-                addresses.extend(repo_addresses)
-                self.logger.info(f"Collected {len(repo_addresses)} addresses from {target['repo']} (Total: {len(addresses)})")
-                
-                # Rate limiting
-                time.sleep(1)
+                self.logger.info(f"Processed {len(platform_data)} addresses from {platform}")
                 
             except Exception as e:
-                self.logger.error(f"Failed to collect from repository {target['repo']}: {e}")
+                self.logger.error(f"Failed to process {platform} data from {file_path}: {e}")
                 continue
         
-        self.logger.info(f"Successfully collected {len(addresses)} addresses from GitHub repositories")
-        return addresses[:limit]
-    
-    def _collect_from_single_repo(self, repo_target: Dict[str, str], limit: int) -> List[AddressData]:
-        """Collect addresses from a single GitHub repository."""
-        addresses = []
-        repo_name = repo_target['repo']
-        files = repo_target['files']
-        format_type = repo_target.get('format', 'text_list')
-        
-        self.logger.info(f"Processing repository: {repo_name}")
-        
-        for file_path in files:
-            if len(addresses) >= limit:
-                break
-                
-            try:
-                file_addresses = self._process_github_file(repo_name, file_path, format_type, limit - len(addresses))
-                addresses.extend(file_addresses)
-                
-                if file_addresses:
-                    self.logger.info(f"  {file_path}: {len(file_addresses)} addresses")
-                
-                # Rate limiting between file requests
-                time.sleep(0.5)
-                
-            except Exception as e:
-                self.logger.warning(f"Failed to process {repo_name}/{file_path}: {e}")
-                continue
-        
-        return addresses
-    
-    def _process_github_file(self, repo_name: str, file_path: str, format_type: str, limit: int) -> List[AddressData]:
-        """Process a single file from GitHub repository with format detection."""
-        addresses = []
-        
-        try:
-            # Get file content
-            content = self._download_github_file(repo_name, file_path)
-            if not content:
-                return addresses
-            
-            # Determine blockchain from file path/name
-            blockchain = self._detect_blockchain_from_path(file_path)
-            
-            # Parse based on file format
-            if file_path.endswith('.gz'):
-                addresses = self._parse_gzipped_file(content, blockchain, file_path, limit)
-            elif file_path.endswith('.json'):
-                addresses = self._parse_json_file(content, blockchain, file_path, limit)
-            elif file_path.endswith('.md'):
-                addresses = self._parse_markdown_file(content, blockchain, file_path, limit)
-            else:
-                addresses = self._parse_text_file(content, blockchain, file_path, limit)
-            
-            # Add metadata to all addresses
-            for addr in addresses:
-                addr.metadata.update({
-                    'github_metadata': {
-                        'repo': repo_name,
-                        'file': file_path,
-                        'format': format_type
-                    },
-                    'source_details': f'GitHub-{repo_name}/{file_path}',
-                    'discovered_at': datetime.utcnow().isoformat()
-                })
-            
-            return addresses
-            
-        except Exception as e:
-            self.logger.error(f"Error processing GitHub file {repo_name}/{file_path}: {e}")
-            return []
-    
-    def _download_github_file(self, repo_name: str, file_path: str) -> Optional[bytes]:
-        """Download file content from GitHub repository."""
-        try:
-            # Try multiple URL formats
-            urls = [
-                f"https://raw.githubusercontent.com/{repo_name}/main/{file_path}",
-                f"https://raw.githubusercontent.com/{repo_name}/master/{file_path}",
-                f"https://api.github.com/repos/{repo_name}/contents/{file_path}"
-            ]
-            
-            for url in urls:
-                try:
-                    response = self.session.get(url, timeout=30)
-                    if response.status_code == 200:
-                        # If it's API response, decode base64 content
-                        if 'api.github.com' in url:
-                            import base64
-                            content_data = response.json()
-                            if content_data.get('content'):
-                                return base64.b64decode(content_data['content'])
-                        else:
-                            return response.content
-                except Exception as e:
-                    self.logger.debug(f"Failed to download from {url}: {e}")
-                    continue
-            
-            self.logger.warning(f"Could not download {repo_name}/{file_path} from any URL")
-            return None
-            
-        except Exception as e:
-            self.logger.error(f"Error downloading {repo_name}/{file_path}: {e}")
-            return None
-    
-    def _detect_blockchain_from_path(self, file_path: str) -> str:
-        """Detect blockchain type from file path."""
-        file_path_lower = file_path.lower()
-        
-        if 'bitcoin' in file_path_lower or 'btc' in file_path_lower:
-            return 'bitcoin'
-        elif 'ethereum' in file_path_lower or 'eth' in file_path_lower:
-            return 'ethereum'
-        elif 'litecoin' in file_path_lower or 'ltc' in file_path_lower:
-            return 'litecoin'
-        elif 'dogecoin' in file_path_lower or 'doge' in file_path_lower:
-            return 'dogecoin'
-        elif 'dash' in file_path_lower:
-            return 'dash'
-        elif 'bitcoin-cash' in file_path_lower or 'bch' in file_path_lower:
-            return 'bitcoin-cash'
-        elif 'tron' in file_path_lower or 'trx' in file_path_lower:
-            return 'tron'
-        elif 'zcash' in file_path_lower or 'zec' in file_path_lower:
-            return 'zcash'
-        elif 'solana' in file_path_lower or 'sol' in file_path_lower:
-            return 'solana'
-        elif 'polygon' in file_path_lower or 'matic' in file_path_lower:
-            return 'polygon'
-        else:
-            return 'unknown'
-    
-    def _parse_gzipped_file(self, content: bytes, blockchain: str, file_path: str, limit: int) -> List[AddressData]:
-        """Parse gzipped text files containing addresses."""
-        addresses = []
-        
-        try:
-            import gzip
-            # Decompress the content
-            decompressed = gzip.decompress(content)
-            text_content = decompressed.decode('utf-8', errors='ignore')
-            
-            # Parse as text file
-            addresses = self._parse_text_content(text_content, blockchain, file_path, limit)
-            
-        except Exception as e:
-            self.logger.error(f"Error parsing gzipped file {file_path}: {e}")
-        
-        return addresses
-    
-    def _parse_text_file(self, content: bytes, blockchain: str, file_path: str, limit: int) -> List[AddressData]:
-        """Parse plain text files containing addresses."""
-        try:
-            text_content = content.decode('utf-8', errors='ignore')
-            return self._parse_text_content(text_content, blockchain, file_path, limit)
-        except Exception as e:
-            self.logger.error(f"Error parsing text file {file_path}: {e}")
-            return []
-    
-    def _parse_text_content(self, text_content: str, blockchain: str, file_path: str, limit: int) -> List[AddressData]:
-        """Parse text content for cryptocurrency addresses."""
-        addresses = []
-        
-        try:
-            lines = text_content.split('\n')
-            
-            for i, line in enumerate(lines):
-                if len(addresses) >= limit:
-                    break
-                
-                line = line.strip()
-                if not line or line.startswith('#'):
-                    continue
-                
-                # Extract address using patterns
-                address = self._extract_address_from_line(line, blockchain)
-                
-                if address:
-                    # Try to extract balance if present in the line
-                    balance_native, balance_usd = self._extract_balance_from_line(line, blockchain)
-                    
-                    addresses.append(AddressData(
-                        address=address,
-                        blockchain=blockchain,
-                        source_system='GitHub-Repository',
-                        initial_label='whale',
-                        metadata={
-                            'line_number': i + 1,
-                            'balance_native': balance_native,
-                            'balance_usd': balance_usd,
-                            'detection_method': 'github_repository_parsing',
-                            'address_type': self._get_address_type(address, blockchain, file_path)
-                        },
-                        confidence_score=0.8
-                    ))
-            
-        except Exception as e:
-            self.logger.error(f"Error parsing text content from {file_path}: {e}")
-        
-        return addresses
-    
-    def _parse_json_file(self, content: bytes, blockchain: str, file_path: str, limit: int) -> List[AddressData]:
-        """Parse JSON files containing address data."""
-        addresses = []
-        
-        try:
-            text_content = content.decode('utf-8', errors='ignore')
-            data = json.loads(text_content)
-            
-            # Handle different JSON structures
-            if isinstance(data, dict):
-                # Handle nested JSON structures
-                for key, value in data.items():
-                    if len(addresses) >= limit:
-                        break
-                    
-                    if isinstance(value, dict):
-                        address = self._extract_address_from_dict(value, blockchain)
-                        if address:
-                            addresses.append(self._create_address_data_from_dict(address, value, blockchain, file_path))
-                    elif isinstance(value, str):
-                        address = self._extract_address_from_line(value, blockchain)
-                        if address:
-                            addresses.append(AddressData(
-                                address=address,
-                                blockchain=blockchain,
-                                source_system='GitHub-Repository',
-                                initial_label='whale',
-                                metadata={
-                                    'json_key': key,
-                                    'detection_method': 'github_repository_parsing'
-                                },
-                                confidence_score=0.8
-                            ))
-            
-            elif isinstance(data, list):
-                for i, item in enumerate(data):
-                    if len(addresses) >= limit:
-                        break
-                    
-                    if isinstance(item, dict):
-                        address = self._extract_address_from_dict(item, blockchain)
-                        if address:
-                            addresses.append(self._create_address_data_from_dict(address, item, blockchain, file_path))
-                    elif isinstance(item, str):
-                        address = self._extract_address_from_line(item, blockchain)
-                        if address:
-                            addresses.append(AddressData(
-                                address=address,
-                                blockchain=blockchain,
-                                source_system='GitHub-Repository',
-                                initial_label='whale',
-                                metadata={
-                                    'array_index': i,
-                                    'detection_method': 'github_repository_parsing'
-                                },
-                                confidence_score=0.8
-                            ))
-            
-        except json.JSONDecodeError as e:
-            self.logger.error(f"Invalid JSON in {file_path}: {e}")
-        except Exception as e:
-            self.logger.error(f"Error parsing JSON file {file_path}: {e}")
-        
-        return addresses
-    
-    def _parse_markdown_file(self, content: bytes, blockchain: str, file_path: str, limit: int) -> List[AddressData]:
-        """Parse markdown files that may contain addresses in code blocks or lists."""
-        addresses = []
-        
-        try:
-            text_content = content.decode('utf-8', errors='ignore')
-            lines = text_content.split('\n')
-            
-            for i, line in enumerate(lines):
-                if len(addresses) >= limit:
-                    break
-                
-                line = line.strip()
-                if not line:
-                    continue
-                
-                # Extract address from markdown content
-                address = self._extract_address_from_line(line, blockchain)
-                
-                if address:
-                    addresses.append(AddressData(
-                        address=address,
-                        blockchain=blockchain,
-                        source_system='GitHub-Repository',
-                        initial_label='whale',
-                        metadata={
-                            'line_number': i + 1,
-                            'detection_method': 'github_repository_parsing',
-                            'source_format': 'markdown'
-                        },
-                        confidence_score=0.75
-                    ))
-            
-        except Exception as e:
-            self.logger.error(f"Error parsing markdown file {file_path}: {e}")
-        
-        return addresses
-    
-    def _extract_address_from_line(self, line: str, blockchain: str) -> Optional[str]:
-        """Extract cryptocurrency address from a text line."""
-        import re
-        
-        # Define address patterns for different blockchains
-        patterns = {
-            'bitcoin': [
-                r'\b[13][a-km-zA-HJ-NP-Z1-9]{25,34}\b',  # Legacy (P2PKH, P2SH)
-                r'\bbc1[a-zA-HJ-NP-Z0-9]{39,59}\b'       # Bech32
-            ],
-            'ethereum': [r'\b0x[a-fA-F0-9]{40}\b'],
-            'litecoin': [r'\b[LM3][a-km-zA-HJ-NP-Z1-9]{26,33}\b'],
-            'dogecoin': [r'\bD[5-9A-HJ-NP-U][1-9A-HJ-NP-Za-km-z]{32}\b'],
-            'dash': [r'\bX[1-9A-HJ-NP-Za-km-z]{33}\b'],
-            'bitcoin-cash': [r'\b[13][a-km-zA-HJ-NP-Z1-9]{25,34}\b'],
-            'tron': [r'\bT[A-Za-z1-9]{33}\b'],
-            'zcash': [r'\bt1[a-zA-Z0-9]{62}\b'],
-            'solana': [r'\b[1-9A-HJ-NP-Za-km-z]{32,44}\b'],
-            'polygon': [r'\b0x[a-fA-F0-9]{40}\b']
-        }
-        
-        # Try blockchain-specific patterns first
-        if blockchain in patterns:
-            for pattern in patterns[blockchain]:
-                matches = re.findall(pattern, line)
-                if matches:
-                    return matches[0]
-        
-        # Fallback: try all patterns
-        for blockchain_type, blockchain_patterns in patterns.items():
-            for pattern in blockchain_patterns:
-                matches = re.findall(pattern, line)
-                if matches:
-                    return matches[0]
-        
-        return None
-    
-    def _extract_address_from_dict(self, data: dict, blockchain: str) -> Optional[str]:
-        """Extract address from a dictionary object."""
-        # Common field names for addresses
-        address_fields = ['address', 'wallet', 'account', 'pubkey', 'owner', 'holder']
-        
-        for field in address_fields:
-            if field in data:
-                address_candidate = str(data[field])
-                # Validate the address
-                address = self._extract_address_from_line(address_candidate, blockchain)
-                if address:
-                    return address
-        
-        # If no direct field, search all string values
-        for key, value in data.items():
-            if isinstance(value, str):
-                address = self._extract_address_from_line(value, blockchain)
-                if address:
-                    return address
-        
-        return None
-    
-    def _create_address_data_from_dict(self, address: str, data: dict, blockchain: str, file_path: str) -> AddressData:
-        """Create AddressData from dictionary with extracted metadata."""
-        
-        # Extract balance information
-        balance_native = None
-        balance_usd = None
-        
-        balance_fields = ['balance', 'amount', 'value', 'holdings', 'tokens']
-        for field in balance_fields:
-            if field in data:
-                try:
-                    balance_native = float(data[field])
-                    break
-                except (ValueError, TypeError):
-                    continue
-        
-        # Extract label/name information
-        label = 'whale'
-        name_fields = ['name', 'label', 'tag', 'entity']
-        for field in name_fields:
-            if field in data and data[field]:
-                label = str(data[field])
-                break
-        
-        return AddressData(
-            address=address,
-            blockchain=blockchain,
-            source_system='GitHub-Repository',
-            initial_label=label,
-            metadata={
-                'balance_native': balance_native,
-                'balance_usd': balance_usd,
-                'detection_method': 'github_repository_parsing',
-                'json_data': data,
-                'source_format': 'json'
-            },
-            confidence_score=0.85
-        )
-    
-    def _extract_balance_from_line(self, line: str, blockchain: str) -> tuple:
-        """Extract balance information from a text line."""
-        import re
-        
-        balance_native = None
-        balance_usd = None
-        
-        # Look for balance patterns
-        balance_patterns = [
-            r'(\d+\.?\d*)\s*BTC',
-            r'(\d+\.?\d*)\s*ETH', 
-            r'(\d+\.?\d*)\s*MATIC',
-            r'(\d+\.?\d*)\s*SOL',
-            r'\$(\d+\.?\d*)',
-            r'(\d+,?\d*\.?\d*)\s*USD'
-        ]
-        
-        for pattern in balance_patterns:
-            matches = re.findall(pattern, line)
-            if matches:
-                try:
-                    value = float(matches[0].replace(',', ''))
-                    if '$' in pattern or 'USD' in pattern:
-                        balance_usd = value
-                    else:
-                        balance_native = value
-                    break
-                except ValueError:
-                    continue
-        
-        return balance_native, balance_usd
-    
-    def _get_address_type(self, address: str, blockchain: str, file_path: str) -> str:
-        """Determine address type from patterns and file path."""
-        if 'P2PKH' in file_path:
-            return 'P2PKH'
-        elif 'P2SH' in file_path:
-            return 'P2SH'
-        elif 'BECH32' in file_path:
-            return 'BECH32'
-        elif blockchain == 'bitcoin':
-            if address.startswith('1'):
-                return 'P2PKH'
-            elif address.startswith('3'):
-                return 'P2SH'
-            elif address.startswith('bc1'):
-                return 'BECH32'
-        elif blockchain in ['ethereum', 'polygon']:
-            return 'EOA'  # Assume EOA unless determined otherwise
-        
-        return 'unknown'
-
-
-class ComprehensiveWhaleDiscovery:
-    """Comprehensive whale discovery system using multiple sources."""
-    
-    def __init__(self, api_keys: Dict[str, str], test_mode: bool = False):
-        self.api_keys = api_keys
-        self.test_mode = test_mode
-        self.price_service = PriceService()
-        self.rich_list_scraper = RichListScraper(self.price_service)
-        self.github_collector = GitHubWhaleDataCollector(api_keys.get('github_token'))
-        
-        # Initialize Dune Analytics if API key available
-        self.dune_analytics = None
-        dune_key = api_keys.get('dune') or api_keys.get('dune_api_key') or api_keys.get('DUNE_API_KEY')
-        if dune_key:
-            try:
-                self.dune_analytics = DuneAnalyticsAPI(dune_key)
-                logger.info("Dune Analytics API initialized successfully")
-            except Exception as e:
-                logger.warning(f"Failed to initialize Dune Analytics: {e}")
-        else:
-            logger.info("Dune Analytics API key not found - will use mock data")
-        
-        self.stats = {
-            'total_from_etherscan': 0,
-            'total_from_polygonscan': 0,
-            'total_from_github': 0,
-            'total_from_dune': 0,
-            'total_collected': 0
-        }
-        
-        logger.info("🔍 Comprehensive whale discovery system initialized")
-    
-    def discover_whale_addresses(self, limit_per_source: int = 5000) -> List[AddressData]:
-        """Discover whale addresses from all available sources."""
-        all_addresses = []
-        
-        # Adjust limits for test mode
-        if self.test_mode:
-            limit_per_source = 5
-            logger.info("🧪 Test mode enabled - using minimal limits")
-        
-        try:
-            # 1. Scrape Etherscan rich list
-            logger.info("📊 Scraping Etherscan rich list...")
-            etherscan_addresses = self.rich_list_scraper.scrape_etherscan_rich_list(limit_per_source)
-            all_addresses.extend(etherscan_addresses)
-            self.stats['total_from_etherscan'] = len(etherscan_addresses)
-            
-            # 2. Scrape Polygonscan rich list
-            logger.info("📊 Scraping Polygonscan rich list...")
-            polygonscan_addresses = self.rich_list_scraper.scrape_polygonscan_rich_list(limit_per_source)
-            all_addresses.extend(polygonscan_addresses)
-            self.stats['total_from_polygonscan'] = len(polygonscan_addresses)
-            
-            # 3. Collect from GitHub repositories
-            logger.info("📁 Collecting from GitHub repositories...")
-            github_addresses = self.github_collector.collect_from_repositories([], limit_per_source)
-            all_addresses.extend(github_addresses)
-            self.stats['total_from_github'] = len(github_addresses)
-            
-            # 4. Fetch from Dune Analytics
-            if self.dune_analytics:
-                logger.info("📈 Fetching from Dune Analytics...")
-                # Common whale query IDs (example IDs, replace with actual productive queries)
-                whale_query_ids = [1234567, 2345678, 3456789] if not self.test_mode else [1234567]
-                dune_addresses = []
-                
-                for query_id in whale_query_ids:
-                    try:
-                        query_addresses = self.dune_analytics.get_whale_addresses_from_query(query_id, limit_per_source)
-                        dune_addresses.extend(query_addresses)
-                    except Exception as e:
-                        logger.warning(f"Failed to fetch from Dune query {query_id}: {e}")
-                
-                all_addresses.extend(dune_addresses)
-                self.stats['total_from_dune'] = len(dune_addresses)
-            else:
-                logger.info("📈 Dune Analytics not available - generating mock whale data...")
-                # Generate mock Dune data for testing
-                mock_dune_addresses = []
-                mock_count = 5 if self.test_mode else 20
-                
-                for i in range(mock_count):
-                    mock_dune_addresses.append(AddressData(
-                        address=f"0xddddddddddddddddddddddddddddddddddddddd{i:02d}",
-                        blockchain='ethereum',
-                        source_system='Dune-Query-TestMode',
-                        initial_label='whale',
-                        metadata={
-                            'balance_usd': 2000000 + i * 300000,
-                            'dune_query_id': 'mock',
-                            'whale_score': 0.85,
-                            'transaction_count': 1000 + i * 100,
-                            'detection_method': 'dune_analytics',
-                            'mock_data': True
-                        },
-                        confidence_score=0.85
-                    ))
-                
-                all_addresses.extend(mock_dune_addresses)
-                self.stats['total_from_dune'] = len(mock_dune_addresses)
-            
-            # Remove duplicates while preserving order
-            unique_addresses = []
-            seen_addresses = set()
-            
-            for addr in all_addresses:
-                if addr.address.lower() not in seen_addresses:
-                    unique_addresses.append(addr)
-                    seen_addresses.add(addr.address.lower())
-            
-            self.stats['total_collected'] = len(unique_addresses)
-            
-            logger.info(f"🎯 Comprehensive discovery complete: {len(unique_addresses)} unique whale addresses")
-            self._print_discovery_stats()
-            
-            return unique_addresses
-            
-        except Exception as e:
-            logger.error(f"Comprehensive whale discovery failed: {e}")
-            return []
-    
-    def _print_discovery_stats(self):
-        """Print detailed discovery statistics."""
-        logger.info("📊 Whale Discovery Statistics:")
-        logger.info(f"  • Etherscan: {self.stats['total_from_etherscan']} addresses")
-        logger.info(f"  • Polygonscan: {self.stats['total_from_polygonscan']} addresses")
-        logger.info(f"  • GitHub: {self.stats['total_from_github']} addresses")
-        logger.info(f"  • Dune Analytics: {self.stats['total_from_dune']} addresses")
-        logger.info(f"  • Total Unique: {self.stats['total_collected']} addresses")
+        self.logger.info(f"Collected whale data for {len(all_whale_data)} unique addresses from manual analytics files")
+        return all_whale_data 

@@ -24,25 +24,42 @@ ADMIN_API_KEY = "dev_key"  # Replace with a secure key in production
 WHALE_ALERT_API_KEY = "Kj7GlLsRpxoCBz1zZBINUUqBCgDFdHyV"
 ETHERSCAN_API_KEY = "QY23IJ4D4EJTGFQNSNJHAD4G1IUEQYUJTN"
 NEWS_API_KEY = "b7c1fdbffb8842f18a495bf8d32df7cf"
-DUNE_API_KEY = "BDG2PbmFAQIRLgfhZyXxrQ1P5t8LU8EK"
+DUNE_API_KEY = "OMOjlnPKwqG1OiLvZ4bTcs3V6EYX9ymF"  # Updated Dune Analytics API key for whale discovery
 BITQUERY_API_KEY = "ory_at_1z07_FgKYYRlTvrAaUzSxTdelBd--L-IyVTM3LGxbho.SCYADMgS1bCW_xNTI-wh_i049B8DjgpI5OeCjb3TXOo"
 HELIUS_API_KEY = "0bd8a69e-4bd7-4557-b4c6-1240a2185b6b"
 
+# CoinGecko API for price feeds (free tier)
+COINGECKO_API_KEY = ""  # Optional - free tier works without key, pro tier for rate limits
+
 # New API keys for address enrichment service integrations
-COVALENT_API_KEY = "cqt_rQfrBY93cfvpfwYDMKXwYjTXJppC"  # Goldrush API key for Covalent
+COVALENT_API_KEY = "cqt_rQXf9VhrW3xBvgHXH8wxTrqdVRw7"  # Goldrush API key for Covalent
 MORALIS_API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJub25jZSI6ImYyZDdiMTI1LWU1NWEtNGI1Yi05MTU3LWE3MDVjZDdhNGViMyIsIm9yZ0lkIjoiNDQzMDI5IiwidXNlcklkIjoiNDU1ODE5IiwidHlwZUlkIjoiZWNiYmYxZTUtNDhjNS00MjcwLWFiODgtMDA3ZWYzMThkYzZkIiwidHlwZSI6IlBST0pFQ1QiLCJpYXQiOjE3NDUyMzQ5NTksImV4cCI6NDkwMDk5NDk1OX0.Ot3EhOWatv_PSYYBoo57OhoEHqhErYIwcIuU_SR-zoo"
 QUICKNODE_API_KEY = "fbc432f872c1649d2ed5c1ccaa63fc4a4584ab6b"
 THEGRAPH_API_KEY = "your_thegraph_api_key"  # Replace with actual key
 SOLSCAN_API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjcmVhdGVkQXQiOjE3NDUyNzAzODkyODMsImVtYWlsIjoiZWR1YXJkb3NhbmNoZXo0ODQ4QGdtYWlsLmNvbSIsImFjdGlvbiI6InRva2VuLWFwaSIsImFwaVZlcnNpb24iOiJ2MiIsImlhdCI6MTc0NTI3MDM4OX0.UN-p-bPdediy-wNtLKcrKQ1U1wwKmdrlZMWPgHgaLcU"
 POLYGONSCAN_API_KEY = "67NMD5V4YSB972TDG26AEIH4TFUUF7DTCP"  # Polygonscan API key
 
+# Blockfrost API (Cardano)
+BLOCKFROST_PROJECT_ID = "mainnetTPHK50nzvdXBP1nlyV3h2FtqoTjTAzMb"
+
+# Blockstream API (Bitcoin, Liquid - Note: Public Esplora API usually doesn't require keys)
+# These might be for a specific Blockstream service or commercial offering.
+BLOCKSTREAM_SONAR_CLIENT_ID = "ffafe2ed-2ade-4a42-bdad-3a5628d38885"
+BLOCKSTREAM_SONAR_CLIENT_SECRET = "olPDXrbyC1mmnDGeW7ndyJ7gIaDJ4ydD"
+
 # Supabase Configuration
 SUPABASE_URL = "https://fwbwfvqzomipoftgodof.supabase.co"
 SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ3YndmdnF6b21pcG9mdGdvZG9mIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDc5Mjc3MzMsImV4cCI6MjA2MzUwMzczM30.Fw0Ejr7yrMRjP1WFXjSnJxwNQUe8O_Dzhv96E1OvEl8"
-SUPABASE_SERVICE_ROLE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ3YndmdnF6b21pcG9mdGdvZG9mIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0NzkyNzczMywiZXhwIjoyMDYzNTAzNzMzfQ.Ej8Ej7yrMRjP1WFXjSnJxwNQUe8O_Dzhv96E1OvEl8"
+SUPABASE_SERVICE_ROLE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ3YndmdnF6b21pcG9mdGdvZG9mIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0NzkyNzczMywiZXhwIjoyMDYzNTAzNzMzfQ.L2e_VICxQ_aumt8KmvJaClwK4W2rQLA1QZ3EfvdVYXM"
 
 # Google Cloud Configuration
 GOOGLE_APPLICATION_CREDENTIALS = "gcp-service-account-key.json"  # Path to BigQuery service account JSON
+
+# Direct ETL Provider URIs (for ethereum-etl and bitcoin-etl)
+# These are loaded from environment variables for security
+import os
+ETHEREUM_NODE_PROVIDER_URI = os.getenv('ETHEREUM_NODE_PROVIDER_URI', '')  # Infura, Alchemy, or local node
+BITCOIN_NODE_PROVIDER_URI = os.getenv('BITCOIN_NODE_PROVIDER_URI', '')    # Local node or RPC endpoint
 
 # Construct URLs that depend on API keys
 WHALE_WS_URL = f"wss://leviathan.whale-alert.io/ws?api_key={WHALE_ALERT_API_KEY}"

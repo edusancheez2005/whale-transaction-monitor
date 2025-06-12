@@ -767,6 +767,536 @@ class EllipticPlusPlusExtractor(GitHubRepositoryExtractor):
             self.cleanup()
 
 
+class WhaleWatchingExtractor(GitHubRepositoryExtractor):
+    """Extractor for 0x4A42/whale-watching repository."""
+    
+    def __init__(self):
+        super().__init__("https://github.com/0x4A42/whale-watching")
+    
+    def extract_addresses(self) -> List[GitHubAddressData]:
+        """Extract whale addresses from whale-watching repository."""
+        addresses = []
+        
+        try:
+            self.clone_repository()
+            
+            # Look for data files containing whale addresses
+            data_files = []
+            for root, dirs, files in os.walk(self.repo_path):
+                for file in files:
+                    if any(ext in file.lower() for ext in ['.json', '.csv', '.txt', 'whale', 'address']):
+                        data_files.append(os.path.join(root, file))
+            
+            for data_file in data_files:
+                try:
+                    if data_file.endswith('.json'):
+                        with open(data_file, 'r', encoding='utf-8') as f:
+                            data = json.load(f)
+                        
+                        def process_json_whales(obj, path=""):
+                            if isinstance(obj, dict):
+                                for key, value in obj.items():
+                                    if key.lower() in ['address', 'wallet', 'account'] and isinstance(value, str):
+                                        if value.startswith('0x') and len(value) == 42:
+                                            addresses.append(GitHubAddressData(
+                                                address=value,
+                                                blockchain='ethereum',
+                                                source_system='whale_watching_repo',
+                                                initial_label='whale_tracker',
+                                                repository_url=self.repo_url,
+                                                metadata={
+                                                    'source_file': os.path.basename(data_file),
+                                                    'whale_type': obj.get('type', 'unknown'),
+                                                    'balance': obj.get('balance', 'unknown'),
+                                                    'json_path': f"{path}.{key}" if path else key
+                                                }
+                                            ))
+                                    elif isinstance(value, (dict, list)):
+                                        process_json_whales(value, f"{path}.{key}" if path else key)
+                            elif isinstance(obj, list):
+                                for i, item in enumerate(obj):
+                                    process_json_whales(item, f"{path}[{i}]")
+                        
+                        process_json_whales(data)
+                    
+                    elif data_file.endswith('.csv'):
+                        df = pd.read_csv(data_file)
+                        
+                        address_cols = ['address', 'wallet', 'account', 'eth_address']
+                        balance_cols = ['balance', 'amount', 'value', 'eth_balance']
+                        label_cols = ['label', 'type', 'category', 'name']
+                        
+                        address_col = None
+                        balance_col = None
+                        label_col = None
+                        
+                        for col in address_cols:
+                            if col in df.columns:
+                                address_col = col
+                                break
+                        
+                        for col in balance_cols:
+                            if col in df.columns:
+                                balance_col = col
+                                break
+                        
+                        for col in label_cols:
+                            if col in df.columns:
+                                label_col = col
+                                break
+                        
+                        if address_col:
+                            for _, row in df.iterrows():
+                                address = str(row[address_col]).strip()
+                                
+                                if address.startswith('0x') and len(address) == 42:
+                                    label = 'whale_tracker'
+                                    if label_col:
+                                        label = str(row[label_col])
+                                    
+                                    balance = None
+                                    if balance_col:
+                                        try:
+                                            balance = float(row[balance_col])
+                                        except:
+                                            balance = str(row[balance_col])
+                                    
+                                    addresses.append(GitHubAddressData(
+                                        address=address,
+                                        blockchain='ethereum',
+                                        source_system='whale_watching_repo',
+                                        initial_label=label,
+                                        repository_url=self.repo_url,
+                                        metadata={
+                                            'source_file': os.path.basename(data_file),
+                                            'balance': balance,
+                                            'row_data': row.to_dict()
+                                        }
+                                    ))
+                
+                except Exception as e:
+                    self.logger.error(f"Failed to process file {data_file}: {e}")
+                    continue
+            
+            self.logger.info(f"Extracted {len(addresses)} addresses from whale-watching")
+            return addresses
+            
+        except Exception as e:
+            self.logger.error(f"Failed to extract from whale-watching: {e}")
+            return []
+        finally:
+            self.cleanup()
+
+
+class EthereumETLExtractor(GitHubRepositoryExtractor):
+    """Extractor for blockchain-etl/ethereum-etl-airflow repository."""
+    
+    def __init__(self):
+        super().__init__("https://github.com/blockchain-etl/ethereum-etl-airflow")
+    
+    def extract_addresses(self) -> List[GitHubAddressData]:
+        """Extract addresses from ethereum-etl-airflow repository config files."""
+        addresses = []
+        
+        try:
+            self.clone_repository()
+            
+            # Look for configuration files with addresses
+            config_files = []
+            for root, dirs, files in os.walk(self.repo_path):
+                for file in files:
+                    if any(ext in file.lower() for ext in ['.json', '.yaml', '.yml', 'config', 'address']):
+                        config_files.append(os.path.join(root, file))
+            
+            for config_file in config_files:
+                try:
+                    if config_file.endswith('.json'):
+                        with open(config_file, 'r', encoding='utf-8') as f:
+                            data = json.load(f)
+                        
+                        def extract_addresses_from_config(obj, path=""):
+                            if isinstance(obj, dict):
+                                for key, value in obj.items():
+                                    if isinstance(value, str) and value.startswith('0x') and len(value) == 42:
+                                        addresses.append(GitHubAddressData(
+                                            address=value,
+                                            blockchain='ethereum',
+                                            source_system='ethereum_etl_repo',
+                                            initial_label='etl_tracked',
+                                            repository_url=self.repo_url,
+                                            metadata={
+                                                'source_file': os.path.basename(config_file),
+                                                'config_key': key,
+                                                'json_path': f"{path}.{key}" if path else key
+                                            }
+                                        ))
+                                    elif isinstance(value, (dict, list)):
+                                        extract_addresses_from_config(value, f"{path}.{key}" if path else key)
+                            elif isinstance(obj, list):
+                                for i, item in enumerate(obj):
+                                    if isinstance(item, str) and item.startswith('0x') and len(item) == 42:
+                                        addresses.append(GitHubAddressData(
+                                            address=item,
+                                            blockchain='ethereum',
+                                            source_system='ethereum_etl_repo',
+                                            initial_label='etl_tracked',
+                                            repository_url=self.repo_url,
+                                            metadata={
+                                                'source_file': os.path.basename(config_file),
+                                                'list_index': i,
+                                                'json_path': f"{path}[{i}]"
+                                            }
+                                        ))
+                                    elif isinstance(item, (dict, list)):
+                                        extract_addresses_from_config(item, f"{path}[{i}]")
+                        
+                        extract_addresses_from_config(data)
+                
+                except Exception as e:
+                    self.logger.error(f"Failed to process config file {config_file}: {e}")
+                    continue
+            
+            self.logger.info(f"Extracted {len(addresses)} addresses from ethereum-etl-airflow")
+            return addresses
+            
+        except Exception as e:
+            self.logger.error(f"Failed to extract from ethereum-etl-airflow: {e}")
+            return []
+        finally:
+            self.cleanup()
+
+
+class DefiLlamaExtractor(GitHubRepositoryExtractor):
+    """Extractor for DefiLlama/defillama-server repository."""
+    
+    def __init__(self):
+        super().__init__("https://github.com/DefiLlama/defillama-server")
+    
+    def extract_addresses(self) -> List[GitHubAddressData]:
+        """Extract whale and protocol addresses from defillama-server."""
+        addresses = []
+        
+        try:
+            self.clone_repository()
+            
+            # Look for protocol and whale data files
+            data_files = []
+            for root, dirs, files in os.walk(self.repo_path):
+                for file in files:
+                    if any(keyword in file.lower() for keyword in ['protocol', 'whale', 'address', 'tvl', 'treasury']):
+                        if file.endswith(('.json', '.js', '.ts')):
+                            data_files.append(os.path.join(root, file))
+            
+            for data_file in data_files:
+                try:
+                    content = ""
+                    with open(data_file, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                    
+                    # Extract Ethereum addresses using regex
+                    import re
+                    eth_addresses = re.findall(r'0x[a-fA-F0-9]{40}', content)
+                    
+                    for address in set(eth_addresses):  # Remove duplicates
+                        # Determine label based on file context
+                        label = 'defi_protocol'
+                        if 'whale' in data_file.lower():
+                            label = 'defi_whale'
+                        elif 'treasury' in data_file.lower():
+                            label = 'protocol_treasury'
+                        elif 'token' in data_file.lower():
+                            label = 'token_contract'
+                        
+                        addresses.append(GitHubAddressData(
+                            address=address,
+                            blockchain='ethereum',
+                            source_system='defillama_repo',
+                            initial_label=label,
+                            repository_url=self.repo_url,
+                            metadata={
+                                'source_file': os.path.basename(data_file),
+                                'file_context': os.path.dirname(data_file).split('/')[-1],
+                                'extraction_method': 'regex'
+                            }
+                        ))
+                
+                except Exception as e:
+                    self.logger.error(f"Failed to process DeFiLlama file {data_file}: {e}")
+                    continue
+            
+            self.logger.info(f"Extracted {len(addresses)} addresses from defillama-server")
+            return addresses
+            
+        except Exception as e:
+            self.logger.error(f"Failed to extract from defillama-server: {e}")
+            return []
+        finally:
+            self.cleanup()
+
+
+class ArkhamTokenListsExtractor(GitHubRepositoryExtractor):
+    """Extractor for ArkhamIntel/token-lists repository."""
+    
+    def __init__(self):
+        super().__init__("https://github.com/ArkhamIntel/token-lists")
+    
+    def extract_addresses(self) -> List[GitHubAddressData]:
+        """Extract tagged addresses from Arkham token lists."""
+        addresses = []
+        
+        try:
+            self.clone_repository()
+            
+            # Look for token list files
+            list_files = []
+            for root, dirs, files in os.walk(self.repo_path):
+                for file in files:
+                    if file.endswith(('.json', '.csv')) and any(keyword in file.lower() for keyword in ['token', 'list', 'whale', 'exchange']):
+                        list_files.append(os.path.join(root, file))
+            
+            for list_file in list_files:
+                try:
+                    if list_file.endswith('.json'):
+                        with open(list_file, 'r', encoding='utf-8') as f:
+                            data = json.load(f)
+                        
+                        def process_token_list(obj, path=""):
+                            if isinstance(obj, dict):
+                                if 'address' in obj and isinstance(obj['address'], str):
+                                    address = obj['address']
+                                    if address.startswith('0x') and len(address) == 42:
+                                        label = obj.get('name', obj.get('symbol', obj.get('tag', 'arkham_tagged')))
+                                        
+                                        addresses.append(GitHubAddressData(
+                                            address=address,
+                                            blockchain='ethereum',
+                                            source_system='arkham_token_lists',
+                                            initial_label=str(label),
+                                            repository_url=self.repo_url,
+                                            metadata={
+                                                'source_file': os.path.basename(list_file),
+                                                'symbol': obj.get('symbol'),
+                                                'name': obj.get('name'),
+                                                'tags': obj.get('tags', []),
+                                                'json_path': path
+                                            }
+                                        ))
+                                
+                                for key, value in obj.items():
+                                    if isinstance(value, (dict, list)):
+                                        process_token_list(value, f"{path}.{key}" if path else key)
+                            
+                            elif isinstance(obj, list):
+                                for i, item in enumerate(obj):
+                                    process_token_list(item, f"{path}[{i}]")
+                        
+                        process_token_list(data)
+                    
+                    elif list_file.endswith('.csv'):
+                        df = pd.read_csv(list_file)
+                        
+                        address_col = None
+                        label_col = None
+                        
+                        for col in ['address', 'contract_address', 'token_address']:
+                            if col in df.columns:
+                                address_col = col
+                                break
+                        
+                        for col in ['name', 'symbol', 'label', 'tag']:
+                            if col in df.columns:
+                                label_col = col
+                                break
+                        
+                        if address_col:
+                            for _, row in df.iterrows():
+                                address = str(row[address_col]).strip()
+                                
+                                if address.startswith('0x') and len(address) == 42:
+                                    label = 'arkham_tagged'
+                                    if label_col:
+                                        label = str(row[label_col])
+                                    
+                                    addresses.append(GitHubAddressData(
+                                        address=address,
+                                        blockchain='ethereum',
+                                        source_system='arkham_token_lists',
+                                        initial_label=label,
+                                        repository_url=self.repo_url,
+                                        metadata={
+                                            'source_file': os.path.basename(list_file),
+                                            'row_data': row.to_dict()
+                                        }
+                                    ))
+                
+                except Exception as e:
+                    self.logger.error(f"Failed to process token list file {list_file}: {e}")
+                    continue
+            
+            self.logger.info(f"Extracted {len(addresses)} addresses from Arkham token-lists")
+            return addresses
+            
+        except Exception as e:
+            self.logger.error(f"Failed to extract from Arkham token-lists: {e}")
+            return []
+        finally:
+            self.cleanup()
+
+
+class ExplorerLabelsExtractor(GitHubRepositoryExtractor):
+    """Extractor for 0xtracker/explorer-labels repository."""
+    
+    def __init__(self):
+        super().__init__("https://github.com/0xtracker/explorer-labels")
+    
+    def extract_addresses(self) -> List[GitHubAddressData]:
+        """Extract labeled addresses from explorer-labels repository."""
+        addresses = []
+        
+        try:
+            self.clone_repository()
+            
+            # Look for label files
+            label_files = []
+            for root, dirs, files in os.walk(self.repo_path):
+                for file in files:
+                    if file.endswith(('.json', '.csv', '.yml', '.yaml')):
+                        label_files.append(os.path.join(root, file))
+            
+            for label_file in label_files:
+                try:
+                    if label_file.endswith('.json'):
+                        with open(label_file, 'r', encoding='utf-8') as f:
+                            data = json.load(f)
+                        
+                        def extract_labeled_addresses(obj, path=""):
+                            if isinstance(obj, dict):
+                                # Check if this is an address entry
+                                if 'address' in obj and 'label' in obj:
+                                    address = obj['address']
+                                    if address.startswith('0x') and len(address) == 42:
+                                        addresses.append(GitHubAddressData(
+                                            address=address,
+                                            blockchain='ethereum',
+                                            source_system='explorer_labels_repo',
+                                            initial_label=obj['label'],
+                                            repository_url=self.repo_url,
+                                            metadata={
+                                                'source_file': os.path.basename(label_file),
+                                                'category': obj.get('category', 'unknown'),
+                                                'type': obj.get('type', 'unknown'),
+                                                'json_path': path
+                                            }
+                                        ))
+                                
+                                # Also check if the key is an address and value is a label
+                                for key, value in obj.items():
+                                    if key.startswith('0x') and len(key) == 42 and isinstance(value, str):
+                                        addresses.append(GitHubAddressData(
+                                            address=key,
+                                            blockchain='ethereum',
+                                            source_system='explorer_labels_repo',
+                                            initial_label=value,
+                                            repository_url=self.repo_url,
+                                            metadata={
+                                                'source_file': os.path.basename(label_file),
+                                                'json_path': f"{path}.{key}" if path else key
+                                            }
+                                        ))
+                                    elif isinstance(value, (dict, list)):
+                                        extract_labeled_addresses(value, f"{path}.{key}" if path else key)
+                            
+                            elif isinstance(obj, list):
+                                for i, item in enumerate(obj):
+                                    extract_labeled_addresses(item, f"{path}[{i}]")
+                        
+                        extract_labeled_addresses(data)
+                
+                except Exception as e:
+                    self.logger.error(f"Failed to process label file {label_file}: {e}")
+                    continue
+            
+            self.logger.info(f"Extracted {len(addresses)} addresses from explorer-labels")
+            return addresses
+            
+        except Exception as e:
+            self.logger.error(f"Failed to extract from explorer-labels: {e}")
+            return []
+        finally:
+            self.cleanup()
+
+
+class EthereumWhaleWatcherExtractor(GitHubRepositoryExtractor):
+    """Extractor for je-suis-tm/ethereum_whale_watcher repository."""
+    
+    def __init__(self):
+        super().__init__("https://github.com/je-suis-tm/ethereum_whale_watcher")
+    
+    def extract_addresses(self) -> List[GitHubAddressData]:
+        """Extract whale addresses from ethereum_whale_watcher scripts and data."""
+        addresses = []
+        
+        try:
+            self.clone_repository()
+            
+            # Look for Python scripts and data files
+            whale_files = []
+            for root, dirs, files in os.walk(self.repo_path):
+                for file in files:
+                    if any(ext in file for ext in ['.py', '.json', '.csv', '.txt']) and 'whale' in file.lower():
+                        whale_files.append(os.path.join(root, file))
+            
+            for whale_file in whale_files:
+                try:
+                    with open(whale_file, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                    
+                    # Extract Ethereum addresses using regex
+                    import re
+                    eth_addresses = re.findall(r'0x[a-fA-F0-9]{40}', content)
+                    
+                    for address in set(eth_addresses):  # Remove duplicates
+                        # Try to extract context around the address
+                        context_match = re.search(rf'.{{0,50}}{re.escape(address)}.{{0,50}}', content)
+                        context = context_match.group(0) if context_match else ""
+                        
+                        # Determine label based on context
+                        label = 'whale_watcher'
+                        if 'exchange' in context.lower():
+                            label = 'exchange'
+                        elif 'whale' in context.lower():
+                            label = 'whale'
+                        elif 'contract' in context.lower():
+                            label = 'contract'
+                        
+                        addresses.append(GitHubAddressData(
+                            address=address,
+                            blockchain='ethereum',
+                            source_system='ethereum_whale_watcher_repo',
+                            initial_label=label,
+                            repository_url=self.repo_url,
+                            metadata={
+                                'source_file': os.path.basename(whale_file),
+                                'context': context.strip(),
+                                'file_type': whale_file.split('.')[-1],
+                                'extraction_method': 'regex'
+                            }
+                        ))
+                
+                except Exception as e:
+                    self.logger.error(f"Failed to process whale file {whale_file}: {e}")
+                    continue
+            
+            self.logger.info(f"Extracted {len(addresses)} addresses from ethereum_whale_watcher")
+            return addresses
+            
+        except Exception as e:
+            self.logger.error(f"Failed to extract from ethereum_whale_watcher: {e}")
+            return []
+        finally:
+            self.cleanup()
+
+
 class GitHubDataManager:
     """Manager class to coordinate all GitHub repository extractions."""
     
@@ -781,7 +1311,13 @@ class GitHubDataManager:
             'ofac_addresses': OFACAddressesExtractor(),
             'ens_twitter': ENSTwitterExtractor(),
             'sybil_list': SybilListExtractor(),
-            'elliptic_plus_plus': EllipticPlusPlusExtractor()
+            'elliptic_plus_plus': EllipticPlusPlusExtractor(),
+            'whale_watching': WhaleWatchingExtractor(),
+            'ethereum_etl': EthereumETLExtractor(),
+            'defillama': DefiLlamaExtractor(),
+            'arkham_token_lists': ArkhamTokenListsExtractor(),
+            'explorer_labels': ExplorerLabelsExtractor(),
+            'ethereum_whale_watcher': EthereumWhaleWatcherExtractor()
         }
     
     def extract_all_repositories(self) -> List[GitHubAddressData]:

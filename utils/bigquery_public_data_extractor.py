@@ -1,11 +1,18 @@
 """
-BigQuery Public Data Extractor - Phase 3: Advanced Heuristics & Post-Processing
+BigQuery Public Data Extractor - Comprehensive Whale Discovery Enhancement
 
 This module extracts blockchain address data from Google BigQuery's public datasets
-with advanced SQL query patterns for identifying exchanges, whales, and DeFi interactions.
+with advanced SQL query patterns for identifying whales across multiple chains.
 
-Author: Address Collector System
-Version: 3.0.0 (Phase 3 - Advanced BigQuery Heuristics)
+Enhanced with:
+- High balance whale detection (>$1M USD)
+- High volume transaction analysis (>10 txs of $100K+ USD)
+- Recent activity filtering (last 90 days)
+- Cross-chain whale analysis
+- Confidence scoring based on multiple criteria
+
+Author: Whale Discovery System  
+Version: 4.0.0 (Comprehensive Whale Discovery)
 """
 
 import logging
@@ -13,12 +20,105 @@ from abc import ABC, abstractmethod
 from typing import Dict, List, Optional, Any, Tuple
 from datetime import datetime, timedelta
 from google.cloud import bigquery
+import asyncio
 
 # Import the AddressData class from api_integrations
 from .api_integrations import AddressData
 
 # Configure logging
 logger = logging.getLogger(__name__)
+
+
+class ComprehensiveWhaleDetector:
+    """Enhanced whale detection with multi-criteria analysis and confidence scoring."""
+    
+    # Token contract addresses for major tokens (for value calculation)
+    MAJOR_TOKENS = {
+        'ethereum': {
+            'USDT': '0xdAC17F958D2ee523a2206206994597C13D831ec7',
+            'USDC': '0xA0b86a33E6441e6C7d3E4081f7567b0b2b2b8b0a',
+            'WBTC': '0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599',
+            'DAI': '0x6B175474E89094C44Da98b954EedeAC495271d0F',
+            'UNI': '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984'
+        },
+        'polygon': {
+            'USDT': '0xc2132D05D31c914a87C6611C10748AEb04B58e8F',
+            'USDC': '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174',
+            'WMATIC': '0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270'
+        }
+    }
+    
+    # ETH/USD price cache (simplified - in production should use real price feeds)
+    APPROXIMATE_PRICES = {
+        'ETH': 3000,  # ~$3000 USD
+        'BTC': 45000,  # ~$45000 USD
+        'MATIC': 0.8,  # ~$0.80 USD
+        'SOL': 100,  # ~$100 USD
+        'AVAX': 35,  # ~$35 USD
+        'ARB': 1.2,  # ~$1.20 USD
+        'OP': 2.5   # ~$2.50 USD
+    }
+    
+    @staticmethod
+    def calculate_confidence_score(balance_usd: float, tx_count: int, max_tx_usd: float, 
+                                 days_since_last_activity: int, cross_chain_presence: bool = False) -> float:
+        """
+        Calculate confidence score based on multiple whale criteria.
+        
+        Scoring factors:
+        - Balance magnitude (0.0-0.4)
+        - Transaction frequency (0.0-0.2) 
+        - Transaction size (0.0-0.2)
+        - Recent activity (0.0-0.1)
+        - Cross-chain presence bonus (0.0-0.1)
+        
+        Returns: Score between 0.7-1.0 for whale candidates
+        """
+        score = 0.7  # Base score for meeting minimum criteria
+        
+        # Balance magnitude score (up to 0.3 points)
+        if balance_usd >= 10_000_000:  # $10M+
+            score += 0.3
+        elif balance_usd >= 5_000_000:  # $5M+
+            score += 0.25
+        elif balance_usd >= 2_000_000:  # $2M+
+            score += 0.15
+        elif balance_usd >= 1_000_000:  # $1M+
+            score += 0.1
+        
+        # Transaction frequency score (up to 0.1 points)
+        if tx_count >= 1000:
+            score += 0.1
+        elif tx_count >= 500:
+            score += 0.08
+        elif tx_count >= 100:
+            score += 0.05
+        elif tx_count >= 50:
+            score += 0.03
+        
+        # Transaction size score (up to 0.1 points)
+        if max_tx_usd >= 10_000_000:  # $10M+ single tx
+            score += 0.1
+        elif max_tx_usd >= 1_000_000:  # $1M+ single tx
+            score += 0.08
+        elif max_tx_usd >= 500_000:  # $500K+ single tx
+            score += 0.05
+        elif max_tx_usd >= 100_000:  # $100K+ single tx
+            score += 0.03
+        
+        # Recent activity score (up to 0.05 points)
+        if days_since_last_activity <= 7:
+            score += 0.05
+        elif days_since_last_activity <= 30:
+            score += 0.03
+        elif days_since_last_activity <= 90:
+            score += 0.02
+        
+        # Cross-chain presence bonus (up to 0.05 points)
+        if cross_chain_presence:
+            score += 0.05
+        
+        return min(1.0, score)
 
 
 class BigQueryPublicDatasetExtractorBase(ABC):
@@ -28,11 +128,12 @@ class BigQueryPublicDatasetExtractorBase(ABC):
         self.bigquery_client = bigquery_client
         self.project_id = project_id
         self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
+        self.whale_detector = ComprehensiveWhaleDetector()
     
     def _execute_query(self, query: str, job_config: Optional[bigquery.QueryJobConfig] = None) -> List[Dict]:
         """Execute a BigQuery SQL query and return results as a list of dictionaries."""
         try:
-            self.logger.info(f"Executing BigQuery query: {query[:100]}...")
+            self.logger.info(f"Executing BigQuery query: {query[:200]}...")
             
             if job_config is None:
                 job_config = bigquery.QueryJobConfig()
@@ -55,159 +156,742 @@ class BigQueryPublicDatasetExtractorBase(ABC):
     def extract_addresses(self, limit_per_query: int = 5000) -> List[AddressData]:
         """Extract addresses from the public dataset. Must be implemented by subclasses."""
         pass
+    
+    def extract_whale_addresses(self, limit_per_query: int = 5000) -> List[AddressData]:
+        """Extract whale addresses using comprehensive criteria."""
+        whale_addresses = []
+        
+        # Get high balance whales
+        high_balance_whales = self._get_high_balance_whales(limit_per_query)
+        whale_addresses.extend(high_balance_whales)
+        
+        # Get high volume transaction whales
+        high_volume_whales = self._get_high_volume_whales(limit_per_query)
+        whale_addresses.extend(high_volume_whales)
+        
+        # Get recently active whales
+        recent_active_whales = self._get_recent_active_whales(limit_per_query)
+        whale_addresses.extend(recent_active_whales)
+        
+        return whale_addresses
 
 
 class EthereumPublicDataExtractor(BigQueryPublicDatasetExtractorBase):
-    """Extracts addresses from bigquery-public-data.crypto_ethereum dataset."""
+    """Enhanced Ethereum whale extractor with comprehensive detection criteria."""
     
     def extract_addresses(self, limit_per_query: int = 5000) -> List[AddressData]:
-        """Extract high-activity Ethereum addresses from public dataset."""
-        addresses = []
-        
-        try:
-            # Get EOAs with high recent activity
-            eoa_addresses = self._get_high_activity_eoas(limit_per_query)
-            addresses.extend(eoa_addresses)
-            
-            # Get smart contracts with high recent interaction
-            contract_addresses = self._get_active_contracts(limit_per_query)
-            addresses.extend(contract_addresses)
-            
-            self.logger.info(f"Extracted {len(addresses)} total addresses from Ethereum public dataset")
-            return addresses
-            
-        except Exception as e:
-            self.logger.error(f"Failed to extract Ethereum addresses: {e}")
-            return []
+        """Extract whale addresses from Ethereum public dataset using enhanced criteria."""
+        return self.extract_whale_addresses(limit_per_query)
     
-    def _get_high_activity_eoas(self, limit: int) -> List[AddressData]:
-        """Get Externally Owned Accounts with high recent activity (last 30-90 days)."""
+    def _get_high_balance_whales(self, limit: int) -> List[AddressData]:
+        """Get Ethereum addresses with current balance > $1M USD."""
         addresses = []
         
         try:
-            # Calculate date range for last 60 days (compromise between 30-90)
-            end_date = datetime.utcnow()
-            start_date = end_date - timedelta(days=60)
+            # Calculate current ETH price for USD conversion
+            eth_price_usd = self.whale_detector.APPROXIMATE_PRICES['ETH']
+            min_eth_balance = 1_000_000 / eth_price_usd  # ~333 ETH for $1M
             
             query = f"""
-            WITH address_activity AS (
+            WITH current_balances AS (
                 SELECT 
                     address,
+                    SUM(CAST(value AS NUMERIC) / 1e18) as total_eth_balance,
                     COUNT(*) as tx_count,
-                    SUM(CAST(value AS NUMERIC) / 1e18) as total_value_eth
+                    MAX(TIMESTAMP_DIFF(CURRENT_TIMESTAMP(), block_timestamp, DAY)) as days_since_last_activity
                 FROM (
-                    SELECT from_address as address, value, block_timestamp
+                    -- Incoming transactions
+                    SELECT 
+                        to_address as address, 
+                        value, 
+                        block_timestamp
                     FROM `bigquery-public-data.crypto_ethereum.transactions`
-                    WHERE block_timestamp >= TIMESTAMP('{start_date.isoformat()}')
-                      AND block_timestamp <= TIMESTAMP('{end_date.isoformat()}')
-                      AND from_address IS NOT NULL
-                      AND from_address != ''
+                    WHERE to_address IS NOT NULL 
+                      AND to_address != ''
+                      AND block_timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 2 YEAR)
                     
                     UNION ALL
                     
-                    SELECT to_address as address, value, block_timestamp
+                    -- Outgoing transactions (negative value)
+                    SELECT 
+                        from_address as address, 
+                        -CAST(value AS NUMERIC) as value,
+                        block_timestamp
                     FROM `bigquery-public-data.crypto_ethereum.transactions`
-                    WHERE block_timestamp >= TIMESTAMP('{start_date.isoformat()}')
-                      AND block_timestamp <= TIMESTAMP('{end_date.isoformat()}')
-                      AND to_address IS NOT NULL
-                      AND to_address != ''
-                      AND to_address NOT IN (
-                          SELECT address FROM `bigquery-public-data.crypto_ethereum.contracts`
-                          WHERE address IS NOT NULL
-                      )
+                    WHERE from_address IS NOT NULL 
+                      AND from_address != ''
+                      AND block_timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 2 YEAR)
                 )
                 GROUP BY address
-                HAVING tx_count >= 50  -- Minimum 50 transactions
+                HAVING total_eth_balance >= {min_eth_balance}
+                  AND days_since_last_activity <= 90  -- Active in last 90 days
+            ),
+            whale_candidates AS (
+                SELECT 
+                    cb.*,
+                    cb.total_eth_balance * {eth_price_usd} as balance_usd,
+                    -- Get max transaction size
+                    (SELECT MAX(CAST(value AS NUMERIC) / 1e18 * {eth_price_usd})
+                     FROM `bigquery-public-data.crypto_ethereum.transactions` t
+                     WHERE (t.from_address = cb.address OR t.to_address = cb.address)
+                       AND t.block_timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 1 YEAR)
+                    ) as max_tx_usd
+                FROM current_balances cb
             )
             SELECT 
                 address,
+                total_eth_balance,
+                balance_usd,
                 tx_count,
-                total_value_eth
-            FROM address_activity
-            ORDER BY tx_count DESC, total_value_eth DESC
+                days_since_last_activity,
+                max_tx_usd
+            FROM whale_candidates
+            WHERE balance_usd >= 1000000  -- Minimum $1M USD
+            ORDER BY balance_usd DESC
             LIMIT {limit}
             """
             
             results = self._execute_query(query)
             
             for row in results:
+                confidence_score = self.whale_detector.calculate_confidence_score(
+                    balance_usd=float(row['balance_usd'] or 0),
+                    tx_count=int(row['tx_count'] or 0),
+                    max_tx_usd=float(row['max_tx_usd'] or 0),
+                    days_since_last_activity=int(row['days_since_last_activity'] or 999)
+                )
+                
                 addresses.append(AddressData(
                     address=row['address'],
                     blockchain='ethereum',
-                    source_system='bq_public_ethereum_eoa',
-                    initial_label=f"High Activity EOA (ETH Public Data: {row['tx_count']} txs)",
+                    source_system='BigQuery-Ethereum',
+                    initial_label='whale',
                     metadata={
-                        'tx_count': row['tx_count'],
-                        'total_value_eth': float(row['total_value_eth']) if row['total_value_eth'] else 0.0,
-                        'query_type': 'eoa_activity',
-                        'date_range_days': 60
+                        'balance_eth': float(row['total_eth_balance'] or 0),
+                        'balance_usd': float(row['balance_usd'] or 0),
+                        'tx_count': int(row['tx_count'] or 0),
+                        'max_tx_usd': float(row['max_tx_usd'] or 0),
+                        'days_since_last_activity': int(row['days_since_last_activity'] or 999),
+                        'detection_method': 'high_balance',
+                        'last_active': (datetime.utcnow() - timedelta(days=int(row['days_since_last_activity'] or 999))).isoformat()
                     },
-                    confidence_score=0.65
+                    confidence_score=confidence_score
                 ))
             
-            self.logger.info(f"Extracted {len(addresses)} high-activity EOAs")
+            self.logger.info(f"Extracted {len(addresses)} high-balance Ethereum whales")
             return addresses
             
         except Exception as e:
-            self.logger.error(f"Failed to get high-activity EOAs: {e}")
+            self.logger.error(f"Failed to get high-balance Ethereum whales: {e}")
             return []
     
-    def _get_active_contracts(self, limit: int) -> List[AddressData]:
-        """Get smart contracts with high recent interaction (last 30-90 days)."""
+    def _get_high_volume_whales(self, limit: int) -> List[AddressData]:
+        """Get addresses involved in >10 transactions ≥ $100K USD."""
         addresses = []
         
         try:
-            # Calculate date range for last 60 days
-            end_date = datetime.utcnow()
-            start_date = end_date - timedelta(days=60)
+            eth_price_usd = self.whale_detector.APPROXIMATE_PRICES['ETH']
+            min_tx_eth = 100_000 / eth_price_usd  # ~33 ETH for $100K
             
             query = f"""
-            WITH contract_activity AS (
+            WITH high_value_tx_addresses AS (
                 SELECT 
-                    c.address,
-                    COUNT(t.hash) as interaction_count,
-                    SUM(CAST(t.value AS NUMERIC) / 1e18) as total_value_received_eth
-                FROM `bigquery-public-data.crypto_ethereum.contracts` c
-                JOIN `bigquery-public-data.crypto_ethereum.transactions` t
-                    ON c.address = t.to_address
-                WHERE t.block_timestamp >= TIMESTAMP('{start_date.isoformat()}')
-                  AND t.block_timestamp <= TIMESTAMP('{end_date.isoformat()}')
-                  AND c.address IS NOT NULL
-                  AND c.address != ''
-                GROUP BY c.address
-                HAVING interaction_count >= 100  -- Minimum 100 interactions
+                    address,
+                    COUNT(*) as high_value_tx_count,
+                    SUM(tx_value_usd) as total_volume_usd,
+                    MAX(tx_value_usd) as max_tx_usd,
+                    MAX(TIMESTAMP_DIFF(CURRENT_TIMESTAMP(), block_timestamp, DAY)) as days_since_last_activity
+                FROM (
+                    -- From addresses (senders)
+                    SELECT 
+                        from_address as address,
+                        CAST(value AS NUMERIC) / 1e18 * {eth_price_usd} as tx_value_usd,
+                        block_timestamp
+                    FROM `bigquery-public-data.crypto_ethereum.transactions`
+                    WHERE from_address IS NOT NULL 
+                      AND from_address != ''
+                      AND CAST(value AS NUMERIC) / 1e18 >= {min_tx_eth}
+                      AND block_timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 1 YEAR)
+                    
+                    UNION ALL
+                    
+                    -- To addresses (receivers)
+                    SELECT 
+                        to_address as address,
+                        CAST(value AS NUMERIC) / 1e18 * {eth_price_usd} as tx_value_usd,
+                        block_timestamp
+                    FROM `bigquery-public-data.crypto_ethereum.transactions`
+                    WHERE to_address IS NOT NULL 
+                      AND to_address != ''
+                      AND CAST(value AS NUMERIC) / 1e18 >= {min_tx_eth}
+                      AND block_timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 1 YEAR)
+                )
+                GROUP BY address
+                HAVING high_value_tx_count >= 10  -- Minimum 10 high-value transactions
+                  AND total_volume_usd >= 1000000  -- Minimum $1M total volume
+                  AND days_since_last_activity <= 90  -- Active in last 90 days
             )
             SELECT 
                 address,
-                interaction_count,
-                total_value_received_eth
-            FROM contract_activity
-            ORDER BY interaction_count DESC
+                high_value_tx_count as tx_count,
+                total_volume_usd,
+                max_tx_usd,
+                days_since_last_activity
+            FROM high_value_tx_addresses
+            ORDER BY total_volume_usd DESC
             LIMIT {limit}
             """
             
             results = self._execute_query(query)
             
             for row in results:
+                confidence_score = self.whale_detector.calculate_confidence_score(
+                    balance_usd=float(row['total_volume_usd'] or 0) * 0.1,  # Estimate balance as 10% of volume
+                    tx_count=int(row['tx_count'] or 0),
+                    max_tx_usd=float(row['max_tx_usd'] or 0),
+                    days_since_last_activity=int(row['days_since_last_activity'] or 999)
+                )
+                
                 addresses.append(AddressData(
                     address=row['address'],
                     blockchain='ethereum',
-                    source_system='bq_public_ethereum_contract',
-                    initial_label=f"Active Contract (ETH Public Data: {row['interaction_count']} interactions)",
+                    source_system='BigQuery-Ethereum',
+                    initial_label='whale',
                     metadata={
-                        'interaction_count': row['interaction_count'],
-                        'total_value_received_eth': float(row['total_value_received_eth']) if row['total_value_received_eth'] else 0.0,
-                        'query_type': 'contract_activity',
-                        'date_range_days': 60
+                        'tx_volume_usd': float(row['total_volume_usd'] or 0),
+                        'tx_count': int(row['tx_count'] or 0),
+                        'max_tx_usd': float(row['max_tx_usd'] or 0),
+                        'days_since_last_activity': int(row['days_since_last_activity'] or 999),
+                        'detection_method': 'high_volume',
+                        'last_active': (datetime.utcnow() - timedelta(days=int(row['days_since_last_activity'] or 999))).isoformat()
                     },
-                    confidence_score=0.70
+                    confidence_score=confidence_score
                 ))
             
-            self.logger.info(f"Extracted {len(addresses)} active contracts")
+            self.logger.info(f"Extracted {len(addresses)} high-volume Ethereum whales")
             return addresses
             
         except Exception as e:
-            self.logger.error(f"Failed to get active contracts: {e}")
+            self.logger.error(f"Failed to get high-volume Ethereum whales: {e}")
+            return []
+    
+    def _get_recent_active_whales(self, limit: int) -> List[AddressData]:
+        """Get recently active addresses with significant value movement."""
+        addresses = []
+        
+        try:
+            eth_price_usd = self.whale_detector.APPROXIMATE_PRICES['ETH']
+            
+            query = f"""
+            WITH recent_whale_activity AS (
+                SELECT 
+                    address,
+                    COUNT(*) as recent_tx_count,
+                    SUM(tx_value_usd) as recent_volume_usd,
+                    MAX(tx_value_usd) as max_recent_tx_usd,
+                    MIN(TIMESTAMP_DIFF(CURRENT_TIMESTAMP(), block_timestamp, DAY)) as days_since_last_activity
+                FROM (
+                    SELECT 
+                        from_address as address,
+                        CAST(value AS NUMERIC) / 1e18 * {eth_price_usd} as tx_value_usd,
+                        block_timestamp
+                    FROM `bigquery-public-data.crypto_ethereum.transactions`
+                    WHERE from_address IS NOT NULL 
+                      AND from_address != ''
+                      AND block_timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 90 DAY)
+                      AND CAST(value AS NUMERIC) / 1e18 > 1  -- > 1 ETH transactions
+                    
+                    UNION ALL
+                    
+                    SELECT 
+                        to_address as address,
+                        CAST(value AS NUMERIC) / 1e18 * {eth_price_usd} as tx_value_usd,
+                        block_timestamp
+                    FROM `bigquery-public-data.crypto_ethereum.transactions`
+                    WHERE to_address IS NOT NULL 
+                      AND to_address != ''
+                      AND block_timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 90 DAY)
+                      AND CAST(value AS NUMERIC) / 1e18 > 1  -- > 1 ETH transactions
+                )
+                GROUP BY address
+                HAVING recent_volume_usd >= 500000  -- Minimum $500K recent volume
+                  AND recent_tx_count >= 20  -- Minimum 20 recent transactions
+                  AND days_since_last_activity <= 7  -- Active in last week
+            )
+            SELECT 
+                address,
+                recent_tx_count as tx_count,
+                recent_volume_usd,
+                max_recent_tx_usd,
+                days_since_last_activity
+            FROM recent_whale_activity
+            ORDER BY recent_volume_usd DESC
+            LIMIT {limit}
+            """
+            
+            results = self._execute_query(query)
+            
+            for row in results:
+                confidence_score = self.whale_detector.calculate_confidence_score(
+                    balance_usd=float(row['recent_volume_usd'] or 0) * 0.2,  # Estimate balance as 20% of recent volume
+                    tx_count=int(row['tx_count'] or 0),
+                    max_tx_usd=float(row['max_recent_tx_usd'] or 0),
+                    days_since_last_activity=int(row['days_since_last_activity'] or 999)
+                )
+                
+                addresses.append(AddressData(
+                    address=row['address'],
+                    blockchain='ethereum',
+                    source_system='BigQuery-Ethereum',
+                    initial_label='whale',
+                    metadata={
+                        'recent_volume_usd': float(row['recent_volume_usd'] or 0),
+                        'tx_count': int(row['tx_count'] or 0),
+                        'max_recent_tx_usd': float(row['max_recent_tx_usd'] or 0),
+                        'days_since_last_activity': int(row['days_since_last_activity'] or 999),
+                        'detection_method': 'recent_activity',
+                        'last_active': (datetime.utcnow() - timedelta(days=int(row['days_since_last_activity'] or 999))).isoformat()
+                    },
+                    confidence_score=confidence_score
+                ))
+            
+            self.logger.info(f"Extracted {len(addresses)} recently active Ethereum whales")
+            return addresses
+            
+        except Exception as e:
+            self.logger.error(f"Failed to get recently active Ethereum whales: {e}")
+            return []
+
+
+class SolanaPublicDataExtractor(BigQueryPublicDatasetExtractorBase):
+    """Solana whale extractor using Flipside BigQuery data."""
+    
+    def extract_addresses(self, limit_per_query: int = 5000) -> List[AddressData]:
+        """Extract whale addresses from Solana using Flipside dataset."""
+        addresses = []
+        
+        try:
+            sol_price_usd = self.whale_detector.APPROXIMATE_PRICES['SOL']
+            min_sol_balance = 1_000_000 / sol_price_usd  # ~10,000 SOL for $1M
+            
+            query = f"""
+            WITH solana_balances AS (
+                SELECT 
+                    account,
+                    SUM(amount) / 1e9 as total_sol_balance,
+                    COUNT(*) as tx_count,
+                    MAX(block_timestamp) as last_activity
+                FROM `flipside.crypto_solana.transactions`
+                WHERE block_timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 1 YEAR)
+                  AND account IS NOT NULL
+                GROUP BY account
+                HAVING total_sol_balance >= {min_sol_balance}
+                  AND TIMESTAMP_DIFF(CURRENT_TIMESTAMP(), last_activity, DAY) <= 90
+            )
+            SELECT 
+                account as address,
+                total_sol_balance,
+                total_sol_balance * {sol_price_usd} as balance_usd,
+                tx_count,
+                TIMESTAMP_DIFF(CURRENT_TIMESTAMP(), last_activity, DAY) as days_since_last_activity
+            FROM solana_balances
+            WHERE total_sol_balance * {sol_price_usd} >= 1000000
+            ORDER BY balance_usd DESC
+            LIMIT {limit_per_query}
+            """
+            
+            results = self._execute_query(query)
+            
+            for row in results:
+                confidence_score = self.whale_detector.calculate_confidence_score(
+                    balance_usd=row['balance_usd'],
+                    tx_count=row['tx_count'],
+                    max_tx_usd=row['balance_usd'] * 0.1,  # Estimate max tx as 10% of balance
+                    days_since_last_activity=row['days_since_last_activity']
+                )
+                
+                addresses.append(AddressData(
+                    address=row['address'],
+                    blockchain='solana',
+                    source_system='BigQuery-Solana-Flipside',
+                    initial_label='whale',
+                    confidence_score=confidence_score,
+                    metadata={
+                        'balance_sol': row['total_sol_balance'],
+                        'balance_usd': row['balance_usd'],
+                        'tx_count': row['tx_count'],
+                        'days_since_last_activity': row['days_since_last_activity'],
+                        'detection_method': 'high_balance_solana'
+                    }
+                ))
+            
+            self.logger.info(f"Extracted {len(addresses)} Solana whale addresses")
+            return addresses
+            
+        except Exception as e:
+            self.logger.error(f"Failed to extract Solana whale addresses: {e}")
+            return []
+
+
+class PolygonPublicDataExtractor(BigQueryPublicDatasetExtractorBase):
+    """Polygon whale extractor using public BigQuery data."""
+    
+    def extract_addresses(self, limit_per_query: int = 5000) -> List[AddressData]:
+        """Extract whale addresses from Polygon dataset."""
+        addresses = []
+        
+        try:
+            matic_price_usd = self.whale_detector.APPROXIMATE_PRICES['MATIC']
+            min_matic_balance = 1_000_000 / matic_price_usd  # ~1.25M MATIC for $1M
+            
+            query = f"""
+            WITH polygon_balances AS (
+                SELECT 
+                    address,
+                    SUM(CAST(value AS NUMERIC) / 1e18) as total_matic_balance,
+                    COUNT(*) as tx_count,
+                    MAX(block_timestamp) as last_activity
+                FROM (
+                    SELECT 
+                        to_address as address, 
+                        value, 
+                        block_timestamp
+                    FROM `bigquery-public-data.crypto_polygon.transactions`
+                    WHERE to_address IS NOT NULL 
+                      AND block_timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 1 YEAR)
+                    
+                    UNION ALL
+                    
+                    SELECT 
+                        from_address as address, 
+                        -CAST(value AS NUMERIC) as value,
+                        block_timestamp
+                    FROM `bigquery-public-data.crypto_polygon.transactions`
+                    WHERE from_address IS NOT NULL 
+                      AND block_timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 1 YEAR)
+                )
+                GROUP BY address
+                HAVING total_matic_balance >= {min_matic_balance}
+                  AND TIMESTAMP_DIFF(CURRENT_TIMESTAMP(), last_activity, DAY) <= 90
+            )
+            SELECT 
+                address,
+                total_matic_balance,
+                total_matic_balance * {matic_price_usd} as balance_usd,
+                tx_count,
+                TIMESTAMP_DIFF(CURRENT_TIMESTAMP(), last_activity, DAY) as days_since_last_activity
+            FROM polygon_balances
+            WHERE total_matic_balance * {matic_price_usd} >= 1000000
+            ORDER BY balance_usd DESC
+            LIMIT {limit_per_query}
+            """
+            
+            results = self._execute_query(query)
+            
+            for row in results:
+                confidence_score = self.whale_detector.calculate_confidence_score(
+                    balance_usd=row['balance_usd'],
+                    tx_count=row['tx_count'],
+                    max_tx_usd=row['balance_usd'] * 0.1,
+                    days_since_last_activity=row['days_since_last_activity']
+                )
+                
+                addresses.append(AddressData(
+                    address=row['address'],
+                    blockchain='polygon',
+                    source_system='BigQuery-Polygon',
+                    initial_label='whale',
+                    confidence_score=confidence_score,
+                    metadata={
+                        'balance_matic': row['total_matic_balance'],
+                        'balance_usd': row['balance_usd'],
+                        'tx_count': row['tx_count'],
+                        'days_since_last_activity': row['days_since_last_activity'],
+                        'detection_method': 'high_balance_polygon'
+                    }
+                ))
+            
+            self.logger.info(f"Extracted {len(addresses)} Polygon whale addresses")
+            return addresses
+            
+        except Exception as e:
+            self.logger.error(f"Failed to extract Polygon whale addresses: {e}")
+            return []
+
+
+class AvalanchePublicDataExtractor(BigQueryPublicDatasetExtractorBase):
+    """Avalanche whale extractor using public BigQuery data."""
+    
+    def extract_addresses(self, limit_per_query: int = 5000) -> List[AddressData]:
+        """Extract whale addresses from Avalanche dataset."""
+        addresses = []
+        
+        try:
+            avax_price_usd = self.whale_detector.APPROXIMATE_PRICES['AVAX']
+            min_avax_balance = 1_000_000 / avax_price_usd  # ~28,571 AVAX for $1M
+            
+            # Try different dataset name variations
+            dataset_names = [
+                'bigquery-public-data.crypto_avalanche_c',
+                'bigquery-public-data.crypto_avalanche',
+                'public-datasets.avalanche'
+            ]
+            
+            for dataset_name in dataset_names:
+                try:
+                    query = f"""
+                    WITH avalanche_balances AS (
+                        SELECT 
+                            address,
+                            SUM(CAST(value AS NUMERIC) / 1e18) as total_avax_balance,
+                            COUNT(*) as tx_count,
+                            MAX(block_timestamp) as last_activity
+                        FROM (
+                            SELECT 
+                                to_address as address, 
+                                value, 
+                                block_timestamp
+                            FROM `{dataset_name}.transactions`
+                            WHERE to_address IS NOT NULL 
+                              AND block_timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 1 YEAR)
+                            
+                            UNION ALL
+                            
+                            SELECT 
+                                from_address as address, 
+                                -CAST(value AS NUMERIC) as value,
+                                block_timestamp
+                            FROM `{dataset_name}.transactions`
+                            WHERE from_address IS NOT NULL 
+                              AND block_timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 1 YEAR)
+                        )
+                        GROUP BY address
+                        HAVING total_avax_balance >= {min_avax_balance}
+                          AND TIMESTAMP_DIFF(CURRENT_TIMESTAMP(), last_activity, DAY) <= 90
+                    )
+                    SELECT 
+                        address,
+                        total_avax_balance,
+                        total_avax_balance * {avax_price_usd} as balance_usd,
+                        tx_count,
+                        TIMESTAMP_DIFF(CURRENT_TIMESTAMP(), last_activity, DAY) as days_since_last_activity
+                    FROM avalanche_balances
+                    WHERE total_avax_balance * {avax_price_usd} >= 1000000
+                    ORDER BY balance_usd DESC
+                    LIMIT {limit_per_query}
+                    """
+                    
+                    results = self._execute_query(query)
+                    
+                    for row in results:
+                        confidence_score = self.whale_detector.calculate_confidence_score(
+                            balance_usd=row['balance_usd'],
+                            tx_count=row['tx_count'],
+                            max_tx_usd=row['balance_usd'] * 0.1,
+                            days_since_last_activity=row['days_since_last_activity']
+                        )
+                        
+                        addresses.append(AddressData(
+                            address=row['address'],
+                            blockchain='avalanche',
+                            source_system=f'BigQuery-Avalanche-{dataset_name.split(".")[-1]}',
+                            initial_label='whale',
+                            confidence_score=confidence_score,
+                            metadata={
+                                'balance_avax': row['total_avax_balance'],
+                                'balance_usd': row['balance_usd'],
+                                'tx_count': row['tx_count'],
+                                'days_since_last_activity': row['days_since_last_activity'],
+                                'detection_method': 'high_balance_avalanche',
+                                'dataset_used': dataset_name
+                            }
+                        ))
+                    
+                    self.logger.info(f"Extracted {len(addresses)} Avalanche whale addresses from {dataset_name}")
+                    break  # Successfully found working dataset
+                    
+                except Exception as dataset_error:
+                    self.logger.debug(f"Dataset {dataset_name} not available: {dataset_error}")
+                    continue
+            
+            return addresses
+            
+        except Exception as e:
+            self.logger.error(f"Failed to extract Avalanche whale addresses: {e}")
+            return []
+
+
+class ArbitrumPublicDataExtractor(BigQueryPublicDatasetExtractorBase):
+    """Arbitrum whale extractor using public BigQuery data."""
+    
+    def extract_addresses(self, limit_per_query: int = 5000) -> List[AddressData]:
+        """Extract whale addresses from Arbitrum dataset."""
+        addresses = []
+        
+        try:
+            # Arbitrum uses ETH as native token
+            eth_price_usd = self.whale_detector.APPROXIMATE_PRICES['ETH']
+            min_eth_balance = 1_000_000 / eth_price_usd  # ~333 ETH for $1M
+            
+            query = f"""
+            WITH arbitrum_balances AS (
+                SELECT 
+                    address,
+                    SUM(CAST(value AS NUMERIC) / 1e18) as total_eth_balance,
+                    COUNT(*) as tx_count,
+                    MAX(block_timestamp) as last_activity
+                FROM (
+                    SELECT 
+                        to_address as address, 
+                        value, 
+                        block_timestamp
+                    FROM `bigquery-public-data.crypto_arbitrum.transactions`
+                    WHERE to_address IS NOT NULL 
+                      AND block_timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 1 YEAR)
+                    
+                    UNION ALL
+                    
+                    SELECT 
+                        from_address as address, 
+                        -CAST(value AS NUMERIC) as value,
+                        block_timestamp
+                    FROM `bigquery-public-data.crypto_arbitrum.transactions`
+                    WHERE from_address IS NOT NULL 
+                      AND block_timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 1 YEAR)
+                )
+                GROUP BY address
+                HAVING total_eth_balance >= {min_eth_balance}
+                  AND TIMESTAMP_DIFF(CURRENT_TIMESTAMP(), last_activity, DAY) <= 90
+            )
+            SELECT 
+                address,
+                total_eth_balance,
+                total_eth_balance * {eth_price_usd} as balance_usd,
+                tx_count,
+                TIMESTAMP_DIFF(CURRENT_TIMESTAMP(), last_activity, DAY) as days_since_last_activity
+            FROM arbitrum_balances
+            WHERE total_eth_balance * {eth_price_usd} >= 1000000
+            ORDER BY balance_usd DESC
+            LIMIT {limit_per_query}
+            """
+            
+            results = self._execute_query(query)
+            
+            for row in results:
+                confidence_score = self.whale_detector.calculate_confidence_score(
+                    balance_usd=row['balance_usd'],
+                    tx_count=row['tx_count'],
+                    max_tx_usd=row['balance_usd'] * 0.1,
+                    days_since_last_activity=row['days_since_last_activity']
+                )
+                
+                addresses.append(AddressData(
+                    address=row['address'],
+                    blockchain='arbitrum',
+                    source_system='BigQuery-Arbitrum',
+                    initial_label='whale',
+                    confidence_score=confidence_score,
+                    metadata={
+                        'balance_eth': row['total_eth_balance'],
+                        'balance_usd': row['balance_usd'],
+                        'tx_count': row['tx_count'],
+                        'days_since_last_activity': row['days_since_last_activity'],
+                        'detection_method': 'high_balance_arbitrum'
+                    }
+                ))
+            
+            self.logger.info(f"Extracted {len(addresses)} Arbitrum whale addresses")
+            return addresses
+            
+        except Exception as e:
+            self.logger.error(f"Failed to extract Arbitrum whale addresses: {e}")
+            return []
+
+
+class OptimismPublicDataExtractor(BigQueryPublicDatasetExtractorBase):
+    """Optimism whale extractor using public BigQuery data."""
+    
+    def extract_addresses(self, limit_per_query: int = 5000) -> List[AddressData]:
+        """Extract whale addresses from Optimism dataset."""
+        addresses = []
+        
+        try:
+            # Optimism uses ETH as native token
+            eth_price_usd = self.whale_detector.APPROXIMATE_PRICES['ETH']
+            min_eth_balance = 1_000_000 / eth_price_usd  # ~333 ETH for $1M
+            
+            query = f"""
+            WITH optimism_balances AS (
+                SELECT 
+                    address,
+                    SUM(CAST(value AS NUMERIC) / 1e18) as total_eth_balance,
+                    COUNT(*) as tx_count,
+                    MAX(block_timestamp) as last_activity
+                FROM (
+                    SELECT 
+                        to_address as address, 
+                        value, 
+                        block_timestamp
+                    FROM `bigquery-public-data.crypto_optimism.transactions`
+                    WHERE to_address IS NOT NULL 
+                      AND block_timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 1 YEAR)
+                    
+                    UNION ALL
+                    
+                    SELECT 
+                        from_address as address, 
+                        -CAST(value AS NUMERIC) as value,
+                        block_timestamp
+                    FROM `bigquery-public-data.crypto_optimism.transactions`
+                    WHERE from_address IS NOT NULL 
+                      AND block_timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 1 YEAR)
+                )
+                GROUP BY address
+                HAVING total_eth_balance >= {min_eth_balance}
+                  AND TIMESTAMP_DIFF(CURRENT_TIMESTAMP(), last_activity, DAY) <= 90
+            )
+            SELECT 
+                address,
+                total_eth_balance,
+                total_eth_balance * {eth_price_usd} as balance_usd,
+                tx_count,
+                TIMESTAMP_DIFF(CURRENT_TIMESTAMP(), last_activity, DAY) as days_since_last_activity
+            FROM optimism_balances
+            WHERE total_eth_balance * {eth_price_usd} >= 1000000
+            ORDER BY balance_usd DESC
+            LIMIT {limit_per_query}
+            """
+            
+            results = self._execute_query(query)
+            
+            for row in results:
+                confidence_score = self.whale_detector.calculate_confidence_score(
+                    balance_usd=row['balance_usd'],
+                    tx_count=row['tx_count'],
+                    max_tx_usd=row['balance_usd'] * 0.1,
+                    days_since_last_activity=row['days_since_last_activity']
+                )
+                
+                addresses.append(AddressData(
+                    address=row['address'],
+                    blockchain='optimism',
+                    source_system='BigQuery-Optimism',
+                    initial_label='whale',
+                    confidence_score=confidence_score,
+                    metadata={
+                        'balance_eth': row['total_eth_balance'],
+                        'balance_usd': row['balance_usd'],
+                        'tx_count': row['tx_count'],
+                        'days_since_last_activity': row['days_since_last_activity'],
+                        'detection_method': 'high_balance_optimism'
+                    }
+                ))
+            
+            self.logger.info(f"Extracted {len(addresses)} Optimism whale addresses")
+            return addresses
+            
+        except Exception as e:
+            self.logger.error(f"Failed to extract Optimism whale addresses: {e}")
             return []
 
 
@@ -299,13 +983,35 @@ class BigQueryPublicDataIntegrationManager:
         self.project_id = project_id
         self.logger = logging.getLogger(f"{__name__}.BigQueryPublicDataIntegrationManager")
         
+        # Initialize whale detector for price constants
+        self.whale_detector = ComprehensiveWhaleDetector()
+        
         # Initialize extractors
         self.extractors = {
             'ethereum': EthereumPublicDataExtractor(bigquery_client, project_id),
-            'bitcoin': BitcoinPublicDataExtractor(bigquery_client, project_id)
+            'bitcoin': BitcoinPublicDataExtractor(bigquery_client, project_id),
+            'solana': SolanaPublicDataExtractor(bigquery_client, project_id),
+            'polygon': PolygonPublicDataExtractor(bigquery_client, project_id),
+            'avalanche': AvalanchePublicDataExtractor(bigquery_client, project_id),
+            'arbitrum': ArbitrumPublicDataExtractor(bigquery_client, project_id),
+            'optimism': OptimismPublicDataExtractor(bigquery_client, project_id)
         }
         
         self.logger.info(f"Initialized {len(self.extractors)} public dataset extractors")
+    
+    def collect_addresses(self, limit_per_query: int = 5000) -> List[AddressData]:
+        """
+        Collect addresses from all public dataset extractors.
+        
+        This method serves as the interface expected by BlockchainDataProcessor.
+        
+        Args:
+            limit_per_query: Maximum number of addresses to collect per query
+            
+        Returns:
+            List[AddressData]: Collected addresses from all public datasets
+        """
+        return self.collect_all_public_data_addresses(limit_per_query=limit_per_query)
     
     def collect_all_public_data_addresses(self, limit_per_query: int = 5000) -> List[AddressData]:
         """Collect addresses from all public dataset extractors."""
@@ -333,7 +1039,8 @@ class BigQueryPublicDataIntegrationManager:
                                              chain: str = 'ethereum',
                                              lookback_days: int = 30,
                                              min_transactions: int = 1000,
-                                             clustering_confidence_threshold: float = 0.7) -> str:
+                                             clustering_confidence_threshold: float = 0.7,
+                                             limit: int = 5000) -> str:
         """
         Generate SQL query to identify potential exchange addresses based on transaction patterns.
         
@@ -446,7 +1153,7 @@ class BigQueryPublicDataIntegrationManager:
             FROM exchange_indicators
             WHERE exchange_confidence_score >= {clustering_confidence_threshold}
             ORDER BY exchange_confidence_score DESC, total_transactions DESC
-            LIMIT 1000
+            LIMIT {limit}
             """
         
         elif chain.lower() == 'bitcoin':
@@ -493,160 +1200,161 @@ class BigQueryPublicDataIntegrationManager:
             FROM bitcoin_patterns
             WHERE total_outputs >= {min_transactions // 10}
             ORDER BY total_outputs DESC, total_satoshis DESC
-            LIMIT 1000
+            LIMIT {limit}
             """
         
         else:
             raise ValueError(f"Unsupported chain: {chain}")
     
     def generate_whale_identification_query(self,
-                                          chain: str = 'ethereum',
+                                          min_tx_volume_usd: float,
+                                          min_tx_count: int,
                                           lookback_days: int = 30,
-                                          min_balance_usd: float = 1000000,
-                                          min_avg_tx_value_usd: float = 50000,
-                                          min_unique_protocols_interacted: int = 3) -> str:
+                                          limit: int = 5000,
+                                          chain: str = 'ethereum') -> str:
         """
-        Generate SQL query to identify potential whale addresses based on balance and activity patterns.
+        Generate sophisticated SQL query to identify high-volume trader whales with multi-layered filtering.
+        
+        This method constructs a powerful SQL query that leverages joins with label datasets to pre-filter
+        non-trader entities at the database level, focusing on genuine market-moving traders.
         
         Args:
-            chain: Blockchain to analyze ('ethereum', 'bitcoin')
-            lookback_days: Number of days to look back for analysis
-            min_balance_usd: Minimum balance in USD for whale consideration
-            min_avg_tx_value_usd: Minimum average transaction value in USD
-            min_unique_protocols_interacted: Minimum unique protocols interacted with
+            min_tx_volume_usd: Minimum total transaction volume in USD for trader consideration
+            min_tx_count: Minimum number of transactions for trader consideration
+            lookback_days: Number of days to look back for analysis (default: 30)
+            limit: Maximum number of results to return (default: 5000)
+            chain: Blockchain to analyze ('ethereum', 'bitcoin', 'polygon', etc.)
         
         Returns:
-            SQL query string for whale identification
+            SQL query string for high-fidelity trader whale identification
         """
         end_date = datetime.utcnow()
         start_date = end_date - timedelta(days=lookback_days)
         
         if chain.lower() == 'ethereum':
+            # Ethereum approximate prices for USD conversion
+            eth_price_usd = self.whale_detector.APPROXIMATE_PRICES['ETH']
+            min_volume_eth = min_tx_volume_usd / eth_price_usd
+            
             return f"""
-            WITH address_activity AS (
-                SELECT 
+            -- Multi-layered Ethereum trader whale identification with sophisticated filtering
+            WITH known_labels AS (
+                SELECT DISTINCT
                     address,
-                    COUNT(*) as total_transactions,
-                    SUM(value_eth) as total_volume_eth,
-                    AVG(value_eth) as avg_transaction_value_eth,
-                    MAX(value_eth) as max_transaction_value_eth,
-                    COUNT(DISTINCT to_address) as unique_counterparties,
-                    COUNT(CASE WHEN value_eth > 50 THEN 1 END) as large_tx_count,
-                    COUNT(DISTINCT DATE(block_timestamp)) as active_days
-                FROM (
-                    SELECT 
-                        from_address as address,
-                        to_address,
-                        CAST(value AS NUMERIC) / 1e18 as value_eth,
-                        block_timestamp
-                    FROM `bigquery-public-data.crypto_ethereum.transactions`
-                    WHERE block_timestamp >= TIMESTAMP('{start_date.isoformat()}')
-                      AND block_timestamp <= TIMESTAMP('{end_date.isoformat()}')
-                      AND from_address IS NOT NULL
-                      AND to_address IS NOT NULL
-                      AND value > 0
-                )
-                GROUP BY address
-                HAVING total_volume_eth >= {min_balance_usd / 2000}  -- Assuming ~$2000 per ETH
-                   AND avg_transaction_value_eth >= {min_avg_tx_value_usd / 2000}
+                    label,
+                    name
+                FROM `bigquery-public-data.crypto_ethereum.labels`
+                WHERE address IS NOT NULL
             ),
-            contract_interactions AS (
+            address_activity AS (
                 SELECT 
                     from_address as address,
-                    COUNT(DISTINCT to_address) as unique_contracts_interacted
-                FROM `bigquery-public-data.crypto_ethereum.transactions` t
-                WHERE t.block_timestamp >= TIMESTAMP('{start_date.isoformat()}')
-                  AND t.block_timestamp <= TIMESTAMP('{end_date.isoformat()}')
-                  AND t.to_address IN (
-                      SELECT address FROM `bigquery-public-data.crypto_ethereum.contracts`
-                      WHERE address IS NOT NULL
-                  )
+                    SUM(CAST(value AS NUMERIC) / 1e18) as total_volume_native,
+                    SUM(CAST(value AS NUMERIC) / 1e18 * {eth_price_usd}) as total_volume_usd,
+                    COUNT(*) as total_transactions,
+                    COUNT(DISTINCT to_address) as unique_counterparties,
+                    AVG(CAST(value AS NUMERIC) / 1e18 * {eth_price_usd}) as avg_tx_value_usd,
+                    MAX(CAST(value AS NUMERIC) / 1e18 * {eth_price_usd}) as max_tx_value_usd,
+                    COUNT(CASE WHEN CAST(value AS NUMERIC) / 1e18 * {eth_price_usd} > 100000 THEN 1 END) as large_tx_count,
+                    MAX(block_timestamp) as last_activity
+                FROM `bigquery-public-data.crypto_ethereum.transactions`
+                WHERE block_timestamp >= TIMESTAMP('{start_date.isoformat()}')
+                  AND block_timestamp <= TIMESTAMP('{end_date.isoformat()}')
+                  AND from_address IS NOT NULL
+                  AND to_address IS NOT NULL
+                  AND value > 0
+                  AND from_address != to_address  -- Exclude self-transfers
                 GROUP BY from_address
-                HAVING unique_contracts_interacted >= {min_unique_protocols_interacted}
+                HAVING total_volume_usd >= {min_tx_volume_usd}
+                   AND total_transactions >= {min_tx_count}
+                   AND unique_counterparties < 5000  -- Exclude service wallets with too many interactions
+                   AND unique_counterparties >= 3    -- Ensure some trading activity
             ),
-            whale_candidates AS (
-                SELECT 
-                    a.address,
-                    a.total_transactions,
-                    a.total_volume_eth,
-                    a.avg_transaction_value_eth,
-                    a.max_transaction_value_eth,
-                    a.unique_counterparties,
-                    a.large_tx_count,
-                    a.active_days,
-                    COALESCE(c.unique_contracts_interacted, 0) as unique_contracts_interacted,
-                    -- Whale scoring algorithm
-                    CASE 
-                        WHEN a.total_volume_eth > 10000 THEN 0.4  -- > $20M volume
-                        WHEN a.total_volume_eth > 5000 THEN 0.3   -- > $10M volume
-                        WHEN a.total_volume_eth > 1000 THEN 0.2   -- > $2M volume
-                        ELSE 0.1
-                    END +
-                    CASE 
-                        WHEN a.avg_transaction_value_eth > 100 THEN 0.3  -- > $200k avg
-                        WHEN a.avg_transaction_value_eth > 50 THEN 0.2   -- > $100k avg
-                        WHEN a.avg_transaction_value_eth > 25 THEN 0.1   -- > $50k avg
-                        ELSE 0.0
-                    END +
-                    CASE 
-                        WHEN a.large_tx_count > 50 THEN 0.2
-                        WHEN a.large_tx_count > 20 THEN 0.1
-                        ELSE 0.0
-                    END +
-                    CASE 
-                        WHEN COALESCE(c.unique_contracts_interacted, 0) > 10 THEN 0.1
-                        WHEN COALESCE(c.unique_contracts_interacted, 0) > 5 THEN 0.05
-                        ELSE 0.0
-                    END as whale_score
-                FROM address_activity a
-                LEFT JOIN contract_interactions c ON a.address = c.address
+            contract_creations AS (
+                SELECT DISTINCT from_address as address
+                FROM `bigquery-public-data.crypto_ethereum.transactions`
+                WHERE to_address IS NULL  -- Contract creation transactions
+                  AND block_timestamp >= TIMESTAMP('{start_date.isoformat()}')
+                  AND block_timestamp <= TIMESTAMP('{end_date.isoformat()}')
             )
             SELECT 
-                address,
-                whale_score,
-                total_transactions,
-                ROUND(total_volume_eth, 2) as total_volume_eth,
-                ROUND(avg_transaction_value_eth, 4) as avg_transaction_value_eth,
-                ROUND(max_transaction_value_eth, 2) as max_transaction_value_eth,
-                unique_counterparties,
-                large_tx_count,
-                active_days,
-                unique_contracts_interacted,
+                t.address,
+                t.total_volume_usd,
+                t.total_transactions,
+                t.unique_counterparties,
+                t.avg_tx_value_usd,
+                t.max_tx_value_usd,
+                t.large_tx_count,
+                t.last_activity,
+                -- Trader confidence score based on activity patterns
                 CASE 
-                    WHEN whale_score >= 0.8 THEN 'ultra_whale'
-                    WHEN whale_score >= 0.6 THEN 'major_whale'
-                    WHEN whale_score >= 0.4 THEN 'whale'
-                    ELSE 'large_trader'
-                END as whale_tier,
-                ARRAY(
-                    SELECT signal FROM UNNEST([
-                        CASE WHEN total_volume_eth > 5000 THEN 'high_volume' ELSE NULL END,
-                        CASE WHEN avg_transaction_value_eth > 50 THEN 'high_avg_value' ELSE NULL END,
-                        CASE WHEN large_tx_count > 20 THEN 'frequent_large_txs' ELSE NULL END,
-                        CASE WHEN unique_contracts_interacted > 5 THEN 'defi_active' ELSE NULL END
-                    ]) AS signal WHERE signal IS NOT NULL
-                ) as whale_signals
-            FROM whale_candidates
-            WHERE whale_score >= 0.3
-            ORDER BY whale_score DESC, total_volume_eth DESC
-            LIMIT 1000
+                    WHEN t.total_volume_usd > 50000000 THEN 0.95    -- > $50M volume
+                    WHEN t.total_volume_usd > 10000000 THEN 0.85    -- > $10M volume
+                    WHEN t.total_volume_usd > 5000000 THEN 0.75     -- > $5M volume
+                    WHEN t.total_volume_usd > 1000000 THEN 0.65     -- > $1M volume
+                    ELSE 0.55
+                END +
+                CASE 
+                    WHEN t.avg_tx_value_usd > 500000 THEN 0.1       -- High avg transaction size
+                    WHEN t.avg_tx_value_usd > 100000 THEN 0.05
+                    ELSE 0.0
+                END +
+                CASE 
+                    WHEN t.large_tx_count > 50 THEN 0.1             -- Frequent large transactions
+                    WHEN t.large_tx_count > 20 THEN 0.05
+                    ELSE 0.0
+                END +
+                CASE 
+                    WHEN t.unique_counterparties BETWEEN 10 AND 500 THEN 0.05  -- Reasonable counterparty diversity
+                    ELSE 0.0
+                END as trader_confidence_score,
+                'high_volume_trader' as whale_type
+            FROM address_activity t
+            LEFT JOIN known_labels l ON t.address = l.address
+            LEFT JOIN contract_creations cc ON t.address = cc.address
+            WHERE 
+                -- Exclude known non-trader entities via labels
+                (l.address IS NULL OR (
+                    LOWER(COALESCE(l.label, '')) NOT IN ('exchange', 'contract', 'bridge', 'mev_bot', 'staking_pool', 'burn_address', 'genesis', 'coinbase')
+                    AND LOWER(COALESCE(l.name, '')) NOT LIKE '%exchange%'
+                    AND LOWER(COALESCE(l.name, '')) NOT LIKE '%bridge%'
+                    AND LOWER(COALESCE(l.name, '')) NOT LIKE '%pool%'
+                    AND LOWER(COALESCE(l.name, '')) NOT LIKE '%staking%'
+                    AND LOWER(COALESCE(l.name, '')) NOT LIKE '%validator%'
+                    AND LOWER(COALESCE(l.name, '')) NOT LIKE '%binance%'
+                    AND LOWER(COALESCE(l.name, '')) NOT LIKE '%coinbase%'
+                    AND LOWER(COALESCE(l.name, '')) NOT LIKE '%kraken%'
+                    AND LOWER(COALESCE(l.name, '')) NOT LIKE '%okex%'
+                    AND LOWER(COALESCE(l.name, '')) NOT LIKE '%huobi%'
+                ))
+                -- Exclude contract creators (likely not individual traders)
+                AND cc.address IS NULL
+            ORDER BY t.total_volume_usd DESC
+            LIMIT {limit}
             """
         
         elif chain.lower() == 'bitcoin':
+            btc_price_usd = self.whale_detector.APPROXIMATE_PRICES['BTC']
+            min_volume_satoshis = int(min_tx_volume_usd * 100000000 / btc_price_usd)
+            
             return f"""
-            WITH bitcoin_whale_activity AS (
+            -- Multi-layered Bitcoin trader whale identification
+            WITH address_activity AS (
                 SELECT 
                     address,
-                    COUNT(*) as total_outputs,
-                    SUM(value) as total_satoshis,
-                    AVG(value) as avg_output_value_satoshis,
-                    MAX(value) as max_output_value_satoshis,
-                    COUNT(CASE WHEN value > 100000000 THEN 1 END) as large_output_count,  -- > 1 BTC
-                    COUNT(DISTINCT DATE(block_timestamp)) as active_days
+                    SUM(value) as total_volume_satoshis,
+                    SUM(value * {btc_price_usd} / 100000000) as total_volume_usd,
+                    COUNT(*) as total_transactions,
+                    COUNT(DISTINCT transaction_id) as unique_transactions,
+                    AVG(value * {btc_price_usd} / 100000000) as avg_tx_value_usd,
+                    MAX(value * {btc_price_usd} / 100000000) as max_tx_value_usd,
+                    COUNT(CASE WHEN value * {btc_price_usd} / 100000000 > 100000 THEN 1 END) as large_tx_count,
+                    MAX(block_timestamp) as last_activity
                 FROM (
                     SELECT 
                         output.addresses[SAFE_OFFSET(0)] as address,
                         output.value,
+                        t.hash as transaction_id,
                         t.block_timestamp
                     FROM `bigquery-public-data.crypto_bitcoin.transactions` t,
                     UNNEST(outputs) as output
@@ -657,35 +1365,129 @@ class BigQueryPublicDataIntegrationManager:
                       AND output.value > 0
                 )
                 GROUP BY address
-                HAVING total_satoshis >= {min_balance_usd * 100000000 // 50000}  -- Assuming ~$50k per BTC
+                HAVING total_volume_usd >= {min_tx_volume_usd}
+                   AND total_transactions >= {min_tx_count}
             )
             SELECT 
                 address,
+                total_volume_usd,
+                total_transactions,
+                unique_transactions,
+                avg_tx_value_usd,
+                max_tx_value_usd,
+                large_tx_count,
+                last_activity,
                 CASE 
-                    WHEN total_satoshis > 10000000000 THEN 0.9  -- > 100 BTC
-                    WHEN total_satoshis > 5000000000 THEN 0.7   -- > 50 BTC
-                    WHEN total_satoshis > 1000000000 THEN 0.5   -- > 10 BTC
-                    ELSE 0.3
-                END as whale_score,
-                total_outputs,
-                ROUND(total_satoshis / 100000000, 4) as total_btc,
-                ROUND(avg_output_value_satoshis / 100000000, 6) as avg_output_value_btc,
-                ROUND(max_output_value_satoshis / 100000000, 4) as max_output_value_btc,
-                large_output_count,
-                active_days,
+                    WHEN total_volume_usd > 50000000 THEN 0.9       -- > $50M volume
+                    WHEN total_volume_usd > 10000000 THEN 0.8       -- > $10M volume
+                    WHEN total_volume_usd > 5000000 THEN 0.7        -- > $5M volume
+                    ELSE 0.6
+                END as trader_confidence_score,
+                'high_volume_trader' as whale_type
+            FROM address_activity
+            ORDER BY total_volume_usd DESC
+            LIMIT {limit}
+            """
+        
+        elif chain.lower() == 'polygon':
+            matic_price_usd = self.whale_detector.APPROXIMATE_PRICES['MATIC']
+            min_volume_matic = min_tx_volume_usd / matic_price_usd
+            
+            return f"""
+            -- Multi-layered Polygon trader whale identification
+            WITH known_labels AS (
+                SELECT DISTINCT
+                    address,
+                    label,
+                    name
+                FROM `bigquery-public-data.crypto_polygon.labels`
+                WHERE address IS NOT NULL
+            ),
+            address_activity AS (
+                SELECT 
+                    from_address as address,
+                    SUM(CAST(value AS NUMERIC) / 1e18) as total_volume_native,
+                    SUM(CAST(value AS NUMERIC) / 1e18 * {matic_price_usd}) as total_volume_usd,
+                    COUNT(*) as total_transactions,
+                    COUNT(DISTINCT to_address) as unique_counterparties,
+                    AVG(CAST(value AS NUMERIC) / 1e18 * {matic_price_usd}) as avg_tx_value_usd,
+                    MAX(CAST(value AS NUMERIC) / 1e18 * {matic_price_usd}) as max_tx_value_usd,
+                    COUNT(CASE WHEN CAST(value AS NUMERIC) / 1e18 * {matic_price_usd} > 10000 THEN 1 END) as large_tx_count,
+                    MAX(block_timestamp) as last_activity
+                FROM `bigquery-public-data.crypto_polygon.transactions`
+                WHERE block_timestamp >= TIMESTAMP('{start_date.isoformat()}')
+                  AND block_timestamp <= TIMESTAMP('{end_date.isoformat()}')
+                  AND from_address IS NOT NULL
+                  AND to_address IS NOT NULL
+                  AND value > 0
+                  AND from_address != to_address
+                GROUP BY from_address
+                HAVING total_volume_usd >= {min_tx_volume_usd}
+                   AND total_transactions >= {min_tx_count}
+                   AND unique_counterparties < 2000
+                   AND unique_counterparties >= 3
+            )
+            SELECT 
+                t.address,
+                t.total_volume_usd,
+                t.total_transactions,
+                t.unique_counterparties,
+                t.avg_tx_value_usd,
+                t.max_tx_value_usd,
+                t.large_tx_count,
+                t.last_activity,
                 CASE 
-                    WHEN total_satoshis > 10000000000 THEN 'ultra_whale'
-                    WHEN total_satoshis > 5000000000 THEN 'major_whale'
-                    WHEN total_satoshis > 1000000000 THEN 'whale'
-                    ELSE 'large_holder'
-                END as whale_tier
-            FROM bitcoin_whale_activity
-            ORDER BY total_satoshis DESC
-            LIMIT 1000
+                    WHEN t.total_volume_usd > 10000000 THEN 0.85
+                    WHEN t.total_volume_usd > 5000000 THEN 0.75
+                    WHEN t.total_volume_usd > 1000000 THEN 0.65
+                    ELSE 0.55
+                END as trader_confidence_score,
+                'high_volume_trader' as whale_type
+            FROM address_activity t
+            LEFT JOIN known_labels l ON t.address = l.address
+            WHERE 
+                (l.address IS NULL OR (
+                    LOWER(COALESCE(l.label, '')) NOT IN ('exchange', 'contract', 'bridge', 'mev_bot', 'staking_pool')
+                    AND LOWER(COALESCE(l.name, '')) NOT LIKE '%exchange%'
+                    AND LOWER(COALESCE(l.name, '')) NOT LIKE '%bridge%'
+                    AND LOWER(COALESCE(l.name, '')) NOT LIKE '%pool%'
+                ))
+            ORDER BY t.total_volume_usd DESC
+            LIMIT {limit}
             """
         
         else:
-            raise ValueError(f"Unsupported chain: {chain}")
+            # Generic query for other chains
+            return f"""
+            -- Generic high-volume trader identification for {chain}
+            WITH address_activity AS (
+                SELECT 
+                    from_address as address,
+                    COUNT(*) as total_transactions,
+                    COUNT(DISTINCT to_address) as unique_counterparties,
+                    MAX(block_timestamp) as last_activity
+                FROM `bigquery-public-data.crypto_{chain}.transactions`
+                WHERE block_timestamp >= TIMESTAMP('{start_date.isoformat()}')
+                  AND block_timestamp <= TIMESTAMP('{end_date.isoformat()}')
+                  AND from_address IS NOT NULL
+                  AND to_address IS NOT NULL
+                  AND value > 0
+                GROUP BY from_address
+                HAVING total_transactions >= {min_tx_count}
+                   AND unique_counterparties < 1000
+                   AND unique_counterparties >= 3
+            )
+            SELECT 
+                address,
+                total_transactions,
+                unique_counterparties,
+                last_activity,
+                0.6 as trader_confidence_score,
+                'active_trader' as whale_type
+            FROM address_activity
+            ORDER BY total_transactions DESC
+            LIMIT {limit}
+            """
     
     def generate_defi_interaction_query(self,
                                       chain: str = 'ethereum',
@@ -808,7 +1610,7 @@ class BigQueryPublicDataIntegrationManager:
             FROM defi_power_users
             WHERE defi_activity_score >= 0.3
             ORDER BY defi_activity_score DESC, total_interactions DESC
-            LIMIT 1000
+            LIMIT {limit}
             """
         
         else:
@@ -852,7 +1654,7 @@ class BigQueryPublicDataIntegrationManager:
     def _execute_query(self, query: str, job_config: Optional[bigquery.QueryJobConfig] = None) -> List[Dict]:
         """Execute a BigQuery SQL query and return results as a list of dictionaries."""
         try:
-            self.logger.info(f"Executing BigQuery query: {query[:100]}...")
+            self.logger.info(f"Executing BigQuery query: {query[:200]}...")
             
             if job_config is None:
                 job_config = bigquery.QueryJobConfig()
