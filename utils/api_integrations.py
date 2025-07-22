@@ -13,7 +13,7 @@ import asyncio
 import json
 import time
 import logging
-from typing import Dict, List, Optional, Any, Union
+from typing import Dict, List, Optional, Any, Union, Tuple
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 import requests
@@ -24,6 +24,9 @@ from ratelimit import limits, sleep_and_retry
 import backoff
 from bs4 import BeautifulSoup
 import re
+
+# Import the centralized error logging function
+from .base_helpers import log_error
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -99,10 +102,14 @@ class APIIntegrationBase:
             return result
             
         except requests.exceptions.RequestException as e:
-            self.logger.error(f"API request failed for {endpoint}: {e}")
+            error_msg = f"API request failed for {endpoint}: {e}"
+            self.logger.error(error_msg)
+            log_error(error_msg)  # Add to global error store
             return {}
         except (ValueError, TypeError) as e:
-            self.logger.error(f"JSON parsing failed for {endpoint}: {e}")
+            error_msg = f"JSON parsing failed for {endpoint}: {e}"
+            self.logger.error(error_msg)
+            log_error(error_msg)  # Add to global error store
             return {}
     
     def extract_addresses(self, data: Dict[str, Any]) -> List[AddressData]:
@@ -678,7 +685,7 @@ class HeliusAPI(APIIntegrationBase):
 
 
 class CovalentAPI(APIIntegrationBase):
-    """Covalent API integration for multi-chain data."""
+    """Covalent GoldRush API integration for multi-chain data."""
     
     def __init__(self, api_key: str):
         super().__init__(
@@ -687,29 +694,32 @@ class CovalentAPI(APIIntegrationBase):
             rate_limit_per_second=2
         )
         
-        # Add API key to headers
-        self.session.headers.update({'Authorization': f'Bearer {self.api_key}'})
+        # Use Basic Auth as recommended for GoldRush free tier
+        # Clear any existing auth headers and use requests.auth instead
+        self.session.auth = (self.api_key, "")
+        
+        # Remove any conflicting authorization headers
+        if 'Authorization' in self.session.headers:
+            del self.session.headers['Authorization']
     
-    def get_token_holders_multichain(self, chain_id: int = 1, contract_address: str = None, limit: int = 5000) -> List[AddressData]:
-        """Get token holders across multiple chains (significant holders only)."""
+    def get_token_holders_multichain(self, chain_name: str = "eth-mainnet", contract_address: str = None, limit: int = 5000) -> List[AddressData]:
+        """Get token holders using GoldRush free-tier endpoints."""
         addresses = []
         
-        # Popular token contracts to check
+        # Popular token contracts to check (using actual contract addresses)
         popular_tokens = {
-            1: [  # Ethereum
+            "eth-mainnet": [
                 "0xA0b86a33E6441e6C7d3E4081f7567b0b2b2b8b0a",  # USDC
                 "0xdAC17F958D2ee523a2206206994597C13D831ec7",  # USDT
                 "0x6B175474E89094C44Da98b954EedeAC495271d0F",  # DAI
-                "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599",  # WBTC
-                "0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984",  # UNI
             ],
-            137: [  # Polygon
+            "matic-mainnet": [
                 "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174",  # USDC
                 "0xc2132D05D31c914a87C6611C10748AEb04B58e8F",  # USDT
             ]
         }
         
-        tokens_to_check = popular_tokens.get(chain_id, [contract_address]) if contract_address else popular_tokens.get(chain_id, [])
+        tokens_to_check = popular_tokens.get(chain_name, [contract_address]) if contract_address else popular_tokens.get(chain_name, [])
         
         try:
             for token_contract in tokens_to_check:
@@ -717,64 +727,53 @@ class CovalentAPI(APIIntegrationBase):
                     break
                     
                 try:
-                    # Get token holders with pagination
-                    page = 0
-                    max_pages = 20  # Limit to avoid excessive API calls
+                    # Use GoldRush free-tier endpoint format: {chain-name}/tokens/{contract}/token_holders_v2/
+                    endpoint = f"{chain_name}/tokens/{token_contract}/token_holders_v2/"
+                    params = {
+                        'page-size': 100,  # Max page size
+                        'page-number': 0   # Start with first page
+                    }
                     
-                    while len(addresses) < limit and page < max_pages:
-                        endpoint = f"{chain_id}/tokens/{token_contract}/token_holders/"
-                        params = {
-                            'page-size': 100,  # Max page size
-                            'page-number': page
-                        }
+                    response = self._make_request(endpoint, params)
+                    
+                    if response.get('data') and response['data'].get('items'):
+                        blockchain = self._get_blockchain_from_chain_name(chain_name)
+                        holders = response['data']['items']
                         
-                        response = self._make_request(endpoint, params)
-                        
-                        if response.get('data') and response['data'].get('items'):
-                            chain_name = self._get_chain_name(chain_id)
-                            holders = response['data']['items']
-                            
-                            if not holders:  # No more holders
+                        for holder in holders:
+                            if len(addresses) >= limit:
                                 break
-                            
-                            for holder in holders:
-                                if len(addresses) >= limit:
-                                    break
-                                    
-                                # Filter for significant holders (>$100 value)
-                                try:
-                                    balance_quote = float(holder.get('balance_quote', 0))
-                                except (ValueError, TypeError):
-                                    balance_quote = 0
                                 
-                                if balance_quote > 100:  # Only significant holders
-                                    addresses.append(AddressData(
-                                        address=holder['address'],
-                                        blockchain=chain_name,
-                                        source_system='covalent_api',
-                                        initial_label=f'Token Holder (${balance_quote:.0f})',
-                                        metadata={
-                                            'contract_address': token_contract,
-                                            'balance': holder.get('balance'),
-                                            'balance_quote': balance_quote,
-                                            'chain_id': chain_id,
-                                            'token_symbol': holder.get('contract_ticker_symbol')
-                                        }
-                                    ))
+                            # Filter for significant holders (>$100 value)
+                            try:
+                                balance_quote = float(holder.get('balance_quote', 0) or 0)
+                            except (ValueError, TypeError):
+                                balance_quote = 0
                             
-                            page += 1
-                            
-                            # Add delay to respect rate limits
-                            import time
-                            time.sleep(0.5)  # Conservative delay for free tier
-                        else:
-                            break  # No more data
-                            
+                            if balance_quote > 100:  # Only significant holders
+                                addresses.append(AddressData(
+                                    address=holder['address'],
+                                    blockchain=blockchain,
+                                    source_system='covalent_goldrush_free',
+                                    initial_label=f'Token Holder (${balance_quote:.0f})',
+                                    metadata={
+                                        'contract_address': token_contract,
+                                        'balance': holder.get('balance'),
+                                        'balance_quote': balance_quote,
+                                        'chain_name': chain_name,
+                                        'token_symbol': holder.get('contract_ticker_symbol')
+                                    }
+                                ))
+                        
+                        # Add delay to respect rate limits (4 req/sec for free tier)
+                        import time
+                        time.sleep(0.3)
+                        
                 except Exception as e:
                     self.logger.error(f"Failed to get holders for token {token_contract}: {e}")
                     continue
             
-            self.logger.info(f"Extracted {len(addresses)} significant token holders from Covalent")
+            self.logger.info(f"Extracted {len(addresses)} significant token holders from Covalent free tier")
             return addresses
             
         except Exception as e:
@@ -881,6 +880,80 @@ class CovalentAPI(APIIntegrationBase):
             250: 'fantom'
         }
         return chain_map.get(chain_id, f'chain_{chain_id}')
+    
+    def get_address_transactions_v3(self, address: str, chain_name: str = "eth-mainnet", limit: int = 100) -> List[AddressData]:
+        """Get transaction history for a specific address using GoldRush transactions_v3 endpoint."""
+        addresses = []
+        
+        try:
+            # Use the new GoldRush v3 endpoint pattern: /{chain_name}/address/{address}/transactions_v3/
+            endpoint = f"{chain_name}/address/{address}/transactions_v3/"
+            params = {
+                'page-size': min(limit, 100),  # GoldRush max page size
+                'no-logs': 'false'  # Include decoded logs for enrichment
+            }
+            
+            response = self._make_request(endpoint, params)
+            
+            if response.get('data') and response['data'].get('items'):
+                blockchain = self._get_blockchain_from_chain_name(chain_name)
+                transactions = response['data']['items']
+                
+                for tx in transactions:
+                    if len(addresses) >= limit:
+                        break
+                    
+                    # Extract transaction value for filtering
+                    try:
+                        value_quote = float(tx.get('value_quote', 0) or 0)
+                    except (ValueError, TypeError):
+                        value_quote = 0
+                    
+                    # Only include high-value transactions (>$1000)
+                    if value_quote > 1000:
+                        # Extract counterparty addresses from the transaction
+                        from_addr = tx.get('from_address')
+                        to_addr = tx.get('to_address')
+                        
+                        # Add the counterparty address (not the queried address)
+                        counterparty_addr = to_addr if from_addr == address else from_addr
+                        
+                        if counterparty_addr and counterparty_addr != address:
+                            addresses.append(AddressData(
+                                address=counterparty_addr,
+                                blockchain=blockchain,
+                                source_system='covalent_goldrush_v3',
+                                initial_label=f'High-Value Counterparty (${value_quote:.0f})',
+                                metadata={
+                                    'transaction_hash': tx.get('tx_hash'),
+                                    'value_quote': value_quote,
+                                    'block_height': tx.get('block_height'),
+                                    'block_signed_at': tx.get('block_signed_at'),
+                                    'chain_name': chain_name,
+                                    'gas_spent': tx.get('gas_spent'),
+                                    'fees_paid': tx.get('fees_paid'),
+                                    'log_events_count': len(tx.get('log_events', []))
+                                }
+                            ))
+                
+                self.logger.info(f"Extracted {len(addresses)} counterparty addresses from {address} transactions")
+                return addresses
+                
+        except Exception as e:
+            self.logger.error(f"Failed to get transactions for address {address}: {e}")
+            return []
+    
+    def _get_blockchain_from_chain_name(self, chain_name: str) -> str:
+        """Map GoldRush chain names to standard blockchain names."""
+        chain_map = {
+            'eth-mainnet': 'ethereum',
+            'matic-mainnet': 'polygon',
+            'bsc-mainnet': 'bsc',
+            'avalanche-mainnet': 'avalanche',
+            'fantom-mainnet': 'fantom',
+            'solana-mainnet': 'solana'
+        }
+        return chain_map.get(chain_name, chain_name.split('-')[0])
 
 
 class MoralisAPI(APIIntegrationBase):
@@ -1443,10 +1516,10 @@ class APIIntegrationManager:
         if 'covalent' in self.apis:
             self.logger.info("Collecting from Covalent API (enhanced volume, last 30 days)...")
             # Ethereum
-            all_addresses.extend(self.apis['covalent'].get_token_holders_multichain(chain_id=1, limit=1000))
+            all_addresses.extend(self.apis['covalent'].get_token_holders_multichain(chain_name="eth-mainnet", limit=1000))
             all_addresses.extend(self.apis['covalent'].get_recent_transactions(chain_id=1, limit=1000))
             # Polygon
-            all_addresses.extend(self.apis['covalent'].get_token_holders_multichain(chain_id=137, limit=500))
+            all_addresses.extend(self.apis['covalent'].get_token_holders_multichain(chain_name="matic-mainnet", limit=500))
             all_addresses.extend(self.apis['covalent'].get_recent_transactions(chain_id=137, limit=500))
         
         if 'moralis' in self.apis:
@@ -1864,22 +1937,236 @@ class DuneAnalyticsAPI:
         return min(score, 1.0)  # Cap at 1.0
 
 
-class PriceService:
-    """Service for fetching cryptocurrency prices."""
+class MarketDataProvider:
+    """
+    Professional-grade market data provider for the Opportunity Engine.
     
-    def __init__(self):
+    Provides real-time and historical market data for any ERC-20 token or crypto asset,
+    with comprehensive caching, error handling, and rate limiting.
+    """
+    
+    def __init__(self, api_key: Optional[str] = None):
         self.session = requests.Session()
         self.base_url = "https://api.coingecko.com/api/v3"
+        self.api_key = api_key
+        
+        # Enhanced caching for different data types
         self.price_cache = {}
+        self.market_chart_cache = {}
         self.cache_expiry = {}
-        self.logger = logging.getLogger(f"{__name__}.PriceService")
+        
+        # Rate limiting
+        self.last_request_time = 0
+        self.min_request_interval = 1.2  # Slightly more conservative
+        
+        self.logger = logging.getLogger(f"{__name__}.MarketDataProvider")
+        
+        # Chain ID mapping for CoinGecko
+        self.chain_id_mapping = {
+            'ethereum': 'ethereum',
+            'polygon': 'polygon-pos',
+            'bsc': 'binance-smart-chain',
+            'arbitrum': 'arbitrum-one',
+            'optimism': 'optimistic-ethereum',
+            'avalanche': 'avalanche',
+            'fantom': 'fantom',
+            'solana': 'solana'
+        }
+        
+        # Setup session headers
+        if self.api_key:
+            self.session.headers.update({'x-cg-api-key': self.api_key})
+        self.session.headers.update({
+            'User-Agent': 'WhaleOpportunityEngine/1.0',
+            'Accept': 'application/json'
+        })
+    
+    def _rate_limit(self):
+        """Ensure we don't exceed rate limits."""
+        current_time = time.time()
+        time_since_last_request = current_time - self.last_request_time
+        if time_since_last_request < self.min_request_interval:
+            time.sleep(self.min_request_interval - time_since_last_request)
+        self.last_request_time = time.time()
+    
+    def _get_cache_key(self, method: str, **kwargs) -> str:
+        """Generate a consistent cache key."""
+        key_parts = [method] + [f"{k}={v}" for k, v in sorted(kwargs.items())]
+        return "|".join(key_parts)
+    
+    def _check_cache(self, cache_key: str, cache_ttl_minutes: int = 5) -> Optional[Any]:
+        """Check if data exists in cache and is still valid."""
+        if cache_key in self.market_chart_cache and cache_key in self.cache_expiry:
+            if datetime.utcnow() < self.cache_expiry[cache_key]:
+                return self.market_chart_cache[cache_key]
+        return None
+    
+    def _set_cache(self, cache_key: str, data: Any, cache_ttl_minutes: int = 5):
+        """Set data in cache with expiry."""
+        self.market_chart_cache[cache_key] = data
+        self.cache_expiry[cache_key] = datetime.utcnow() + timedelta(minutes=cache_ttl_minutes)
+    
+    def get_market_data_for_token(self, contract_address: str, chain: str) -> Optional[Dict[str, Any]]:
+        """
+        Fetch granular intra-day market data for a specific token contract.
+        
+        This is the main workhorse method for real-time heuristics (RSI, EMA, volume velocity).
+        Returns 5-minute granularity data for the last 24 hours.
+        
+        Args:
+            contract_address: The token contract address (e.g., '0x123...abc')
+            chain: The blockchain name (e.g., 'ethereum', 'polygon')
+            
+        Returns:
+            Dict containing price and volume data with timestamps, or None if not found
+        """
+        cache_key = self._get_cache_key("market_data", contract=contract_address, chain=chain)
+        
+        # Check cache first (short TTL for real-time data)
+        cached_data = self._check_cache(cache_key, cache_ttl_minutes=2)
+        if cached_data:
+            return cached_data
+        
+        chain_id = self.chain_id_mapping.get(chain.lower())
+        if not chain_id:
+            self.logger.warning(f"Unsupported chain: {chain}")
+            return None
+        
+        self._rate_limit()
+        
+        try:
+            endpoint = f"/coins/{chain_id}/contract/{contract_address.lower()}/market_chart"
+            url = f"{self.base_url}{endpoint}"
+            
+            params = {
+                'vs_currency': 'usd',
+                'days': '1'  # 5-minute granularity for last 24 hours
+            }
+            
+            self.logger.debug(f"Fetching market data for {contract_address} on {chain}")
+            response = self.session.get(url, params=params, timeout=15)
+            
+            if response.status_code == 404:
+                self.logger.warning(f"Token {contract_address} not found on CoinGecko for chain {chain}")
+                return None
+            
+            response.raise_for_status()
+            data = response.json()
+            
+            # Validate the response structure
+            if not all(key in data for key in ['prices', 'market_caps', 'total_volumes']):
+                self.logger.warning(f"Invalid response structure for {contract_address}")
+                return None
+            
+            # Transform data for easier consumption
+            market_data = {
+                'prices': data['prices'],  # [[timestamp, price], ...]
+                'volumes': data['total_volumes'],  # [[timestamp, volume], ...]
+                'market_caps': data['market_caps'],  # [[timestamp, market_cap], ...]
+                'contract_address': contract_address,
+                'chain': chain,
+                'fetched_at': datetime.utcnow().isoformat(),
+                'granularity': '5min'
+            }
+            
+            # Cache the result
+            self._set_cache(cache_key, market_data, cache_ttl_minutes=2)
+            
+            self.logger.info(f"Successfully fetched {len(data['prices'])} data points for {contract_address}")
+            return market_data
+            
+        except requests.exceptions.RequestException as e:
+            self.logger.error(f"Network error fetching market data for {contract_address}: {e}")
+            return None
+        except Exception as e:
+            self.logger.error(f"Unexpected error fetching market data for {contract_address}: {e}")
+            return None
+    
+    def get_daily_historical_for_token(self, contract_address: str, chain: str, days: int = 30) -> Optional[Dict[str, Any]]:
+        """
+        Fetch longer-term historical data for calculating moving averages and trends.
+        
+        Args:
+            contract_address: The token contract address
+            chain: The blockchain name
+            days: Number of days of historical data (default 30)
+            
+        Returns:
+            Dict containing daily/hourly price and volume data, or None if not found
+        """
+        cache_key = self._get_cache_key("historical", contract=contract_address, chain=chain, days=days)
+        
+        # Check cache first (longer TTL for historical data)
+        cached_data = self._check_cache(cache_key, cache_ttl_minutes=30)
+        if cached_data:
+            return cached_data
+        
+        chain_id = self.chain_id_mapping.get(chain.lower())
+        if not chain_id:
+            self.logger.warning(f"Unsupported chain: {chain}")
+            return None
+        
+        self._rate_limit()
+        
+        try:
+            endpoint = f"/coins/{chain_id}/contract/{contract_address.lower()}/market_chart"
+            url = f"{self.base_url}{endpoint}"
+            
+            params = {
+                'vs_currency': 'usd',
+                'days': str(days)
+            }
+            
+            self.logger.debug(f"Fetching {days}-day historical data for {contract_address} on {chain}")
+            response = self.session.get(url, params=params, timeout=15)
+            
+            if response.status_code == 404:
+                self.logger.warning(f"Token {contract_address} not found on CoinGecko for chain {chain}")
+                return None
+            
+            response.raise_for_status()
+            data = response.json()
+            
+            # Validate the response structure
+            if not all(key in data for key in ['prices', 'market_caps', 'total_volumes']):
+                self.logger.warning(f"Invalid response structure for {contract_address}")
+                return None
+            
+            # Transform data for easier consumption
+            historical_data = {
+                'prices': data['prices'],
+                'volumes': data['total_volumes'],
+                'market_caps': data['market_caps'],
+                'contract_address': contract_address,
+                'chain': chain,
+                'days': days,
+                'fetched_at': datetime.utcnow().isoformat(),
+                'granularity': 'hourly' if days <= 90 else 'daily'
+            }
+            
+            # Cache the result
+            self._set_cache(cache_key, historical_data, cache_ttl_minutes=30)
+            
+            self.logger.info(f"Successfully fetched {days}-day historical data for {contract_address}")
+            return historical_data
+            
+        except requests.exceptions.RequestException as e:
+            self.logger.error(f"Network error fetching historical data for {contract_address}: {e}")
+            return None
+        except Exception as e:
+            self.logger.error(f"Unexpected error fetching historical data for {contract_address}: {e}")
+            return None
     
     def get_price(self, symbol: str) -> float:
-        """Get current USD price for a cryptocurrency symbol."""
+        """
+        Legacy method for backward compatibility.
+        Get current USD price for a cryptocurrency symbol.
+        """
         # Check cache first
-        if symbol in self.price_cache and symbol in self.cache_expiry:
-            if datetime.utcnow() < self.cache_expiry[symbol]:
-                return self.price_cache[symbol]
+        cache_key = f"price_{symbol}"
+        if cache_key in self.price_cache and cache_key in self.cache_expiry:
+            if datetime.utcnow() < self.cache_expiry[cache_key]:
+                return self.price_cache[cache_key]
         
         try:
             # Map common symbols to CoinGecko IDs
@@ -1895,6 +2182,7 @@ class PriceService:
             
             coin_id = symbol_map.get(symbol, symbol.lower())
             
+            self._rate_limit()
             response = self.session.get(
                 f"{self.base_url}/simple/price",
                 params={'ids': coin_id, 'vs_currencies': 'usd'},
@@ -1906,8 +2194,8 @@ class PriceService:
             price = data.get(coin_id, {}).get('usd', 0)
             
             # Cache the price
-            self.price_cache[symbol] = price
-            self.cache_expiry[symbol] = datetime.utcnow() + timedelta(minutes=5)
+            self.price_cache[cache_key] = price
+            self.cache_expiry[cache_key] = datetime.utcnow() + timedelta(minutes=5)
             
             return price
             
@@ -1919,6 +2207,10 @@ class PriceService:
                 'AVAX': 35, 'ARB': 1.2, 'OP': 2.5
             }
             return fallback_prices.get(symbol, 1.0)
+
+
+# Create an alias for backward compatibility
+PriceService = MarketDataProvider
 
 
 class RichListScraper:
@@ -3029,3 +3321,80 @@ class ComprehensiveWhaleDiscovery:
         logger.info(f"  • GitHub: {self.stats['total_from_github']} addresses")
         logger.info(f"  • Dune Analytics: {self.stats['total_from_dune']} addresses")
         logger.info(f"  • Total Unique: {self.stats['total_collected']} addresses")
+
+
+def get_moralis_token_metadata(token_address: str, chain: str = "eth") -> Dict[str, Any]:
+    """
+    Placeholder function for Moralis token metadata (not implemented).
+    Returns empty dict to prevent import errors.
+    """
+    return {}
+
+def get_zerion_portfolio_analysis(address: str) -> Dict[str, Any]:
+    """
+    Placeholder function for Zerion portfolio analysis (not implemented).
+    Returns empty dict to prevent import errors.
+    """
+    return {}
+
+def enhanced_cex_address_matching(from_addr: str, to_addr: str, blockchain: str = "ethereum") -> Tuple[Optional[str], float, List[str]]:
+    """
+    Enhanced CEX address matching with improved logic.
+    Returns match result, confidence, and evidence.
+    """
+    from data.addresses import known_exchange_addresses
+    
+    # Normalize addresses
+    from_addr = from_addr.lower() if from_addr else ""
+    to_addr = to_addr.lower() if to_addr else ""
+    
+    evidence = []
+    cex_exchange = None
+    confidence = 0.0
+    
+    # Check if from_addr is a known CEX
+    if from_addr in known_exchange_addresses:
+        cex_exchange = known_exchange_addresses[from_addr]
+        evidence.append(f"From address matches {cex_exchange}")
+        confidence = 0.90
+    
+    # Check if to_addr is a known CEX
+    elif to_addr in known_exchange_addresses:
+        cex_exchange = known_exchange_addresses[to_addr]
+        evidence.append(f"To address matches {cex_exchange}")
+        confidence = 0.90
+    
+    return cex_exchange, confidence, evidence
+def get_moralis_token_metadata(token_address: str, chain: str = "eth"):
+    """Placeholder function for Moralis token metadata (not implemented)."""
+    return {}
+
+def get_zerion_portfolio_analysis(address: str):
+    """Placeholder function for Zerion portfolio analysis (not implemented)."""
+    return {}
+
+def enhanced_cex_address_matching(from_addr: str, to_addr: str, blockchain: str = "ethereum"):
+    """Enhanced CEX address matching with improved logic."""
+    from data.addresses import known_exchange_addresses
+    
+    # Normalize addresses
+    from_addr = from_addr.lower() if from_addr else ""
+    to_addr = to_addr.lower() if to_addr else ""
+    
+    evidence = []
+    cex_exchange = None
+    confidence = 0.0
+    
+    # Check if from_addr is a known CEX
+    if from_addr in known_exchange_addresses:
+        cex_exchange = known_exchange_addresses[from_addr]
+        evidence.append(f"From address matches {cex_exchange}")
+        confidence = 0.90
+    
+    # Check if to_addr is a known CEX
+    elif to_addr in known_exchange_addresses:
+        cex_exchange = known_exchange_addresses[to_addr]
+        evidence.append(f"To address matches {cex_exchange}")
+        confidence = 0.90
+    
+    return cex_exchange, confidence, evidence

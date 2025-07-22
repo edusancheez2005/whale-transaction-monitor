@@ -208,7 +208,7 @@ class EthereumPublicDataExtractor(BigQueryPublicDatasetExtractorBase):
                     FROM `bigquery-public-data.crypto_ethereum.transactions`
                     WHERE to_address IS NOT NULL 
                       AND to_address != ''
-                      AND block_timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 2 YEAR)
+                      AND block_timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 730 DAY)
                     
                     UNION ALL
                     
@@ -220,7 +220,7 @@ class EthereumPublicDataExtractor(BigQueryPublicDatasetExtractorBase):
                     FROM `bigquery-public-data.crypto_ethereum.transactions`
                     WHERE from_address IS NOT NULL 
                       AND from_address != ''
-                      AND block_timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 2 YEAR)
+                      AND block_timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 730 DAY)
                 )
                 GROUP BY address
                 HAVING total_eth_balance >= {min_eth_balance}
@@ -234,7 +234,7 @@ class EthereumPublicDataExtractor(BigQueryPublicDatasetExtractorBase):
                     (SELECT MAX(CAST(value AS NUMERIC) / 1e18 * {eth_price_usd})
                      FROM `bigquery-public-data.crypto_ethereum.transactions` t
                      WHERE (t.from_address = cb.address OR t.to_address = cb.address)
-                       AND t.block_timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 1 YEAR)
+                       AND t.block_timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 365 DAY)
                     ) as max_tx_usd
                 FROM current_balances cb
             )
@@ -311,7 +311,7 @@ class EthereumPublicDataExtractor(BigQueryPublicDatasetExtractorBase):
                     WHERE from_address IS NOT NULL 
                       AND from_address != ''
                       AND CAST(value AS NUMERIC) / 1e18 >= {min_tx_eth}
-                      AND block_timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 1 YEAR)
+                      AND block_timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 365 DAY)
                     
                     UNION ALL
                     
@@ -324,7 +324,7 @@ class EthereumPublicDataExtractor(BigQueryPublicDatasetExtractorBase):
                     WHERE to_address IS NOT NULL 
                       AND to_address != ''
                       AND CAST(value AS NUMERIC) / 1e18 >= {min_tx_eth}
-                      AND block_timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 1 YEAR)
+                      AND block_timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 365 DAY)
                 )
                 GROUP BY address
                 HAVING high_value_tx_count >= 10  -- Minimum 10 high-value transactions
@@ -482,7 +482,7 @@ class SolanaPublicDataExtractor(BigQueryPublicDatasetExtractorBase):
                     COUNT(*) as tx_count,
                     MAX(block_timestamp) as last_activity
                 FROM `flipside.crypto_solana.transactions`
-                WHERE block_timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 1 YEAR)
+                WHERE block_timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 365 DAY)
                   AND account IS NOT NULL
                 GROUP BY account
                 HAVING total_sol_balance >= {min_sol_balance}
@@ -558,7 +558,7 @@ class PolygonPublicDataExtractor(BigQueryPublicDatasetExtractorBase):
                         block_timestamp
                     FROM `bigquery-public-data.crypto_polygon.transactions`
                     WHERE to_address IS NOT NULL 
-                      AND block_timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 1 YEAR)
+                      AND block_timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 365 DAY)
                     
                     UNION ALL
                     
@@ -568,7 +568,7 @@ class PolygonPublicDataExtractor(BigQueryPublicDatasetExtractorBase):
                         block_timestamp
                     FROM `bigquery-public-data.crypto_polygon.transactions`
                     WHERE from_address IS NOT NULL 
-                      AND block_timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 1 YEAR)
+                      AND block_timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 365 DAY)
                 )
                 GROUP BY address
                 HAVING total_matic_balance >= {min_matic_balance}
@@ -653,7 +653,7 @@ class AvalanchePublicDataExtractor(BigQueryPublicDatasetExtractorBase):
                                 block_timestamp
                             FROM `{dataset_name}.transactions`
                             WHERE to_address IS NOT NULL 
-                              AND block_timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 1 YEAR)
+                              AND block_timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 365 DAY)
                             
                             UNION ALL
                             
@@ -663,7 +663,7 @@ class AvalanchePublicDataExtractor(BigQueryPublicDatasetExtractorBase):
                                 block_timestamp
                             FROM `{dataset_name}.transactions`
                             WHERE from_address IS NOT NULL 
-                              AND block_timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 1 YEAR)
+                              AND block_timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 365 DAY)
                         )
                         GROUP BY address
                         HAVING total_avax_balance >= {min_avax_balance}
@@ -747,7 +747,7 @@ class ArbitrumPublicDataExtractor(BigQueryPublicDatasetExtractorBase):
                         block_timestamp
                     FROM `bigquery-public-data.crypto_arbitrum.transactions`
                     WHERE to_address IS NOT NULL 
-                      AND block_timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 1 YEAR)
+                      AND block_timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 365 DAY)
                     
                     UNION ALL
                     
@@ -757,7 +757,7 @@ class ArbitrumPublicDataExtractor(BigQueryPublicDatasetExtractorBase):
                         block_timestamp
                     FROM `bigquery-public-data.crypto_arbitrum.transactions`
                     WHERE from_address IS NOT NULL 
-                      AND block_timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 1 YEAR)
+                      AND block_timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 365 DAY)
                 )
                 GROUP BY address
                 HAVING total_eth_balance >= {min_eth_balance}
@@ -834,7 +834,7 @@ class OptimismPublicDataExtractor(BigQueryPublicDatasetExtractorBase):
                         block_timestamp
                     FROM `bigquery-public-data.crypto_optimism.transactions`
                     WHERE to_address IS NOT NULL 
-                      AND block_timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 1 YEAR)
+                      AND block_timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 365 DAY)
                     
                     UNION ALL
                     
@@ -844,7 +844,7 @@ class OptimismPublicDataExtractor(BigQueryPublicDatasetExtractorBase):
                         block_timestamp
                     FROM `bigquery-public-data.crypto_optimism.transactions`
                     WHERE from_address IS NOT NULL 
-                      AND block_timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 1 YEAR)
+                      AND block_timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 365 DAY)
                 )
                 GROUP BY address
                 HAVING total_eth_balance >= {min_eth_balance}

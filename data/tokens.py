@@ -4,47 +4,73 @@
 
 # --- ERC‑20 tokens to monitor on Ethereum ---
 TOKENS_TO_MONITOR = {
-    # Major DeFi & Layer 1/2
-    "WETH": {"contract": "0xC02aaa39b223FE8D0A0e5C4F27ead9083C756Cc2", "decimals": 18, "min_threshold": 5_000},
-    "LINK": {"contract": "0x514910771af9ca656af840dff83e8264ecf986ca", "decimals": 18, "min_threshold": 5_000},
-    "UNI":  {"contract": "0x1F9840a85d5aF5bf1D1762F925BDADdC4201F984", "decimals": 18, "min_threshold": 1_000},
-    "AAVE": {"contract": "0x7Fc66500c84A76Ad7e9c93437bFc5Ac33E2DDaE9", "decimals": 18, "min_threshold": 1_000},
-    "COMP": {"contract": "0xc00e94Cb662C3520282E6f5717214004A7f26888", "decimals": 18, "min_threshold": 1_000},
-    "SNX":  {"contract": "0xC011a73ee8576Fb46F5E1c5751cA3B9Fe0Af2a6F", "decimals": 18, "min_threshold": 1_000},
-    "MKR":  {"contract": "0x9f8F72aA9304c8B593d555F12eF6589cC3A579A2", "decimals": 18, "min_threshold": 1_500},
-    "YFI":  {"contract": "0x0bc529c00C6401aEF6D220BE8C6Ea1667F6Ad93e", "decimals": 18, "min_threshold": 5_000},
-    "SUSHI": {"contract": "0x6B3595068778DD592e39A122f4f5a5cF09C90fE2", "decimals": 18, "min_threshold": 1_000},
-    "CRV":  {"contract": "0xD533a949740bb3306d119CC777fa900bA034cd52", "decimals": 18, "min_threshold": 1_000},
-    "BAL":  {"contract": "0xba100000625a3754423978a60c9317c58a424e3D", "decimals": 18, "min_threshold": 1_000},
-    "BNT":  {"contract": "0x1F573D6Fb3F13d689FF844B4cE37794d79A7FF1C", "decimals": 18, "min_threshold": 500},
-    "REN":  {"contract": "0x408e41876cCCDC0F92210600ef50372656052a38", "decimals": 18, "min_threshold": 500},
-    "OMG":  {"contract": "0xd26114cd6EE289AccF82350c8d8487fedB8A0C07", "decimals": 18, "min_threshold": 500},
-    "ZRX":  {"contract": "0xE41d2489571d322189246DaFA5ebDe1F4699F498", "decimals": 18, "min_threshold": 500},
-    "BAT":  {"contract": "0x0D8775F648430679A709E98d2b0Cb6250d2887EF", "decimals": 18, "min_threshold": 500},
-    "GRT":  {"contract": "0xC944E90C64B2c07662A292be6244BDf05Cda44a7", "decimals": 18, "min_threshold": 500},
-    "LRC":  {"contract": "0xBBbbCA6A901c926F240b89EacB641d8Aec7AEafD", "decimals": 18, "min_threshold": 500},
-    "1INCH": {"contract": "0x111111111117dC0aa78b770fA6A738034120C302", "decimals": 18, "min_threshold": 500},
-    "MATIC": {"contract": "0x7d1afa7b718fb893db30a3abc0cfc608aacfebb0", "decimals": 18, "min_threshold": 1_500},
+    # 🚀 SMALL-CAP GEM DETECTION - Focus on trending/smaller tokens with whale activity
     
-    # Additional Popular Tokens
-    "PEPE": {"contract": "0x6982508145454ce325ddbe47a25d4ec3d2311933", "decimals": 18, "min_threshold": 500},
-    "SHIB": {"contract": "0x95aD61b0a150d79219dCF64E1E6Cc01f0B64C4cE", "decimals": 18, "min_threshold": 500},
-    "APE": {"contract": "0x4d224452801ACEd8B2F0aebE155379bb5D594381", "decimals": 18, "min_threshold": 1_000},
-    "DYDX": {"contract": "0x92D6C1e31e14520e676a687F0a93788B716BEff5", "decimals": 18, "min_threshold": 1_000},
-    "OP": {"contract": "0x4200000000000000000000000000000000000042", "decimals": 18, "min_threshold": 1_000},
-    "ARB": {"contract": "0x912CE59144191C1204E64559FE8253a0e49E6548", "decimals": 18, "min_threshold": 1_000},
+    # Trending Meme/Small Caps (Lower thresholds to catch early whale activity)
+    "PEPE": {"contract": "0x6982508145454ce325ddbe47a25d4ec3d2311933", "decimals": 18, "min_threshold": 15_000},   # Raised slightly
+    "SHIB": {"contract": "0x95aD61b0a150d79219dCF64E1E6Cc01f0B64C4cE", "decimals": 18, "min_threshold": 10_000},   # Lowered 
+    "FLOKI": {"contract": "0xcf0C122c6b73ff809C693DB761e7BaeBe62b6a2E", "decimals": 9, "min_threshold": 8_000},    # Trending meme
+    "DOGE": {"contract": "0x4206931337dc273a630d328dA6441786BfaD668f", "decimals": 8, "min_threshold": 15_000},   # Lowered
     
-    # Stablecoins (for non-excluded stablecoin monitoring)
-    "FRAX": {"contract": "0x853d955aCEf822Db058eb8505911ED77F175b99e", "decimals": 18, "min_threshold": 10_000},
-    "LUSD": {"contract": "0x5f98805A4E8be255a32880FDeC7F6728C6568bA0", "decimals": 18, "min_threshold": 5_000},
-    "FEI": {"contract": "0x956F47F50A910163D8BF957Cf5846D573E7f87CA", "decimals": 18, "min_threshold": 5_000},
+    # Small/Mid-Cap DeFi Gems (Catch before they moon)
+    "1INCH": {"contract": "0x111111111117dC0aa78b770fA6A738034120C302", "decimals": 18, "min_threshold": 5_000},   # DEX aggregator
+    "LRC": {"contract": "0xBBbbCA6A901c926F240b89EacB641d8Aec7AEafD", "decimals": 18, "min_threshold": 3_000},    # Layer 2 play
+    "GRT": {"contract": "0xC944E90C64B2c07662A292be6244BDf05Cda44a7", "decimals": 18, "min_threshold": 5_000},    # The Graph
+    "APE": {"contract": "0x4d224452801ACEd8B2F0aebE155379bb5D594381", "decimals": 18, "min_threshold": 8_000},    # NFT ecosystem
+    "SAND": {"contract": "0x3845badAde8e6dFF049820680d1F14bD3903a5d0", "decimals": 18, "min_threshold": 8_000},    # Lowered
+    "MANA": {"contract": "0x0F5D2fB29fb7d3CFeE444a200298f468908cC942", "decimals": 18, "min_threshold": 8_000},    # Lowered
     
-    # DeFi
-    "CVX": {"contract": "0x4e3FBD56CD56c3e72c1403e103b45Db9da5B9D2B", "decimals": 18, "min_threshold": 1_000},
-    "FXS": {"contract": "0x3432B6A60D23Ca0dFCa7761B7ab56459D9C964D0", "decimals": 18, "min_threshold": 1_000},
-    "LDO": {"contract": "0x5A98FcBEA516Cf06857215779Fd812CA3beF1B32", "decimals": 18, "min_threshold": 1_000},
-    "RPL": {"contract": "0xD33526068D116cE69F19A9ee46F0bd304F21A51f", "decimals": 18, "min_threshold": 1_000},
-    "INJ": {"contract": "0xe28b3B32B6c345A34Ff64674606124Dd5Aceca30", "decimals": 18, "min_threshold": 1_000}
+    # Gaming/Metaverse Small Caps
+    "GALA": {"contract": "0x15D4c048F83bd7e37d49eA4C83a07267Ec4203dA", "decimals": 8, "min_threshold": 6_000},    # Gaming platform
+    "CHZ": {"contract": "0x3506424F91fD33084466F402d5D97f05F8e3b4AF", "decimals": 18, "min_threshold": 6_000},     # Lowered
+    "ENJ": {"contract": "0xF629cBd94d3791C9250152BD8dfBDF380E2a3B9c", "decimals": 18, "min_threshold": 7_000},    # Enjin ecosystem
+    
+    # Layer 2 & Scaling (Early movers)
+    "MATIC": {"contract": "0x7d1afa7b718fb893db30a3abc0cfc608aacfebb0", "decimals": 18, "min_threshold": 8_000},    # Lowered
+    "OP": {"contract": "0x4200000000000000000000000000000000000042", "decimals": 18, "min_threshold": 6_000},     # Lowered 
+    "ARB": {"contract": "0x912CE59144191C1204E64559FE8253a0e49E6548", "decimals": 18, "min_threshold": 8_000},    # Lowered
+    "LDO": {"contract": "0x5A98FcBEA516Cf06857215779Fd812CA3beF1B32", "decimals": 18, "min_threshold": 6_000},     # Lowered
+    
+    # AI/Data Tokens (Hot sector)
+    "FET": {"contract": "0xaea46A60368A7bD060eec7DF8CBa43b7EF41Ad85", "decimals": 18, "min_threshold": 6_000},    # Fetch.ai
+    "OCEAN": {"contract": "0x967da4048cD07aB37855c090aAF366e4ce1b9F48", "decimals": 18, "min_threshold": 5_000},  # Ocean Protocol
+    "AGIX": {"contract": "0x5B7533812759B45C2B44C19e320ba2cD2681b542", "decimals": 8, "min_threshold": 7_000},    # SingularityNET
+    
+    # Small DeFi Protocols (Explosive potential)
+    "CRV": {"contract": "0xD533a949740bb3306d119CC777fa900bA034cd52", "decimals": 18, "min_threshold": 5_000},    # Curve
+    "BAL": {"contract": "0xba100000625a3754423978a60c9317c58a424e3D", "decimals": 18, "min_threshold": 6_000},    # Balancer
+    "SUSHI": {"contract": "0x6B3595068778DD592e39A122f4f5a5cF09C90fE2", "decimals": 18, "min_threshold": 4_000},  # SushiSwap
+    "CVX": {"contract": "0x4e3FBD56CD56c3e72c1403e103b45Db9da5B9D2B", "decimals": 18, "min_threshold": 6_000},    # Convex
+    
+    # Major tokens but LOWER thresholds for more activity  
+    "WETH": {"contract": "0xC02aaa39b223FE8D0A0e5C4F27ead9083C756Cc2", "decimals": 18, "min_threshold": 15_000},   # Lowered from 50K
+    "LINK": {"contract": "0x514910771af9ca656af840dff83e8264ecf986ca", "decimals": 18, "min_threshold": 10_000},   # Lowered from 25K
+    "UNI": {"contract": "0x1F9840a85d5aF5bf1D1762F925BDADdC4201F984", "decimals": 18, "min_threshold": 8_000},     # Lowered from 20K
+    
+    # REMOVED: USDC, USDT, DAI (no stablecoins - we want trending coins only)
+}
+
+# --- Polygon tokens to monitor ---
+POLYGON_TOKENS_TO_MONITOR = {
+    # Major DeFi tokens on Polygon
+    "WMATIC": {"contract": "0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270", "decimals": 18, "min_threshold": 3_000},
+    "WETH": {"contract": "0x7ceB23fD6bC0adD59E62ac25578270cFf1b9f619", "decimals": 18, "min_threshold": 5_000},
+    "USDC": {"contract": "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359", "decimals": 6, "min_threshold": 10_000},
+    "USDC.e": {"contract": "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174", "decimals": 6, "min_threshold": 10_000},
+    "USDT": {"contract": "0xc2132D05D31c914a87C6611C10748AEb04B58e8F", "decimals": 6, "min_threshold": 10_000},
+    "DAI": {"contract": "0x8f3Cf7ad23Cd3CaDbD9735AFf958023239c6A063", "decimals": 18, "min_threshold": 10_000},
+    "AAVE": {"contract": "0xD6DF932A45C0f255f85145f286eA0b292B21C90B", "decimals": 18, "min_threshold": 1_000},
+    "UNI": {"contract": "0xb33EaAd8d922B1083446DC23f610c2567fB5180f", "decimals": 18, "min_threshold": 1_000},
+    "LINK": {"contract": "0x53E0bca35eC356BD5ddDFebbD1Fc0fD03FaBad39", "decimals": 18, "min_threshold": 3_000},
+    "CRV": {"contract": "0x172370d5Cd63279eFa6d502DAB29171933a610AF", "decimals": 18, "min_threshold": 1_000},
+    "SUSHI": {"contract": "0x0b3F868E0BE5597D5DB7fEB59E1CADBb0fdDa50a", "decimals": 18, "min_threshold": 1_000},
+    "BAL": {"contract": "0x9a71012B13CA4d3D0Cdc72A177DF3ef03b0E76A3", "decimals": 18, "min_threshold": 1_000},
+    "COMP": {"contract": "0x8505b9d2254A7Ae468c0E9dd10Ccea3A837aef5c", "decimals": 18, "min_threshold": 1_000},
+    "SNX": {"contract": "0x50B728D8D964fd00C2d0AAD81718b71311feF68a", "decimals": 18, "min_threshold": 1_000},
+    "1INCH": {"contract": "0x9c2C5fd7b07E95EE044DDeba0E97a665F142394f", "decimals": 18, "min_threshold": 500},
+    "GHST": {"contract": "0x385Eeac5cB85A38A9a07A70c73e0a3271CfB54A7", "decimals": 18, "min_threshold": 500},
+    "QUICK": {"contract": "0xB5C064F955D8e7F38fE0460C556a72987494eE17", "decimals": 18, "min_threshold": 500},
+    "DQUICK": {"contract": "0x958d208Cdf087843e9AD98d23823d32E17d723A1", "decimals": 18, "min_threshold": 500},
 }
 
 SOL_TOKENS_TO_MONITOR = {
@@ -111,7 +137,13 @@ TOKEN_PRICES = {
     "FXS": 7.0,
     "LDO": 2.5,
     "RPL": 30.0,
-    "INJ": 35.0
+    "INJ": 35.0,
+    
+    # Polygon token prices
+    "WMATIC": 1.0,
+    "GHST": 1.2,
+    "QUICK": 0.05,
+    "DQUICK": 0.1
 }
 
 # Update TOKEN_PRICES with current approximate values
@@ -142,3 +174,7 @@ TOKEN_PRICES.update({
 })
 
 STABLE_COINS = {"usdt", "usdc", "dai", "tusd", "busd"}
+
+# Alias for backwards compatibility
+common_stablecoins = STABLE_COINS# Alias for backwards compatibility
+common_stablecoins = STABLE_COINS

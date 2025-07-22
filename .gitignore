@@ -175,3 +175,13 @@ cython_debug/
 # PyPI configuration file
 .pypirc
 gcp-service-account-key.json
+config/bigquery_credentials.json
+
+# Security - API Keys and Credentials
+*credentials*.json
+*.key
+*.pem
+.env.local
+config/*credentials*
+config/*.key
+config/*.pem

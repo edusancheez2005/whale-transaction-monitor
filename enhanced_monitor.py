@@ -2,13 +2,14 @@
 
 #!/usr/bin/env python3
 """
-Super Simple Visual Crypto Transaction Monitor
+Production-Ready Crypto Transaction Monitor with Structured Logging
 
 Features:
-- Simple, reliable display for macOS
-- Color-coded transactions (buy/sell/transfer)
-- Prompt for minimum transaction value
-- Clean summary on exit
+- Production-grade structured JSON logging
+- Real-time whale intelligence analysis
+- Color-coded transaction display
+- Comprehensive transaction storage
+- Clean summary reporting
 """
 
 import os
@@ -18,6 +19,11 @@ import signal
 import threading
 from collections import defaultdict
 import traceback
+from colorama import Fore, Style
+
+# Production logging imports
+from config.logging_config import production_logger, get_transaction_logger
+from utils.classification_final import WhaleIntelligenceEngine
 
 # Local imports
 from config.settings import (
@@ -36,8 +42,33 @@ from chains.ethereum import print_new_erc20_transfers, test_etherscan_connection
 from chains.whale_alert import start_whale_thread
 from chains.xrp import start_xrp_thread 
 from chains.solana import start_solana_thread
+from chains.polygon import print_new_polygon_transfers, test_polygonscan_connection
+from chains.solana_api import print_new_solana_transfers, test_helius_connection
 from models.classes import initialize_prices
 from utils.dedup import get_stats, deduped_transactions
+from utils.base_helpers import log_error, print_error_summary
+
+# New imports for real-time market flow engine and Whale Intelligence
+try:
+    from utils.real_time_classification import classify_swap_transaction, ClassifiedSwap
+    from utils.classification_final import whale_intelligence_engine
+    from supabase import create_client, Client
+    import config.api_keys as api_keys
+    import asyncio
+    import json
+    from datetime import datetime, timezone
+    from whale_sentiment_aggregator import whale_sentiment_aggregator
+    REAL_TIME_ENABLED = True
+    WHALE_INTELLIGENCE_ENABLED = True
+    SENTIMENT_AGGREGATION_ENABLED = True
+except ImportError as e:
+    production_logger.warning("Real-time classification not available", error=str(e))
+    REAL_TIME_ENABLED = False
+    WHALE_INTELLIGENCE_ENABLED = False
+    SENTIMENT_AGGREGATION_ENABLED = False
+
+# Initialize Production Whale Intelligence Engine
+whale_engine = WhaleIntelligenceEngine()
 
 # Basic colors
 GREEN = '\033[92m'
@@ -52,6 +83,698 @@ END = '\033[0m'
 min_transaction_value = GLOBAL_USD_THRESHOLD
 active_threads = []
 monitoring_enabled = True  # Flag to control transaction display
+
+# Real-time market flow engine components
+class TransactionStorage:
+    """Handles storage of classified transactions to Supabase."""
+    
+    def __init__(self):
+        """Initialize Supabase client if real-time features are enabled."""
+        self.supabase = None
+        self.storage_enabled = False
+        
+        if REAL_TIME_ENABLED:
+            try:
+                self.supabase: Client = create_client(
+                    api_keys.SUPABASE_URL,
+                    api_keys.SUPABASE_SERVICE_ROLE_KEY
+                )
+                self.storage_enabled = True
+                production_logger.info("Database storage initialized", 
+                                     extra={'extra_fields': {'supabase_url': api_keys.SUPABASE_URL}})
+            except Exception as e:
+                production_logger.error("Database storage failed to initialize", 
+                                      extra={'extra_fields': {'error': str(e), 'stack_trace': traceback.format_exc()}})
+    
+    def store_classified_swap(self, swap: ClassifiedSwap) -> bool:
+        """Store a classified swap in the database."""
+        if not self.storage_enabled or not self.supabase:
+            return False
+        
+        try:
+            # Convert swap to database format
+            swap_data = {
+                'transaction_hash': swap.transaction_hash,
+                'block_number': swap.block_number,
+                'block_timestamp': swap.block_timestamp.isoformat(),
+                'chain': swap.chain,
+                'dex': swap.dex,
+                'token_in_address': swap.token_in_address,
+                'token_out_address': swap.token_out_address,
+                'token_in_symbol': swap.token_in_symbol,
+                'token_out_symbol': swap.token_out_symbol,
+                'token_in_decimals': swap.token_in_decimals,
+                'token_out_decimals': swap.token_out_decimals,
+                'amount_in': str(swap.amount_in),
+                'amount_out': str(swap.amount_out),
+                'amount_in_usd': str(swap.amount_in_usd) if swap.amount_in_usd else None,
+                'amount_out_usd': str(swap.amount_out_usd) if swap.amount_out_usd else None,
+                'classification': swap.classification,
+                'confidence_score': swap.confidence_score,
+                'sender_address': swap.sender_address,
+                'recipient_address': swap.recipient_address,
+                'is_whale_transaction': swap.is_whale_transaction,
+                'whale_classification': swap.whale_classification,
+                'token_price_usd': str(swap.token_price_usd) if swap.token_price_usd else None,
+                'gas_used': swap.gas_used,
+                'gas_price': str(swap.gas_price) if swap.gas_price else None,
+                'transaction_fee_usd': str(swap.transaction_fee_usd) if swap.transaction_fee_usd else None,
+                'raw_log_data': swap.raw_log_data,
+                'classification_method': swap.classification_method
+            }
+            
+            # Insert into database
+            result = self.supabase.table('transaction_monitoring').insert(swap_data).execute()
+            
+            if result.data:
+                return True
+            else:
+                production_logger.error("Failed to store swap", 
+                                      extra={'extra_fields': {'transaction_hash': swap.transaction_hash}})
+                return False
+                
+        except Exception as e:
+            production_logger.error("Database storage error", 
+                                  extra={'extra_fields': {
+                                      'transaction_hash': swap.transaction_hash,
+                                      'error': str(e), 
+                                      'stack_trace': traceback.format_exc()
+                                  }})
+            return False
+    
+    def store_whale_transaction(self, tx_data: dict, intelligence_result: dict) -> bool:
+        """Store a whale transaction classification in the whale_transactions table."""
+        if not self.storage_enabled or not self.supabase:
+            return False
+        
+        try:
+            # Extract key information
+            classification = intelligence_result.get('classification', 'TRANSFER')
+            confidence = intelligence_result.get('confidence', 0)
+            whale_score = intelligence_result.get('whale_score', 0)
+            
+            # Only store BUY and SELL classifications
+            if classification not in ['BUY', 'SELL']:
+                return False
+            
+            # Extract token symbol using multiple fallback methods
+            token_symbol = self._extract_token_symbol(tx_data)
+            if not token_symbol:
+                production_logger.warning("No token symbol found, skipping storage", 
+                                        extra={'extra_fields': {'tx_hash': tx_data.get('tx_hash', '')}})
+                return False
+            
+            # Prepare whale transaction data
+            whale_data = {
+                'transaction_hash': tx_data.get('tx_hash', ''),
+                'token_symbol': token_symbol,
+                'token_address': tx_data.get('token_address', ''),
+                'classification': classification,
+                'confidence': confidence,
+                'usd_value': float(tx_data.get('value_usd', 0) or tx_data.get('usd_value', 0) or 0),
+                'whale_score': whale_score,
+                'blockchain': tx_data.get('blockchain', tx_data.get('chain', 'ethereum')),
+                'from_address': tx_data.get('from_address', tx_data.get('from', '')),
+                'to_address': tx_data.get('to_address', tx_data.get('to', '')),
+                'analysis_phases': len(intelligence_result.get('phase_results', {})),
+                'reasoning': intelligence_result.get('reasoning', '')
+            }
+            
+            # Insert into whale_transactions table
+            result = self.supabase.table('whale_transactions').insert(whale_data).execute()
+            
+            if result.data:
+                production_logger.info("Whale transaction stored successfully", 
+                                     extra={'extra_fields': {
+                                         'tx_hash': whale_data['transaction_hash'],
+                                         'classification': classification,
+                                         'token_symbol': token_symbol,
+                                         'usd_value': whale_data['usd_value']
+                                     }})
+                return True
+            else:
+                production_logger.error("Failed to store whale transaction", 
+                                      extra={'extra_fields': {'transaction_hash': whale_data['transaction_hash']}})
+                return False
+                
+        except Exception as e:
+            production_logger.error("Whale transaction storage error", 
+                                  extra={'extra_fields': {
+                                      'transaction_hash': tx_data.get('tx_hash', ''),
+                                      'error': str(e), 
+                                      'stack_trace': traceback.format_exc()
+                                  }})
+            return False
+    
+    def _extract_token_symbol(self, tx_data: dict) -> str:
+        """Extract token symbol from transaction data using multiple methods."""
+        # Try direct symbol fields first
+        symbol = (tx_data.get('symbol') or 
+                 tx_data.get('token_symbol') or 
+                 tx_data.get('token_in_symbol') or 
+                 tx_data.get('token_out_symbol'))
+        
+        if symbol and symbol != 'Unknown':
+            return symbol.upper()
+        
+        # Try to extract from token addresses or contract calls
+        token_address = (tx_data.get('token_address') or 
+                        tx_data.get('to_address') or 
+                        tx_data.get('to'))
+        
+        if token_address:
+            # Common token addresses mapping (can be expanded)
+            common_tokens = {
+                '0xa0b86a33e6c57': 'USDC',
+                '0x6b175474e89094c': 'DAI', 
+                '0xdac17f958d2ee523': 'USDT',
+                '0x2260fac5e5542a773': 'WBTC',
+                '0xc02aaa39b223fe8d0': 'WETH',
+                '0x7d1afa7b718fb893': 'MATIC',
+                '0x514910771af9ca656': 'LINK'
+            }
+            
+            # Check if address starts with any known token prefix
+            for prefix, token in common_tokens.items():
+                if token_address.lower().startswith(prefix.lower()):
+                    return token
+        
+        # Default fallback based on blockchain
+        blockchain = tx_data.get('blockchain', tx_data.get('chain', 'ethereum')).lower()
+        if blockchain == 'ethereum':
+            return 'ETH'
+        elif blockchain == 'polygon':
+            return 'MATIC'
+        elif blockchain == 'solana':
+            return 'SOL'
+        elif blockchain in ['bitcoin', 'btc']:
+            return 'BTC'
+        else:
+            return 'UNKNOWN'
+    
+    def get_recent_swaps(self, limit: int = 10) -> list:
+        """Get recent swaps from the database."""
+        if not self.storage_enabled or not self.supabase:
+            return []
+        
+        try:
+            result = self.supabase.table('transaction_monitoring')\
+                .select('*')\
+                .order('block_timestamp', desc=True)\
+                .limit(limit)\
+                .execute()
+            
+            return result.data if result.data else []
+            
+        except Exception as e:
+            production_logger.error("Failed to fetch recent swaps", 
+                                  extra={'extra_fields': {'error': str(e), 'stack_trace': traceback.format_exc()}})
+            return []
+
+# Global storage instance
+transaction_storage = TransactionStorage()
+
+async def process_real_time_swap(log_data: dict, chain: str, dex: str) -> bool:
+    """
+    Process a real-time swap transaction with classification and storage.
+    Task 7: All transactions now go through the unified MasterClassifier pipeline.
+    """
+    if not REAL_TIME_ENABLED:
+        return False
+    
+    try:
+        # Task 7: Use unified whale intelligence engine for ALL transactions
+        transaction_data = {
+            'blockchain': chain,
+            'dex': dex,
+            'tx_hash': log_data.get('transactionHash', ''),
+            'from_address': log_data.get('from', ''),
+            'to_address': log_data.get('to', ''),
+            'value_usd': log_data.get('value_usd', 0),
+            'gas_price': log_data.get('gasPrice', 0),
+            'timestamp': log_data.get('timestamp', time.time())
+        }
+        
+        # Pass through full 7-phase analysis
+        intelligence_result = whale_engine.analyze_transaction_comprehensive(transaction_data)
+        
+        # Create classified swap from intelligence result
+        classified_swap = _create_classified_swap_from_intelligence(transaction_data, intelligence_result)
+        
+        # Store in database
+        stored = transaction_storage.store_classified_swap(classified_swap)
+        
+        # Print to console (integrate with existing display)
+        if classified_swap.amount_in_usd and float(classified_swap.amount_in_usd) >= min_transaction_value:
+            print_classified_swap(classified_swap)
+        
+        return stored
+        
+    except Exception as e:
+        production_logger.error("Failed to process real-time swap", 
+                              extra={'extra_fields': {'error': str(e), 'log_data': log_data}})
+        return False
+
+def _create_classified_swap_from_intelligence(transaction_data: dict, intelligence_result: dict):
+    """
+    Task 7: Convert whale intelligence result to ClassifiedSwap format.
+    
+    Args:
+        transaction_data (dict): Original transaction data
+        intelligence_result (dict): Result from 7-phase analysis
+        
+    Returns:
+        ClassifiedSwap: Standardized swap object
+    """
+    try:
+        from utils.real_time_classification import ClassifiedSwap
+        from datetime import datetime, timezone
+        
+        # Extract classification results
+        classification = intelligence_result.get('classification', 'TRANSFER')
+        confidence = intelligence_result.get('confidence', 0.5)
+        evidence = intelligence_result.get('evidence', [])
+        whale_classification = intelligence_result.get('whale_classification', {})
+        
+        # Create ClassifiedSwap object
+        classified_swap = ClassifiedSwap(
+            transaction_hash=transaction_data.get('tx_hash', ''),
+            block_number=0,  # Will be populated by actual block data
+            block_timestamp=datetime.fromtimestamp(transaction_data.get('timestamp', time.time()), tz=timezone.utc),
+            chain=transaction_data.get('blockchain', 'ethereum'),
+            dex=transaction_data.get('dex', 'unknown'),
+            token_in_address='',  # Will be populated from log data
+            token_out_address='',  # Will be populated from log data
+            token_in_symbol='',
+            token_out_symbol='',
+            token_in_decimals=18,
+            token_out_decimals=18,
+            amount_in=0,
+            amount_out=0,
+            amount_in_usd=transaction_data.get('value_usd', 0),
+            amount_out_usd=transaction_data.get('value_usd', 0),
+            classification=classification,
+            confidence_score=confidence,
+            sender_address=transaction_data.get('from_address', ''),
+            recipient_address=transaction_data.get('to_address', ''),
+            is_whale_transaction=whale_classification.get('is_whale', False),
+            whale_classification=classification,
+            token_price_usd=0,
+            gas_used=0,
+            gas_price=transaction_data.get('gas_price', 0),
+            transaction_fee_usd=0,
+            raw_log_data=transaction_data,
+            classification_method='whale_intelligence_7_phase'
+        )
+        
+        return classified_swap
+        
+    except Exception as e:
+        production_logger.error("Failed to create classified swap", 
+                              extra={'extra_fields': {'error': str(e)}})
+        return None
+
+def _generate_investment_signal(whale_data: dict, transaction_data: dict, intelligence_result) -> None:
+    """
+    🚀 INVESTMENT OPPORTUNITY ENGINE 🚀
+    Generate actionable investment signals based on whale movements.
+    """
+    try:
+        # Extract key data
+        from_address = whale_data.get('from', {})
+        to_address = whale_data.get('to', {})
+        amount_usd = whale_data.get('amount_usd', 0)
+        symbol = whale_data.get('symbol', '')
+        amount = whale_data.get('amount', 0)
+        
+        # Get owner types (CEX, wallet, etc.)
+        from_owner_type = from_address.get('owner_type', '')
+        to_owner_type = to_address.get('owner_type', '')
+        from_owner = from_address.get('owner', '')
+        to_owner = to_address.get('owner', '')
+        
+        # Investment signal logic
+        signal_generated = False
+        
+        # BEARISH SIGNAL: Large move TO exchange (potential sell-off)
+        if (from_owner_type == 'wallet' and to_owner_type == 'exchange' and 
+            amount_usd >= 1000000):  # $1M+ threshold for major signals
+            
+            print(f"\n{Fore.RED}🚀 INVESTMENT SIGNAL: POTENTIAL SELL-OFF 🚀{Style.RESET_ALL}")
+            print(f"{Fore.RED}   Whale Alert: ${amount_usd:,.0f} of {symbol} moved to {to_owner}{Style.RESET_ALL}")
+            print(f"{Fore.RED}   Amount: {amount:,.2f} {symbol}{Style.RESET_ALL}")
+            print(f"{Fore.RED}   Signal: HIGH SELL PRESSURE detected. Potential price drop imminent.{Style.RESET_ALL}")
+            print(f"{Fore.RED}   Action: Monitor market for SHORT entry or exit long positions.{Style.RESET_ALL}")
+            
+            production_logger.info("🚀 BEARISH INVESTMENT SIGNAL", extra={
+                'extra_fields': {
+                    'signal_type': 'BEARISH',
+                    'amount_usd': amount_usd,
+                    'symbol': symbol,
+                    'from_type': from_owner_type,
+                    'to_exchange': to_owner,
+                    'action': 'POTENTIAL_SELL_OFF'
+                }
+            })
+            signal_generated = True
+            
+        # BULLISH SIGNAL: Large move FROM exchange (potential accumulation)
+        elif (from_owner_type == 'exchange' and to_owner_type == 'wallet' and 
+              amount_usd >= 1000000):  # $1M+ threshold for major signals
+            
+            print(f"\n{Fore.GREEN}🚀 INVESTMENT SIGNAL: POTENTIAL ACCUMULATION 🚀{Style.RESET_ALL}")
+            print(f"{Fore.GREEN}   Whale Alert: ${amount_usd:,.0f} of {symbol} withdrawn from {from_owner}{Style.RESET_ALL}")
+            print(f"{Fore.GREEN}   Amount: {amount:,.2f} {symbol}{Style.RESET_ALL}")
+            print(f"{Fore.GREEN}   Signal: WHALE ACCUMULATION detected. Potential price increase likely.{Style.RESET_ALL}")
+            print(f"{Fore.GREEN}   Action: Monitor market for LONG entry or hold existing positions.{Style.RESET_ALL}")
+            
+            production_logger.info("🚀 BULLISH INVESTMENT SIGNAL", extra={
+                'extra_fields': {
+                    'signal_type': 'BULLISH',
+                    'amount_usd': amount_usd,
+                    'symbol': symbol,
+                    'from_exchange': from_owner,
+                    'to_type': to_owner_type,
+                    'action': 'POTENTIAL_ACCUMULATION'
+                }
+            })
+            signal_generated = True
+        
+        # Medium-sized signals (100K - 1M)
+        elif amount_usd >= 100000:
+            if from_owner_type == 'wallet' and to_owner_type == 'exchange':
+                print(f"\n{Fore.YELLOW}📈 Medium Signal: ${amount_usd:,.0f} {symbol} → {to_owner} (Bearish){Style.RESET_ALL}")
+            elif from_owner_type == 'exchange' and to_owner_type == 'wallet':
+                print(f"\n{Fore.CYAN}📈 Medium Signal: ${amount_usd:,.0f} {symbol} ← {from_owner} (Bullish){Style.RESET_ALL}")
+        
+        if signal_generated:
+            print(f"{Fore.MAGENTA}💡 Tip: Use this signal alongside technical analysis for best results.{Style.RESET_ALL}\n")
+            
+    except Exception as e:
+        production_logger.error("Failed to generate investment signal", 
+                              extra={'extra_fields': {'error': str(e)}})
+
+def process_whale_alert_transaction(whale_data: dict) -> bool:
+    """
+    Task 7: Process Whale Alert transaction through unified 7-phase pipeline.
+    
+    Args:
+        whale_data (dict): Whale Alert transaction data
+        
+    Returns:
+        bool: Success status
+    """
+    try:
+        # Extract transaction details from Whale Alert format
+        transaction_data = {
+            'tx_hash': whale_data.get('hash', ''),
+            'blockchain': whale_data.get('blockchain', 'ethereum'),
+            'from_address': whale_data.get('from', {}).get('address', ''),
+            'to_address': whale_data.get('to', {}).get('address', ''),
+            'value_usd': whale_data.get('amount_usd', 0),
+            'symbol': whale_data.get('symbol', ''),
+            'amount': whale_data.get('amount', 0),
+            'timestamp': whale_data.get('timestamp', time.time()),
+            'gas_price': 0,  # Whale Alert doesn't provide gas price
+            'source': 'whale_alert'
+        }
+        
+        # Task 7: Pass through full MasterClassifier.analyze_transaction pipeline
+        intelligence_result = whale_engine.analyze_transaction_comprehensive(transaction_data)
+        
+        # 🚀 GENERATE INVESTMENT SIGNALS 🚀
+        # High-impact whale movement analysis for actionable trading ideas
+        _generate_investment_signal(whale_data, transaction_data, intelligence_result)
+        
+        # Log the enhanced analysis
+        production_logger.info("Whale Alert transaction analyzed", extra={
+            'extra_fields': {
+                'tx_hash': transaction_data['tx_hash'],
+                'classification': intelligence_result.get('classification', 'UNKNOWN'),
+                'confidence': intelligence_result.get('confidence', 0),
+                'whale_score': intelligence_result.get('whale_score', 0),
+                'phases_completed': len(intelligence_result.get('phase_results', {})),
+                'value_usd': transaction_data['value_usd']
+            }
+        })
+        
+        # Store in transaction storage if enabled
+        if REAL_TIME_ENABLED and transaction_storage.storage_enabled:
+            classified_swap = _create_classified_swap_from_intelligence(transaction_data, intelligence_result)
+            if classified_swap:
+                transaction_storage.store_classified_swap(classified_swap)
+        
+        # 🚀 NEW: Store whale transaction classification for sentiment analysis
+        if REAL_TIME_ENABLED and transaction_storage.storage_enabled:
+            transaction_storage.store_whale_transaction(transaction_data, intelligence_result)
+        
+        # Display the transaction with enhanced classification
+        if transaction_data['value_usd'] >= min_transaction_value:
+            _display_whale_alert_transaction(transaction_data, intelligence_result)
+        
+        return True
+        
+    except Exception as e:
+        production_logger.error("Failed to process Whale Alert transaction", 
+                              extra={'extra_fields': {'error': str(e), 'whale_data': whale_data}})
+        return False
+
+def _display_whale_alert_transaction(transaction_data: dict, intelligence_result: dict):
+    """
+    Display Whale Alert transaction with 7-phase analysis results.
+    
+    Args:
+        transaction_data (dict): Transaction data
+        intelligence_result (dict): 7-phase analysis results
+    """
+    try:
+        classification = intelligence_result.get('classification', 'TRANSFER')
+        confidence = intelligence_result.get('confidence', 0)
+        whale_score = intelligence_result.get('whale_score', 0)
+        
+        # Color coding based on classification
+        if classification == 'BUY':
+            color = GREEN
+        elif classification == 'SELL':
+            color = RED
+        else:
+            color = YELLOW
+        
+        # Enhanced display with 7-phase results
+        print(f"{color}[WHALE ALERT - 7-PHASE] {classification} ({confidence:.1%}){END}")
+        print(f"  Hash: {transaction_data['tx_hash'][:16]}...")
+        print(f"  Value: ${transaction_data['value_usd']:,.0f} {transaction_data.get('symbol', '')}")
+        print(f"  Whale Score: {whale_score:.2f}")
+        print(f"  From: {transaction_data['from_address'][:10]}...")
+        print(f"  To: {transaction_data['to_address'][:10]}...")
+        
+        # Show evidence from analysis
+        evidence = intelligence_result.get('evidence', [])
+        if evidence:
+            print(f"  Evidence: {evidence[0]}")  # Show top evidence
+        
+        print()
+        
+    except Exception as e:
+        logger.error(f"Failed to display Whale Alert transaction: {e}")
+
+def print_classified_swap(swap: ClassifiedSwap):
+    """Print a classified swap with enhanced formatting."""
+    if not monitoring_enabled:
+        return
+    
+    # Skip if below minimum value
+    usd_value = float(swap.amount_in_usd) if swap.amount_in_usd else 0
+    if usd_value < min_transaction_value:
+        return
+    
+    # Choose color based on classification
+    if swap.classification == "BUY":
+        header_color = GREEN
+        emoji = "🟢"
+    elif swap.classification == "SELL":
+        header_color = RED
+        emoji = "🔴"
+    else:
+        header_color = YELLOW
+        emoji = "🟡"
+    
+    # Format the header with DEX and chain info
+    header = f"{emoji} [{swap.token_in_symbol or 'TOKEN'} → {swap.token_out_symbol or 'TOKEN'}] ${usd_value:,.2f} USD"
+    header += f" | {swap.dex.upper()} on {swap.chain.upper()}"
+    
+    if swap.transaction_hash:
+        header += f" | Tx {swap.transaction_hash[:16]}..."
+    
+    # Print with colors
+    print(header_color + BOLD + header + END)
+    
+    # Print timestamp
+    time_str = swap.block_timestamp.strftime('%Y-%m-%d %H:%M:%S UTC')
+    print(f"  Time: {time_str}")
+    
+    # Print addresses
+    print(f"  From: {swap.sender_address}")
+    if swap.recipient_address:
+        print(f"  To:   {swap.recipient_address}")
+    
+    # Print amounts with token symbols
+    amount_in_formatted = float(swap.amount_in) / (10 ** (swap.token_in_decimals or 18))
+    amount_out_formatted = float(swap.amount_out) / (10 ** (swap.token_out_decimals or 18))
+    
+    print(f"  Swap: {amount_in_formatted:,.6f} {swap.token_in_symbol or 'TOKEN'} → {amount_out_formatted:,.6f} {swap.token_out_symbol or 'TOKEN'}")
+    
+    # Print classification with confidence
+    confidence_text = f"({swap.confidence_score:.1%} confidence)"
+    whale_text = " 🐋 WHALE" if swap.is_whale_transaction else ""
+    print(header_color + f"  Classification: {swap.classification} {confidence_text}{whale_text}" + END)
+    
+    # Print method used
+    print(f"  Method: {swap.classification_method}")
+    
+    # Add a blank line
+    print()
+
+def start_real_time_monitoring():
+    """Start real-time DEX monitoring threads."""
+    if not REAL_TIME_ENABLED:
+        print("⚠️  Real-time monitoring not available")
+        return []
+    
+    real_time_threads = []
+    
+    try:
+        # Start Ethereum monitoring
+        ethereum_thread = threading.Thread(
+            target=monitor_ethereum_swaps,
+            name="EthereumSwapMonitor",
+            daemon=True
+        )
+        ethereum_thread.start()
+        real_time_threads.append(ethereum_thread)
+        
+        # Start Polygon monitoring
+        polygon_thread = threading.Thread(
+            target=monitor_polygon_swaps,
+            name="PolygonSwapMonitor", 
+            daemon=True
+        )
+        polygon_thread.start()
+        real_time_threads.append(polygon_thread)
+        
+        # Start Solana monitoring (webhook-based)
+        solana_thread = threading.Thread(
+            target=monitor_solana_swaps,
+            name="SolanaSwapMonitor",
+            daemon=True
+        )
+        solana_thread.start()
+        real_time_threads.append(solana_thread)
+        
+        print(f"✅ Started {len(real_time_threads)} real-time monitoring threads")
+        
+    except Exception as e:
+        error_msg = f"❌ Failed to start real-time monitoring: {e}"
+        print(error_msg)
+        log_error(error_msg)
+    
+    return real_time_threads
+
+def monitor_ethereum_swaps():
+    """Monitor Ethereum Uniswap swaps via Etherscan API."""
+    print("🔄 Starting Ethereum swap monitoring...")
+    
+    try:
+        from utils.etherscan_poller import start_ethereum_polling
+        
+        # Create storage callback
+        def storage_callback(classified_swap):
+            try:
+                # Store in database
+                stored = transaction_storage.store_classified_swap(classified_swap)
+                
+                # Print to console if above threshold
+                if classified_swap.amount_in_usd and float(classified_swap.amount_in_usd) >= min_transaction_value:
+                    print_classified_swap(classified_swap)
+                
+                return stored
+            except Exception as e:
+                print(f"❌ Storage callback error: {e}")
+                return False
+        
+        # Start the async polling loop
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(start_ethereum_polling(storage_callback))
+        
+    except ImportError:
+        print("⚠️  Etherscan poller not available, using placeholder")
+        # Fallback to placeholder
+        while not shutdown_flag.is_set() and monitoring_enabled:
+            try:
+                time.sleep(15)
+            except Exception as e:
+                if not shutdown_flag.is_set():
+                    print(f"❌ Ethereum monitoring error: {e}")
+                time.sleep(5)
+    except Exception as e:
+        print(f"❌ Ethereum monitoring failed: {e}")
+
+def monitor_polygon_swaps():
+    """Monitor Polygon Uniswap swaps via Polygonscan API."""
+    print("🔄 Starting Polygon swap monitoring...")
+    
+    try:
+        from utils.etherscan_poller import start_polygon_polling
+        
+        # Create storage callback
+        def storage_callback(classified_swap):
+            try:
+                # Store in database
+                stored = transaction_storage.store_classified_swap(classified_swap)
+                
+                # Print to console if above threshold
+                if classified_swap.amount_in_usd and float(classified_swap.amount_in_usd) >= min_transaction_value:
+                    print_classified_swap(classified_swap)
+                
+                return stored
+            except Exception as e:
+                print(f"❌ Storage callback error: {e}")
+                return False
+        
+        # Start the async polling loop
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(start_polygon_polling(storage_callback))
+        
+    except ImportError:
+        print("⚠️  Polygonscan poller not available, using placeholder")
+        # Fallback to placeholder
+        while not shutdown_flag.is_set() and monitoring_enabled:
+            try:
+                time.sleep(15)
+            except Exception as e:
+                if not shutdown_flag.is_set():
+                    print(f"❌ Polygon monitoring error: {e}")
+                time.sleep(5)
+    except Exception as e:
+        print(f"❌ Polygon monitoring failed: {e}")
+
+def monitor_solana_swaps():
+    """Monitor Solana Jupiter swaps via Helius webhooks."""
+    print("🔄 Starting Solana swap monitoring...")
+    print("⚠️  Solana monitoring requires webhook setup - placeholder for now")
+    
+    while not shutdown_flag.is_set() and monitoring_enabled:
+        try:
+            # Placeholder for Helius webhook processing
+            # In production, this would set up a Flask webhook endpoint
+            time.sleep(10)
+            
+        except Exception as e:
+            if not shutdown_flag.is_set():
+                print(f"❌ Solana monitoring error: {e}")
+            time.sleep(5)
 
 def clear_screen():
     """Clear the terminal"""
@@ -80,7 +803,7 @@ def print_simple_header():
     print()  # Add a blank line
 
 def print_transaction(tx_data):
-    """Print a transaction with simple color formatting"""
+    """Print a transaction with simple color formatting and whale intelligence"""
     # Only print if monitoring is enabled
     if not monitoring_enabled:
         return
@@ -89,6 +812,25 @@ def print_transaction(tx_data):
     usd_value = tx_data.get("usd_value", 0)
     if usd_value < min_transaction_value:
         return
+    
+    # Run whale intelligence analysis if available
+    whale_analysis = None
+    if WHALE_INTELLIGENCE_ENABLED:
+        try:
+            whale_analysis = whale_intelligence_engine.analyze_transaction_comprehensive(tx_data)
+            if whale_analysis and whale_analysis.get('confidence', 0) > 0.7:
+                # Use whale intelligence classification if confidence is high
+                tx_data['classification'] = whale_analysis['classification']
+                tx_data['confidence'] = whale_analysis['confidence']
+                tx_data['whale_evidence'] = whale_analysis.get('evidence', [])
+                tx_data['whale_signals'] = whale_analysis.get('whale_signals', [])
+                tx_data['dex_info'] = whale_analysis.get('dex_info', {})
+                
+                # 🚀 NEW: Store whale transaction classification for sentiment analysis
+                if REAL_TIME_ENABLED and transaction_storage.storage_enabled:
+                    transaction_storage.store_whale_transaction(tx_data, whale_analysis)
+        except Exception as e:
+            pass  # Silently continue if whale intelligence fails
     
     # Get transaction details
     tx_hash = tx_data.get("tx_hash", "")
@@ -107,8 +849,15 @@ def print_transaction(tx_data):
     else:  # Transfer
         header_color = YELLOW
     
+    # Enhanced whale indicator
+    whale_indicator = ""
+    if whale_analysis and whale_analysis.get('whale_signals'):
+        whale_indicator = " 🐋"
+    elif usd_value >= 100000:  # $100k+ transactions
+        whale_indicator = " 🐋"
+    
     # Format the transaction header
-    header = f"[{symbol} | ${usd_value:,.2f} USD]"
+    header = f"[{symbol} | ${usd_value:,.2f} USD]{whale_indicator}"
     if tx_data.get("block_number"):
         header += f" Block {tx_data.get('block_number')}"
     if tx_hash:
@@ -133,7 +882,20 @@ def print_transaction(tx_data):
     # Print amount and classification
     print(f"  Amount: {amount:,.2f} {symbol} (~${usd_value:,.2f} USD)")
     confidence = tx_data.get("confidence", 0)
-    print(header_color + f"  Classification: {classification} (confidence: {confidence})" + END)
+    confidence_color = GREEN if confidence > 0.8 else YELLOW if confidence > 0.5 else ""
+    print(header_color + f"  Classification: {classification} (confidence: {confidence_color}{confidence:.2f}{END if confidence_color else ''})" + END)
+    
+    # Show DEX information if available
+    dex_info = tx_data.get('dex_info', {})
+    if dex_info.get('dex'):
+        print(f"  DEX: {PURPLE}{dex_info['dex']}{END}")
+    
+    # Show whale signals if available
+    whale_signals = tx_data.get('whale_signals', [])
+    if whale_signals:
+        print(f"  🐋 Whale Signals:")
+        for signal in whale_signals[:2]:  # Show first 2 signals
+            print(f"    • {signal}")
     
     # Add a blank line
     print()
@@ -245,16 +1007,52 @@ def start_monitoring_threads():
         except Exception as e:
             print(RED + f"❌ Error starting XRP monitor: {e}" + END)
         
-        # Try to start Solana monitor
+        # Try to start Polygon monitor
         try:
-            solana_thread = start_solana_thread()
-            if solana_thread:
-                threads.append(solana_thread)
-                print(GREEN + "✅ Solana monitor started" + END)
-            else:
-                print(YELLOW + "⚠️ Solana monitor could not be started" + END)
+            polygon_thread = threading.Thread(
+                target=print_new_polygon_transfers,
+                daemon=True,
+                name="Polygon"
+            )
+            polygon_thread.start()
+            threads.append(polygon_thread)
+            print(GREEN + "✅ Polygon monitor started" + END)
         except Exception as e:
-            print(RED + f"❌ Error starting Solana monitor: {e}" + END)
+            print(RED + f"❌ Error starting Polygon monitor: {e}" + END)
+        
+        # Try to start Solana API monitor
+        try:
+            solana_api_thread = threading.Thread(
+                target=print_new_solana_transfers,
+                daemon=True,
+                name="Solana-API"
+            )
+            solana_api_thread.start()
+            threads.append(solana_api_thread)
+            print(GREEN + "✅ Solana API monitor started" + END)
+        except Exception as e:
+            print(RED + f"❌ Error starting Solana API monitor: {e}" + END)
+        
+        # Start real-time DEX monitoring
+        try:
+            real_time_threads = start_real_time_monitoring()
+            threads.extend(real_time_threads)
+            if real_time_threads:
+                print(GREEN + f"✅ Real-time DEX monitoring started ({len(real_time_threads)} threads)" + END)
+            else:
+                print(YELLOW + "⚠️ Real-time DEX monitoring not available" + END)
+        except Exception as e:
+            print(RED + f"❌ Error starting real-time monitoring: {e}" + END)
+        
+        # 🚀 NEW: Start whale sentiment aggregation service
+        try:
+            if SENTIMENT_AGGREGATION_ENABLED:
+                whale_sentiment_aggregator.start(interval_seconds=60)  # Update every minute
+                print(GREEN + "✅ Whale sentiment aggregator started (60s intervals)" + END)
+            else:
+                print(YELLOW + "⚠️ Whale sentiment aggregation not available" + END)
+        except Exception as e:
+            print(RED + f"❌ Error starting whale sentiment aggregator: {e}" + END)
         
         return threads
         
@@ -383,7 +1181,7 @@ def print_simple_summary():
                     transfers = stats['transfers']
                     total = buys + sells + transfers
                     
-                    if total < 5:  # Skip tokens with very few transactions
+                    if total < 1:  # Show all tokens with any transactions
                         continue
                         
                     buy_pct = (buys / total * 100) if total > 0 else 0
@@ -423,7 +1221,7 @@ def print_simple_summary():
             # Find tokens with enough volume
             active_tokens = [
                 (symbol, stats) for symbol, stats in token_stats.items() 
-                if stats['buys'] + stats['sells'] >= 10
+                if stats['buys'] + stats['sells'] >= 2  # Lowered from 10 to show more tokens
             ]
             
             # Sort by buy percentage for bullish tokens
@@ -566,6 +1364,14 @@ def simple_signal_handler(signum, frame):
     monitoring_enabled = False
     shutdown_flag.set()
     
+    # 🚀 NEW: Stop whale sentiment aggregator
+    try:
+        if SENTIMENT_AGGREGATION_ENABLED:
+            whale_sentiment_aggregator.stop()
+            print(YELLOW + "Whale sentiment aggregator stopped" + END)
+    except Exception as e:
+        print(RED + f"Error stopping sentiment aggregator: {e}" + END)
+    
     try:
         # Short countdown to allow buffer draining
         drain_seconds = 3
@@ -596,6 +1402,10 @@ def simple_signal_handler(signum, frame):
         try:
             print(YELLOW + "Generating final report..." + END)
             print_simple_summary()
+            
+            # Add error summary at the end
+            print_error_summary()
+            
         except Exception as e:
             print(RED + f"Error generating summary: {e}" + END)
             print(RED + "Press Ctrl+C again to force exit" + END)
@@ -640,6 +1450,233 @@ def prompt_for_minimum_value():
             print(YELLOW + f"Using default value: ${GLOBAL_USD_THRESHOLD:,.2f}" + END)
     except ValueError:
         print(YELLOW + f"Invalid input, using default value: ${GLOBAL_USD_THRESHOLD:,.2f}" + END)
+
+def display_transaction(tx_data, enhanced_display=True):
+    """
+    🐋 PRODUCTION-READY Display transaction with WHALE INTELLIGENCE ANALYSIS
+    """
+    try:
+        # Extract transaction details
+        chain = tx_data.get('chain', 'unknown')
+        tx_hash = tx_data.get('hash', 'N/A')
+        from_addr = tx_data.get('from_address', 'N/A')
+        to_addr = tx_data.get('to_address', 'N/A')
+        value_usd = float(tx_data.get('value_usd', 0))
+        token_symbol = tx_data.get('token_symbol', 'ETH')
+        
+        # Initialize transaction-specific logger
+        tx_logger = get_transaction_logger(tx_hash)
+        tx_logger.info("Transaction display started", 
+                      chain=chain, value_usd=value_usd, token_symbol=token_symbol)
+        
+        # Run PRODUCTION whale intelligence analysis
+        whale_result = whale_engine.analyze_transaction_comprehensive(tx_data)
+        
+        # 🚀 NEW: Store whale transaction classification for sentiment analysis
+        if REAL_TIME_ENABLED and transaction_storage.storage_enabled:
+            transaction_storage.store_whale_transaction(tx_data, whale_result)
+        
+        # Extract advanced analysis results
+        swap_analysis = whale_result.get('swap_analysis', {})
+        advanced_analysis = swap_analysis.get('advanced_analysis', {})
+        
+        # Determine display elements
+        whale_score = whale_result.get('final_whale_score', 0)
+        confidence = whale_result.get('confidence', 0)
+        classification = whale_result.get('classification', 'TRANSFER')
+        
+        # Log analysis results
+        tx_logger.info("Whale intelligence analysis completed",
+                      classification=classification, confidence=confidence, 
+                      whale_score=whale_score)
+        
+        # 🐋 WHALE INDICATOR
+        whale_indicator = ""
+        if value_usd >= 1000000:  # $1M+
+            whale_indicator = "🐋🐋🐋 MEGA WHALE"
+        elif value_usd >= 100000:  # $100K+
+            whale_indicator = "🐋🐋 WHALE"
+        elif value_usd >= 10000:   # $10K+
+            whale_indicator = "🐋 MINI WHALE"
+        elif whale_score > 60:
+            whale_indicator = "🐋 WHALE SIGNALS"
+        
+        # 🎯 CONFIDENCE COLOR CODING
+        if confidence >= 0.8:
+            confidence_color = Fore.GREEN
+            confidence_label = "HIGH"
+        elif confidence >= 0.5:
+            confidence_color = Fore.YELLOW
+            confidence_label = "MEDIUM"
+        else:
+            confidence_color = Fore.RED
+            confidence_label = "LOW"
+        
+        # 📊 ADVANCED TRANSACTION CATEGORIZATION
+        category_info = ""
+        protocol_info = ""
+        
+        if advanced_analysis:
+            transaction_category = advanced_analysis.get('transaction_category', 'UNKNOWN')
+            category_confidence = advanced_analysis.get('confidence_score', 0)
+            
+            # Enhanced category display
+            if transaction_category != 'UNKNOWN':
+                category_info = f"📊 {transaction_category}"
+                if category_confidence >= 0.90:
+                    category_info += f" {Fore.GREEN}({category_confidence:.1%}){Style.RESET_ALL}"
+                elif category_confidence >= 0.70:
+                    category_info += f" {Fore.YELLOW}({category_confidence:.1%}){Style.RESET_ALL}"
+                else:
+                    category_info += f" {Fore.RED}({category_confidence:.1%}){Style.RESET_ALL}"
+            
+            # Protocol interaction display
+            protocol_interactions = advanced_analysis.get('protocol_interactions', [])
+            if protocol_interactions:
+                protocols = [p.get('protocol', 'Unknown') for p in protocol_interactions if p.get('protocol')]
+                if protocols:
+                    protocol_info = f"🏛️ Protocols: {', '.join(set(protocols))}"
+            
+            # DEX protocol display
+            dex_protocol = advanced_analysis.get('dex_protocol')
+            if dex_protocol and dex_protocol != 'Unknown DEX':
+                protocol_info = f"🔄 DEX: {dex_protocol}"
+            
+            # Multi-protocol indicator
+            if advanced_analysis.get('multi_protocol'):
+                protocol_info += " 🌐 MULTI-PROTOCOL"
+            
+            # MEV signals
+            mev_signals = advanced_analysis.get('mev_signals', {})
+            mev_indicators = []
+            if mev_signals.get('arbitrage'):
+                mev_indicators.append("⚡ ARBITRAGE")
+            if mev_signals.get('front_running'):
+                mev_indicators.append("🏃 FRONT-RUN")
+            if mev_signals.get('sandwich_attack'):
+                mev_indicators.append("🥪 SANDWICH")
+            
+            if mev_indicators:
+                protocol_info += f" | MEV: {', '.join(mev_indicators)}"
+        
+        # 🪐 SOLANA-SPECIFIC ENHANCEMENTS
+        if chain == 'solana' and advanced_analysis:
+            jupiter_info = advanced_analysis.get('jupiter_route_info', {})
+            if jupiter_info.get('route_type') == 'MULTI_HOP':
+                hop_count = len(jupiter_info.get('hop_details', []))
+                protocol_info += f" | 🪐 Jupiter {hop_count}-hop"
+            
+            # DeFi operations
+            defi_ops = advanced_analysis.get('defi_operations', [])
+            if len(defi_ops) > 1:
+                protocol_info += f" | 🏛️ {len(defi_ops)} DeFi protocols"
+        
+        # 💎 FLASH LOAN DETECTION
+        flash_loan_info = ""
+        if advanced_analysis.get('mev_signals', {}).get('has_flash_loans'):
+            flash_loan_info = "⚡ FLASH LOAN DETECTED"
+        
+        # Main transaction display
+        print(f"\n{Fore.CYAN}{'='*80}{Style.RESET_ALL}")
+        
+        # Header with whale indicator
+        header = f"🔗 {chain.upper()} Transaction"
+        if whale_indicator:
+            header += f" | {Fore.RED}{whale_indicator}{Style.RESET_ALL}"
+        print(header)
+        
+        # Transaction hash
+        print(f"📄 Hash: {tx_hash[:16]}...{tx_hash[-16:] if len(tx_hash) > 32 else tx_hash}")
+        
+        # Addresses
+        print(f"📤 From: {from_addr[:8]}...{from_addr[-8:] if len(from_addr) > 16 else from_addr}")
+        print(f"📥 To:   {to_addr[:8]}...{to_addr[-8:] if len(to_addr) > 16 else to_addr}")
+        
+        # Value with formatting
+        if value_usd >= 1000000:
+            value_display = f"💰 Value: ${value_usd:,.0f} ({token_symbol}) {Fore.RED}🔥 MEGA{Style.RESET_ALL}"
+        elif value_usd >= 100000:
+            value_display = f"💰 Value: ${value_usd:,.0f} ({token_symbol}) {Fore.YELLOW}🔥 LARGE{Style.RESET_ALL}"
+        elif value_usd >= 10000:
+            value_display = f"💰 Value: ${value_usd:,.0f} ({token_symbol}) {Fore.GREEN}💎{Style.RESET_ALL}"
+        else:
+            value_display = f"💰 Value: ${value_usd:,.2f} ({token_symbol})"
+        
+        print(value_display)
+        
+        # ENHANCED: Advanced analysis results
+        if category_info:
+            print(f"{category_info}")
+        
+        if protocol_info:
+            print(f"{protocol_info}")
+        
+        if flash_loan_info:
+            print(f"{Fore.MAGENTA}{flash_loan_info}{Style.RESET_ALL}")
+        
+        # Classification and confidence
+        print(f"🎯 Classification: {Fore.CYAN}{classification}{Style.RESET_ALL}")
+        print(f"📊 Confidence: {confidence_color}{confidence_label} ({confidence:.1%}){Style.RESET_ALL}")
+        
+        # Whale score
+        if whale_score > 0:
+            if whale_score >= 80:
+                score_color = Fore.RED
+            elif whale_score >= 60:
+                score_color = Fore.YELLOW
+            else:
+                score_color = Fore.GREEN
+            print(f"🐋 Whale Score: {score_color}{whale_score:.0f}/100{Style.RESET_ALL}")
+        
+        # ENHANCED: Whale signals from advanced analysis
+        whale_signals = whale_result.get('whale_signals', [])
+        if whale_signals:
+            print(f"\n🔍 Whale Intelligence Signals:")
+            for signal in whale_signals:
+                print(f"   • {signal}")
+        
+        # ENHANCED: Advanced technical details (if high confidence)
+        if enhanced_display and advanced_analysis and advanced_analysis.get('confidence_score', 0) > 0.8:
+            print(f"\n🔬 Advanced Log Analysis:")
+            
+            # Liquidity impact
+            liquidity_impact = advanced_analysis.get('liquidity_impact', {})
+            if liquidity_impact.get('has_liquidity_operations'):
+                operations = liquidity_impact.get('operations', [])
+                impact_level = liquidity_impact.get('impact_level', 'UNKNOWN')
+                print(f"   💧 Liquidity Operations: {len(operations)} ops ({impact_level} impact)")
+            
+            # Token flow analysis (for Solana)
+            if chain == 'solana':
+                token_flow = advanced_analysis.get('token_flow_analysis', {})
+                if token_flow.get('transfer_count', 0) > 0:
+                    transfer_count = token_flow['transfer_count']
+                    token_diversity = token_flow.get('token_diversity', 0)
+                    print(f"   🔄 Token Flow: {transfer_count} transfers, {token_diversity} unique tokens")
+            
+            # Decoded events (for EVM)
+            if chain in ['ethereum', 'polygon']:
+                decoded_events = advanced_analysis.get('decoded_events', {})
+                if decoded_events.get('decoded_events'):
+                    event_count = len(decoded_events['decoded_events'])
+                    print(f"   🔍 Decoded Events: {event_count} contract events")
+        
+        print(f"{Fore.CYAN}{'='*80}{Style.RESET_ALL}")
+        
+        # Log display completion
+        tx_logger.info("Transaction display completed successfully", 
+                      whale_indicator=whale_indicator, confidence_label=confidence_label)
+        
+        # Store for potential analysis
+        if hasattr(display_transaction, 'last_analysis'):
+            display_transaction.last_analysis = whale_result
+        
+    except Exception as e:
+        error_msg = f"Error displaying transaction {tx_data.get('hash', 'unknown')}: {e}"
+        production_logger.error("Transaction display failed", 
+                              transaction_hash=tx_data.get('hash', 'unknown'),
+                              error=str(e), stack_trace=traceback.format_exc())
+        print(f"❌ {error_msg}")
 
 def main():
     """Main entry point with simplified error handling"""

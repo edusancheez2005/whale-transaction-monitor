@@ -10,30 +10,12 @@ from config.settings import (
     print_lock
 )
 from data.tokens import TOKENS_TO_MONITOR, TOKEN_PRICES
-from utils.classification import transaction_classifier
-from utils.base_helpers import safe_print
+from utils.classification_final import WhaleIntelligenceEngine, comprehensive_stablecoin_analysis
+from utils.base_helpers import safe_print, log_error
 from utils.summary import record_transfer
 from utils.summary import has_been_classified, mark_as_classified
 from data.market_makers import MARKET_MAKER_ADDRESSES, FILTER_SETTINGS
 from utils.dedup import deduplicator, get_dedup_stats, deduped_transactions, handle_event
-
-import requests
-import time
-from typing import Dict, List, Optional
-from config.api_keys import ETHERSCAN_API_KEY
-from config.settings import (
-    GLOBAL_USD_THRESHOLD,
-    last_processed_block,
-    etherscan_buy_counts,
-    etherscan_sell_counts,
-    print_lock
-)
-from data.tokens import TOKENS_TO_MONITOR, TOKEN_PRICES
-from utils.classification import transaction_classifier
-from utils.base_helpers import safe_print
-from utils.summary import record_transfer
-from utils.summary import has_been_classified, mark_as_classified
-from data.market_makers import MARKET_MAKER_ADDRESSES, FILTER_SETTINGS
 
 
 def fetch_erc20_transfers(contract_address, sort="desc"):
@@ -72,7 +54,9 @@ def fetch_erc20_transfers(contract_address, sort="desc"):
         return data.get("result", [])
     
     except Exception as e:
-        safe_print(f"❌ Error fetching transfers: {str(e)}")
+        error_msg = f"❌ Error fetching transfers: {str(e)}"
+        safe_print(error_msg)
+        log_error(error_msg)
         return []
 
 
@@ -131,47 +115,60 @@ def print_new_erc20_transfers():
                         "block_number": int(tx["blockNumber"])
                     }
 
-                    # Check if it's a duplicate before processing
-                    if handle_event(event):
-                        # Get classification with enhanced checks
-                        classification, confidence = transaction_classifier(
-                            tx_from=from_addr,
-                            tx_to=to_addr,
-                            token_symbol=symbol,
-                            amount=token_amount,
-                            tx_hash=tx_hash,
-                            source="ethereum"
-                        )
+                    # Process through the universal processor
+                    from utils.classification_final import process_and_enrich_transaction
+                    
+                    enriched_transaction = process_and_enrich_transaction(event)
+                    
+                    # Add to deduplication system for main monitor display
+                    if enriched_transaction:
+                        # Add enriched data back to the event
+                        event.update({
+                            'classification': enriched_transaction.get('classification', 'UNKNOWN'),
+                            'confidence': enriched_transaction.get('confidence_score', 0),
+                            'whale_signals': enriched_transaction.get('whale_signals', []),
+                            'whale_score': enriched_transaction.get('whale_score', 0),
+                            'is_whale_transaction': enriched_transaction.get('is_whale_transaction', False),
+                            'usd_value': estimated_usd,
+                            'source': 'etherscan'
+                        })
                         
-                        # Add classification to the event for later analysis
-                        event["classification"] = classification
-                        
-                        # Update the event in deduped_transactions
-                        key = deduplicator.generate_key(event)
-                        deduped_transactions[key] = event
+                        # Add to main monitoring system
+                        handle_event(event)
+                    
+                    classification = enriched_transaction.get('classification', 'UNKNOWN').lower()
+                    confidence = enriched_transaction.get('confidence_score', 0)
 
-                        # Always update counters regardless of confidence
-                        if classification == "buy" or classification.startswith("probable_buy"):
-                            etherscan_buy_counts[symbol] += 1
-                        elif classification == "sell" or classification.startswith("probable_sell"):
-                            etherscan_sell_counts[symbol] += 1
-                        
-                        timestamp = int(tx["timeStamp"])
-                        human_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(timestamp))
-                        
-                        # Print with enhanced information
-                        safe_print(f"\n[{symbol} | ${estimated_usd:,.2f} USD] Block {tx['blockNumber']} | Tx {tx_hash}")
-                        safe_print(f"  Time: {human_time}")
-                        safe_print(f"  From: {from_addr}")
-                        safe_print(f"  To:   {to_addr}")
-                        safe_print(f"  Amount: {token_amount:,.2f} {symbol} (~${estimated_usd:,.2f} USD)")
-                        safe_print(f"  Classification: {classification} (confidence: {confidence})")
-                        
-                        # Record transfer for volume tracking
-                        record_transfer(symbol, token_amount, from_addr, to_addr, tx_hash)
-                        
+                    # Always update counters regardless of confidence
+                    if classification == "buy":
+                        etherscan_buy_counts[symbol] += 1
+                    elif classification == "sell":
+                        etherscan_sell_counts[symbol] += 1
+                    
+                    timestamp = int(tx["timeStamp"])
+                    human_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(timestamp))
+                    
+                    # Print with enhanced information
+                    whale_indicator = " 🐋" if enriched_transaction.get('is_whale_transaction') else ""
+                    safe_print(f"\n[{symbol} | ${estimated_usd:,.2f} USD] Block {tx['blockNumber']} | Tx {tx_hash}{whale_indicator}")
+                    safe_print(f"  Time: {human_time}")
+                    safe_print(f"  From: {from_addr}")
+                    safe_print(f"  To:   {to_addr}")
+                    safe_print(f"  Amount: {token_amount:,.2f} {symbol} (~${estimated_usd:,.2f} USD)")
+                    safe_print(f"  Classification: {classification.upper()} (confidence: {confidence:.2f})")
+                    
+                    if enriched_transaction.get('whale_classification'):
+                        safe_print(f"  Whale Analysis: {enriched_transaction['whale_classification']}")
+                    
+                    # Record transfer for volume tracking
+                    record_transfer(symbol, token_amount, from_addr, to_addr, tx_hash)
+                    
+                    # TODO: Store enriched_transaction in Supabase here
+                    
             except Exception as e:
-                safe_print(f"Error processing {symbol} transfer: {str(e)}")
+                error_msg = f"Error processing {symbol} transfer: {str(e)}"
+                safe_print(error_msg)
+                log_error(error_msg)
                 continue
 
 
@@ -197,5 +194,7 @@ def test_etherscan_connection():
             safe_print(f"❌ Etherscan API error: {data.get('message', 'No message')}")
             return False
     except Exception as e:
-        safe_print(f"❌ Error connecting to Etherscan: {e}")
+        error_msg = f"❌ Error connecting to Etherscan: {e}"
+        safe_print(error_msg)
+        log_error(error_msg)
         return False

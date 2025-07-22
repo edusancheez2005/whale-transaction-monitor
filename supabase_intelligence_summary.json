@@ -1,0 +1,55 @@
+{
+  "total_addresses": 153011,
+  "blockchains": {
+    "bitcoin": 15850,
+    "eth": 664,
+    "ethereum": 130716,
+    "polygon": 454,
+    "ripple": 10,
+    "solana": 5115,
+    "tron": 197,
+    "xrp": 5
+  },
+  "address_types": {
+    "analyzed": 805,
+    "Bech32": 195
+  },
+  "top_entities": {
+    "Binance staked ETH": 231,
+    "Cat in a Box": 128,
+    "charity": 69,
+    "181 interactions)": 11,
+    "182 interactions)": 10,
+    "180 interactions)": 10,
+    "183 interactions)": 6,
+    "179 interactions)": 6,
+    "178 interactions)": 6,
+    "185 interactions)": 3,
+    "184 interactions)": 3,
+    "digifinex": 3,
+    "186 interactions)": 2,
+    "177 interactions)": 2,
+    "166 interactions)": 2,
+    "175 interactions)": 2,
+    "Etherscan Label": 2,
+    "160 interactions)": 2,
+    "fx Protocol": 2,
+    "191 interactions)": 1
+  },
+  "detection_methods": {},
+  "signal_potentials": {},
+  "defillama_categories": {
+    "Lending": 301,
+    "Liquid Staking": 101,
+    "Yield": 44,
+    "CDP": 1
+  },
+  "tag_structures": {
+    "('all_chains', 'defillama_category', 'defillama_slug', 'match_type', 'official_url', 'parent_protocol')": 447
+  },
+  "whale_counts": {
+    "mega_whales": 0,
+    "whales": 0,
+    "dolphins": 0
+  }
+}
