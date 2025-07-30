@@ -186,7 +186,7 @@ class TransactionStorage:
             
             # Prepare whale transaction data
             whale_data = {
-                'transaction_hash': tx_data.get('tx_hash', ''),
+                'transaction_hash': tx_data.get('tx_hash', tx_data.get('hash', '')),
                 'token_symbol': token_symbol,
                 'token_address': tx_data.get('token_address', ''),
                 'classification': classification,

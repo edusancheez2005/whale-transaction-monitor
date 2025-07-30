@@ -723,29 +723,21 @@ class EVMLogParser:
         """
         🚀 PROFESSIONAL Uniswap V2 Swap Event Analysis 
         
-        FIXED: Uses manual hex decoding instead of Web3.py ABI to bypass decoding issues.
+        FIXED: Uses manual hex decoding and handles the actual swap_event structure.
         Implements ChatGPT's research for proper direction detection with proven manual parsing.
         """
         try:
             for swap_event in swap_events:
-                log = swap_event.get('log', swap_event)
-                
-                # Check if this is a Uniswap V2 swap event  
-                if log.get('topics') and log['topics'][0].lower() == self.event_signatures['UNISWAP_V2_SWAP'].lower():
+                # Handle the actual swap event structure: {'type': 'uniswap_v2_swap', 'address': '...', 'data': '...'}
+                if swap_event.get('type') == 'uniswap_v2_swap':
                     try:
                         # 🔧 MANUAL DECODING (bypasses Web3.py ABI issues)
-                        topics = log['topics']
-                        data = log['data']
+                        data = swap_event['data']
+                        pair_address = swap_event['address']
                         
-                        # Validate structure
-                        if len(topics) != 3:
-                            logger.debug(f"Unexpected topic count for Uniswap V2 swap: {len(topics)}")
-                            continue
-                            
-                        # Extract indexed parameters
-                        sender = topics[1]  # address indexed sender
-                        to_address = topics[2]  # address indexed to
-                        pair_address = log['address']
+                        logger.debug(f"🔍 Processing Uniswap V2 swap event for {tx_hash}")
+                        logger.debug(f"  Pair: {pair_address}")
+                        logger.debug(f"  Data: {data}")
                         
                         # Manual hex decoding of data (amount0In, amount1In, amount0Out, amount1Out)
                         data_hex = data[2:]  # Remove 0x prefix
@@ -764,8 +756,6 @@ class EVMLogParser:
                         
                         logger.debug(f"🔍 Manual Uniswap V2 decode for {tx_hash}:")
                         logger.debug(f"  Pair: {pair_address}")
-                        logger.debug(f"  Sender: {sender}")
-                        logger.debug(f"  To: {to_address}")
                         logger.debug(f"  Amount0In: {amount0In}, Amount0Out: {amount0Out}")
                         logger.debug(f"  Amount1In: {amount1In}, Amount1Out: {amount1Out}")
                         
@@ -793,8 +783,6 @@ class EVMLogParser:
                                         'amount0Out': amount0Out,
                                         'amount1In': amount1In,
                                         'amount1Out': amount1Out,
-                                        'sender': sender,
-                                        'to': to_address,
                                         'analysis_method': 'manual_uniswap_v2_decode'
                                     }
                                 }
