@@ -23,7 +23,7 @@ from colorama import Fore, Style
 
 # Production logging imports
 from config.logging_config import production_logger, get_transaction_logger
-from utils.classification_final import WhaleIntelligenceEngine
+from utils.classification_final import WhaleIntelligenceEngine, ClassificationType
 
 # Local imports
 from config.settings import (
@@ -47,6 +47,46 @@ from chains.solana_api import print_new_solana_transfers, test_helius_connection
 from models.classes import initialize_prices
 from utils.dedup import get_stats, deduped_transactions
 from utils.base_helpers import log_error, print_error_summary
+from data.tokens import TOP_100_ERC20_TOKENS, TOKEN_PRICES
+
+# 🔧 PROFESSIONAL PIPELINE DEDUPLICATION SYSTEM
+pipeline_processed_txs = set()
+pipeline_lock = threading.Lock()
+pipeline_stats = defaultdict(int)
+
+def is_transaction_already_processed(tx_hash: str) -> bool:
+    """
+    🔧 PROFESSIONAL PIPELINE DEDUPLICATION
+    
+    Thread-safe function to check and add transaction hashes to prevent duplicates.
+    
+    Args:
+        tx_hash: Transaction hash to check
+        
+    Returns:
+        bool: True if already processed, False if new
+    """
+    with pipeline_lock:
+        if tx_hash in pipeline_processed_txs:
+            pipeline_stats['duplicates_prevented'] += 1
+            return True
+        else:
+            pipeline_processed_txs.add(tx_hash)
+            pipeline_stats['unique_processed'] += 1
+            
+            # Keep set size manageable
+            if len(pipeline_processed_txs) > 10000:
+                # Remove oldest 2000 entries
+                old_txs = list(pipeline_processed_txs)[:2000]
+                for old_tx in old_txs:
+                    pipeline_processed_txs.remove(old_tx)
+                    
+            return False
+
+def get_pipeline_stats() -> dict:
+    """Get pipeline processing statistics"""
+    with pipeline_lock:
+        return dict(pipeline_stats)
 
 # New imports for real-time market flow engine and Whale Intelligence
 try:
@@ -169,12 +209,18 @@ class TransactionStorage:
         
         try:
             # Extract key information
-            classification = intelligence_result.get('classification', 'TRANSFER')
-            confidence = intelligence_result.get('confidence', 0)
-            whale_score = intelligence_result.get('whale_score', 0)
+            classification = getattr(intelligence_result, 'classification', ClassificationType.TRANSFER)
+            # Handle ClassificationType enum - get string value
+            if hasattr(classification, 'value'):
+                classification_str = classification.value
+            else:
+                classification_str = str(classification)
+            
+            confidence = getattr(intelligence_result, 'confidence', 0.0)
+            whale_score = getattr(intelligence_result, 'final_whale_score', 0.0)
             
             # Only store BUY and SELL classifications
-            if classification not in ['BUY', 'SELL']:
+            if classification_str not in ['BUY', 'SELL']:
                 return False
             
             # Extract token symbol using multiple fallback methods
@@ -189,15 +235,15 @@ class TransactionStorage:
                 'transaction_hash': tx_data.get('tx_hash', tx_data.get('hash', '')),
                 'token_symbol': token_symbol,
                 'token_address': tx_data.get('token_address', ''),
-                'classification': classification,
+                'classification': classification_str,
                 'confidence': confidence,
-                'usd_value': float(tx_data.get('value_usd', 0) or tx_data.get('usd_value', 0) or 0),
+                'usd_value': float(tx_data.get('estimated_usd', 0) or tx_data.get('value_usd', 0) or tx_data.get('usd_value', 0) or 0),
                 'whale_score': whale_score,
                 'blockchain': tx_data.get('blockchain', tx_data.get('chain', 'ethereum')),
                 'from_address': tx_data.get('from_address', tx_data.get('from', '')),
                 'to_address': tx_data.get('to_address', tx_data.get('to', '')),
-                'analysis_phases': len(intelligence_result.get('phase_results', {})),
-                'reasoning': intelligence_result.get('reasoning', '')
+                'analysis_phases': len(getattr(intelligence_result, 'phase_results', {})),
+                'reasoning': getattr(intelligence_result, 'master_classifier_reasoning', '')
             }
             
             # Insert into whale_transactions table
@@ -207,7 +253,7 @@ class TransactionStorage:
                 production_logger.info("Whale transaction stored successfully", 
                                      extra={'extra_fields': {
                                          'tx_hash': whale_data['transaction_hash'],
-                                         'classification': classification,
+                                         'classification': classification_str,
                                          'token_symbol': token_symbol,
                                          'usd_value': whale_data['usd_value']
                                      }})
@@ -970,20 +1016,250 @@ def monitor_transactions():
             safety_counter += 1
             time.sleep(0.1)
 
+# 🚀 PROFESSIONAL MULTI-TOKEN MONITORING SYSTEM
+def get_threshold_for_tier(tier: str) -> int:
+    """Get USD threshold based on market cap tier"""
+    tier_thresholds = {
+        'large': 50_000,    # $50K+ for major coins
+        'medium': 15_000,   # $15K+ for mid-cap tokens  
+        'small': 5_000,     # $5K+ for small-cap tokens
+        'micro': 1_000,     # $1K+ for micro-cap tokens
+        'emerging': 500     # $500+ for emerging tokens
+    }
+    return tier_thresholds.get(tier, 1_000)  # Default to $1K
+
+def start_multi_token_monitoring():
+    """
+    🚀 ENHANCED MULTI-TOKEN MONITORING SYSTEM
+    
+    Professional whale monitoring across all 109 ERC-20 tokens with:
+    - Dynamic thresholds based on token tiers
+    - Conservative rate limiting
+    - Professional error handling
+    - Real-time BUY/SELL detection
+    """
+    import threading
+    import time
+    
+    print(f"{BLUE}🚀 STARTUP: Starting enhanced multi-token monitoring...{END}")
+    
+    try:
+        # Conservative grouping for rate limiting
+        tokens_per_group = 15  # Conservative to respect API limits
+        token_groups = [
+            TOP_100_ERC20_TOKENS[i:i + tokens_per_group] 
+            for i in range(0, len(TOP_100_ERC20_TOKENS), tokens_per_group)
+        ]
+        
+        # 🚀 FULL MONITORING: Monitor ALL 109 tokens (limit removed)
+        # token_groups = token_groups[:4]  # REMOVED: No longer limiting to 60 tokens
+        
+        print(f"{BLUE}🔧 STARTUP: Configured {sum(len(group) for group in token_groups)} tokens in {len(token_groups)} groups{END}")
+        
+        threads = []
+        
+        for group_idx, token_group in enumerate(token_groups):
+            try:
+                thread = threading.Thread(
+                    target=monitor_token_group,
+                    args=(token_group, group_idx),
+                    daemon=True,
+                    name=f"TokenGroup-{group_idx}"
+                )
+                
+                thread.start()
+                threads.append(thread)
+                
+                print(f"{GREEN}✅ Started monitoring group {group_idx}: {len(token_group)} tokens{END}")
+                
+                # Staggered startup
+                if group_idx < len(token_groups) - 1:
+                    time.sleep(3)
+                    
+            except Exception as e:
+                print(f"{RED}❌ Failed to start group {group_idx}: {e}{END}")
+        
+        print(f"{GREEN}🎉 Multi-token monitoring started: {sum(len(group) for group in token_groups)} tokens across {len(threads)} groups{END}")
+        return threads
+        
+    except Exception as e:
+        print(f"{RED}❌ Critical error starting multi-token monitoring: {e}{END}")
+
+
+def monitor_token_group(tokens: list, group_id: int):
+    """
+    🎯 MONITOR SPECIFIC TOKEN GROUP
+    
+    Professional monitoring of a token group with:
+    - Conservative rate limiting (3 seconds between tokens)
+    - Comprehensive error handling
+    - Real-time whale detection and classification
+    - Automatic retries and recovery
+    """
+    import time
+    
+    group_name = f"Group-{group_id}"
+    cycle_count = 0
+    
+    print(f"{GREEN}🚀 {group_name}: STARTED with {len(tokens)} tokens{END}")
+    print(f"{GREEN}🚀 {group_name}: {', '.join([t['symbol'] for t in tokens[:5]])}{'...' if len(tokens) > 5 else ''}{END}")
+    
+    while not shutdown_flag.is_set() and monitoring_enabled:
+        try:
+            cycle_count += 1
+            cycle_start = time.time()
+            
+            print(f"{BLUE}📊 {group_name}: CYCLE {cycle_count} - Processing {len(tokens)} tokens{END}")
+            
+            for token_idx, token in enumerate(tokens):
+                if shutdown_flag.is_set() or not monitoring_enabled:
+                    return
+                
+                try:
+                    symbol = token['symbol']
+                    address = token['address']
+                    tier = token.get('tier', 'medium')
+                    threshold_usd = get_threshold_for_tier(tier)
+                    
+                    print(f"{BLUE}🔍 {group_name}: Fetching {symbol} transactions (threshold: ${threshold_usd:,}){END}")
+                    
+                    # Fetch recent transactions for this token
+                    transactions = fetch_token_transactions(symbol, address, threshold_usd)
+                    
+                    processed_count = 0
+                    for tx in transactions:
+                        tx_hash = tx.get('hash', tx.get('transactionHash', ''))
+                        
+                        # 🔧 CRITICAL: Use pipeline-level deduplication
+                        if tx_hash and not is_transaction_already_processed(tx_hash):
+                            # Enhanced transaction data
+                            enhanced_tx = {
+                                **tx,
+                                'token_symbol': symbol,
+                                'token_address': address,
+                                'market_cap_tier': tier,
+                                'whale_threshold': threshold_usd,
+                                'chain': 'ethereum'
+                            }
+                            
+                            # Process through whale intelligence
+                            try:
+                                display_transaction(enhanced_tx)
+                                processed_count += 1
+                            except Exception as e:
+                                print(f"{RED}❌ {group_name}: Processing error for {symbol}: {e}{END}")
+                        elif tx_hash:
+                            # Transaction already processed - skip silently
+                            pass
+                    
+                    if processed_count > 0:
+                        print(f"{GREEN}✅ {group_name}: {symbol} - {processed_count} transactions processed{END}")
+                    else:
+                        print(f"{BLUE}⏸️ {group_name}: {symbol} - No qualifying transactions{END}")
+                        
+                except Exception as e:
+                    print(f"{RED}❌ {group_name}: Error with {symbol}: {e}{END}")
+                    continue
+                
+                # Conservative rate limiting
+                if token_idx < len(tokens) - 1:
+                    time.sleep(3)  # 3 seconds between tokens
+            
+            cycle_duration = time.time() - cycle_start
+            print(f"{GREEN}✅ {group_name}: Cycle {cycle_count} completed in {cycle_duration:.1f}s{END}")
+            
+            # Wait between cycles (staggered by group ID)
+            cycle_wait = 60 + (group_id * 10)  # 60-120 seconds between cycles
+            time.sleep(cycle_wait)
+            
+        except Exception as e:
+            print(f"{RED}❌ {group_name}: Cycle error: {e}{END}")
+            time.sleep(30)  # Wait before retrying
+
+
+def fetch_token_transactions(symbol: str, contract_address: str, threshold_usd: float) -> list:
+    """
+    🔍 FETCH TOKEN TRANSACTIONS
+    
+    Fetch recent transactions for a specific ERC-20 token with:
+    - Etherscan API integration
+    - USD value filtering
+    - Error handling and retries
+    """
+    try:
+        from chains.ethereum import fetch_erc20_transfers
+        from data.tokens import TOKEN_PRICES
+        
+        # Get token price for USD calculation
+        price = TOKEN_PRICES.get(symbol, 0)
+        if price == 0:
+            print(f"{RED}⚠️ No price data for {symbol} - skipping{END}")
+            return []
+        
+        # Fetch transfers using existing ethereum chain function
+        transfers = fetch_erc20_transfers(contract_address, sort="desc")
+        if not transfers:
+            return []
+        
+        # Filter by USD threshold
+        qualified_transactions = []
+        for tx in transfers[:20]:  # Check last 20 transactions
+            try:
+                # Calculate USD value
+                token_info = next((t for t in TOP_100_ERC20_TOKENS if t['symbol'] == symbol), None)
+                if not token_info:
+                    continue
+                    
+                decimals = token_info.get('decimals', 18)
+                raw_value = int(tx.get("value", 0))
+                token_amount = raw_value / (10 ** decimals)
+                estimated_usd = token_amount * price
+                
+                if estimated_usd >= threshold_usd:
+                    # Add USD value to transaction with multiple field names for compatibility
+                    tx['estimated_usd'] = estimated_usd
+                    tx['value_usd'] = estimated_usd  # For compatibility
+                    tx['usd_value'] = estimated_usd  # For compatibility
+                    tx['token_amount'] = token_amount
+                    qualified_transactions.append(tx)
+                    
+            except Exception as e:
+                print(f"{RED}❌ Error processing {symbol} transaction: {e}{END}")
+                continue
+        
+        return qualified_transactions
+        
+    except Exception as e:
+        print(f"{RED}❌ Error fetching {symbol} transactions: {e}{END}")
+        return []
+
 def start_monitoring_threads():
     """Start all monitoring threads"""
     threads = []
     
     try:
-        # Start Ethereum monitoring thread
-        ethereum_thread = threading.Thread(
-            target=print_new_erc20_transfers,
-            daemon=True,
-            name="Ethereum"
-        )
-        ethereum_thread.start()
-        threads.append(ethereum_thread)
-        print(GREEN + "✅ Ethereum monitor started" + END)
+        # 🚀 PRIORITY: Start Enhanced Multi-Token Monitoring (109 tokens)
+        print(BLUE + "🚀 Starting enhanced multi-token monitoring..." + END)
+        try:
+            multi_token_threads = start_multi_token_monitoring()
+            if multi_token_threads:
+                threads.extend(multi_token_threads)
+                print(GREEN + f"✅ Enhanced multi-token monitor started ({len(multi_token_threads)} groups)" + END)
+            else:
+                print(YELLOW + "⚠️ Enhanced multi-token monitor could not be started" + END)
+        except Exception as e:
+            print(RED + f"❌ Error starting enhanced multi-token monitor: {e}" + END)
+            print(YELLOW + "⚠️ Falling back to legacy Ethereum monitoring..." + END)
+            
+            # Fallback: Start legacy Ethereum monitoring thread
+            ethereum_thread = threading.Thread(
+                target=print_new_erc20_transfers,
+                daemon=True,
+                name="Ethereum"
+            )
+            ethereum_thread.start()
+            threads.append(ethereum_thread)
+            print(GREEN + "✅ Legacy Ethereum monitor started" + END)
         
         # Try to start Whale Alert monitor
         try:
@@ -1461,7 +1737,10 @@ def display_transaction(tx_data, enhanced_display=True):
         tx_hash = tx_data.get('hash', 'N/A')
         from_addr = tx_data.get('from_address', 'N/A')
         to_addr = tx_data.get('to_address', 'N/A')
-        value_usd = float(tx_data.get('value_usd', 0))
+        
+        # 🔧 CRITICAL FIX: Look for USD value in multiple fields
+        value_usd = float(tx_data.get('estimated_usd', 0) or tx_data.get('value_usd', 0) or tx_data.get('usd_value', 0) or 0)
+        
         token_symbol = tx_data.get('token_symbol', 'ETH')
         
         # Initialize transaction-specific logger
@@ -1477,17 +1756,23 @@ def display_transaction(tx_data, enhanced_display=True):
             transaction_storage.store_whale_transaction(tx_data, whale_result)
         
         # Extract advanced analysis results
-        swap_analysis = whale_result.get('swap_analysis', {})
-        advanced_analysis = swap_analysis.get('advanced_analysis', {})
+        swap_analysis = {}
+        advanced_analysis = {}
         
         # Determine display elements
-        whale_score = whale_result.get('final_whale_score', 0)
-        confidence = whale_result.get('confidence', 0)
-        classification = whale_result.get('classification', 'TRANSFER')
+        whale_score = getattr(whale_result, 'final_whale_score', 0)
+        confidence = getattr(whale_result, 'confidence', 0)
+        classification = getattr(whale_result, 'classification', ClassificationType.TRANSFER)
+        
+        # Handle ClassificationType enum - get string value
+        if hasattr(classification, 'value'):
+            classification_str = classification.value
+        else:
+            classification_str = str(classification)
         
         # Log analysis results
         tx_logger.info("Whale intelligence analysis completed",
-                      classification=classification, confidence=confidence, 
+                      classification=classification_str, confidence=confidence, 
                       whale_score=whale_score)
         
         # 🐋 WHALE INDICATOR

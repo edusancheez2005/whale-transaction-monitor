@@ -369,14 +369,14 @@ class CEXClassificationEngine(BaseAnalysisEngine):
                 evidence.append("Verified through institutional CEX database")
                 self.logger.info(f"🏛️ Legacy CEX match upgraded: {classification.value} at {confidence:.3f}")
                     
-                return PhaseResult(
-                    classification=classification,
-                    confidence=confidence,
-                    evidence=evidence,
-                    whale_signals=whale_signals,
-                    phase=AnalysisPhase.CEX_CLASSIFICATION.value,
+                    return PhaseResult(
+                        classification=classification,
+                        confidence=confidence,
+                        evidence=evidence,
+                        whale_signals=whale_signals,
+                        phase=AnalysisPhase.CEX_CLASSIFICATION.value,
                 raw_data={"source": "institutional_hardcoded_cex"}
-                )
+                    )
             
             # No CEX matches found
             self.logger.debug("🔍 No institutional CEX patterns detected")
@@ -4349,9 +4349,9 @@ class WhaleIntelligenceEngine:
         
         Professional market data acquisition and analysis.
         """
-        # Get token contract address (prioritize 'to' address for token transfers)
-        contract_address = to_addr if to_addr else from_addr
-        
+            # Get token contract address (prioritize 'to' address for token transfers)
+            contract_address = to_addr if to_addr else from_addr
+            
         if not contract_address or blockchain not in ['ethereum', 'polygon', 'bsc', 'arbitrum']:
             return {
                 'market_data_available': False,
@@ -4359,11 +4359,11 @@ class WhaleIntelligenceEngine:
             }
         
         try:
-            # Fetch comprehensive market data
-            market_data = self.market_data_provider.get_market_data_for_token(
-                contract_address, blockchain
-            )
-            
+                # Fetch comprehensive market data
+                market_data = self.market_data_provider.get_market_data_for_token(
+                    contract_address, blockchain
+                )
+                
             if not market_data:
                 return {
                     'market_data_available': False,
@@ -4411,7 +4411,7 @@ class WhaleIntelligenceEngine:
             return 'mid_cap'
         elif market_cap >= 10_000_000:  # $10M+
             return 'small_cap'
-        else:
+                else:
             return 'micro_cap'
 
     def _classify_liquidity_tier(self, market_analysis: Dict[str, Any]) -> str:
@@ -4426,7 +4426,7 @@ class WhaleIntelligenceEngine:
             return 'medium_liquidity'
         elif volume_24h >= 100_000:  # $100K+
             return 'low_liquidity'
-        else:
+            else:
             return 'illiquid'
 
     def _classify_volatility_tier(self, market_analysis: Dict[str, Any]) -> str:

@@ -70,7 +70,10 @@ class TransactionLogger:
         """Log message with transaction context."""
         context = self.base_context.copy()
         if extra_context:
-            context.update(extra_context)
+            # Remove any logging-related parameters that shouldn't be in context
+            filtered_context = {k: v for k, v in extra_context.items() 
+                              if k not in ['transaction_hash', 'exc_info', 'stack_info', 'stacklevel']}
+            context.update(filtered_context)
         
         # Create extra dict for structured logging
         extra = {'extra_fields': context}

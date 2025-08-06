@@ -1,6 +1,9 @@
 import os
+import time
+from datetime import datetime, timedelta
 from google.cloud import bigquery
 from config.api_keys import GCP_PROJECT_ID
+from config.settings import TEST_MODE
 import logging
 from typing import Dict, Any, Optional, List, Tuple
 
@@ -9,9 +12,22 @@ logger = logging.getLogger(__name__)
 class BigQueryAnalyzer:
     """
     Handles historical analysis of Ethereum addresses using Google BigQuery.
+    
+    Includes professional quota management and graceful fallback handling.
     """
     def __init__(self):
-        self.client = self._initialize_client()
+        if TEST_MODE:
+            logger.info("🧪 TEST_MODE: BigQuery initialization skipped")
+            self.client = None
+        else:
+            self.client = self._initialize_client()
+        
+        # 🔧 QUOTA MANAGEMENT SYSTEM
+        self.quota_exhausted = False
+        self.quota_exhausted_time = None
+        self.quota_reset_check_interval = 3600  # Check every hour
+        self.daily_query_count = 0
+        self.last_query_date = None
 
     def _initialize_client(self) -> Optional[bigquery.Client]:
         """Initializes the BigQuery client using service account credentials."""
@@ -40,11 +56,20 @@ class BigQueryAnalyzer:
             
             logger.info(f"BigQuery client initialized with service account for project: {project_id}")
             
-            # Test connection with a simple query
-            test_query = "SELECT 1 as test_value"
-            results = client.query(test_query).result()
-            list(results)  # Consume the results to test the connection
-            logger.info("✅ BigQuery client connection verified successfully")
+            # Test connection with a simple query (with timeout)
+            try:
+                test_query = "SELECT 1 as test_value"
+                job_config = bigquery.QueryJobConfig()
+                job_config.job_timeout_ms = 5000  # 5 second timeout
+                
+                query_job = client.query(test_query, job_config=job_config)
+                results = query_job.result(timeout=5.0)  # 5 second timeout
+                list(results)  # Consume the results to test the connection
+                logger.info("✅ BigQuery client connection verified successfully")
+            except Exception as timeout_error:
+                logger.warning(f"BigQuery connection test failed (timeout): {timeout_error}")
+                logger.info("BigQuery client created but connection not verified")
+                
             return client
             
         except Exception as e:
@@ -60,6 +85,77 @@ class BigQueryAnalyzer:
             
             logger.info("BigQuery features will be disabled.")
             return None
+    
+    def _check_quota_status(self) -> bool:
+        """
+        🔧 PROFESSIONAL QUOTA MANAGEMENT
+        
+        Check if BigQuery quota is available for queries.
+        Implements intelligent quota reset detection.
+        
+        Returns:
+            bool: True if quota is available, False if exhausted
+        """
+        # If we've never hit quota limits, assume available
+        if not self.quota_exhausted:
+            return True
+        
+        # Check if enough time has passed to retry (quota resets)
+        if self.quota_exhausted_time:
+            time_since_exhaustion = datetime.now() - self.quota_exhausted_time
+            
+            # BigQuery free tier resets daily, but let's be conservative and check hourly
+            if time_since_exhaustion.total_seconds() >= self.quota_reset_check_interval:
+                logger.info("🔄 BigQuery quota reset check - attempting to restore service")
+                self.quota_exhausted = False
+                self.quota_exhausted_time = None
+                return True
+        
+        return False
+    
+    def _handle_quota_exhaustion(self, error_msg: str) -> None:
+        """
+        🔧 PROFESSIONAL QUOTA EXHAUSTION HANDLER
+        
+        Mark quota as exhausted and implement intelligent retry logic.
+        
+        Args:
+            error_msg: Error message from BigQuery
+        """
+        if not self.quota_exhausted:
+            logger.warning("🚨 BigQuery quota exhausted - implementing fallback mode")
+            logger.warning("🚨 Free tier limit: 1TB query processing per month")
+            logger.warning("🚨 System will retry quota availability every hour")
+            
+        self.quota_exhausted = True
+        self.quota_exhausted_time = datetime.now()
+        
+        # Log helpful information for debugging
+        logger.warning(f"🚨 BigQuery quota exhaustion details: {error_msg}")
+        
+    def _is_quota_error(self, error_msg: str) -> bool:
+        """
+        🔧 QUOTA ERROR DETECTION
+        
+        Detect if an error is related to quota exhaustion.
+        
+        Args:
+            error_msg: Error message to analyze
+            
+        Returns:
+            bool: True if error is quota-related
+        """
+        quota_indicators = [
+            'quota exceeded',
+            'quotaExceeded', 
+            'free query bytes scanned',
+            'billing quota',
+            'exceeds quota',
+            'limit exceeded'
+        ]
+        
+        error_lower = error_msg.lower()
+        return any(indicator in error_lower for indicator in quota_indicators)
 
     def analyze_address_whale_patterns(self, address: str) -> Optional[Dict[str, Any]]:
         """
@@ -79,6 +175,11 @@ class BigQueryAnalyzer:
         """
         if not self.client:
             logger.debug(f"BigQuery client not available for whale analysis of {address}")
+            return None
+        
+        # 🔧 CRITICAL: Check quota status before expensive whale analysis
+        if not self._check_quota_status():
+            logger.debug(f"BigQuery quota exhausted - skipping whale analysis for {address}")
             return None
 
         try:
@@ -200,6 +301,11 @@ class BigQueryAnalyzer:
             ]
         )
 
+        # 🔧 CRITICAL: Check quota status before making expensive query
+        if not self._check_quota_status():
+            logger.debug(f"BigQuery quota exhausted - skipping historical analysis for {address}")
+            return None
+        
         try:
             logger.debug(f"Running BigQuery historical analysis for address: {address}")
             query_job = self.client.query(query, job_config=job_config)
@@ -213,8 +319,16 @@ class BigQueryAnalyzer:
             return None  # Should not be reached if there's a result
         
         except Exception as e:
-            logger.error(f"BigQuery query failed for address {address}: {e}")
-            return None
+            error_msg = str(e)
+            
+            # 🔧 CRITICAL: Handle quota exhaustion professionally
+            if self._is_quota_error(error_msg):
+                self._handle_quota_exhaustion(error_msg)
+                logger.debug(f"BigQuery quota exhausted during query for {address} - fallback mode activated")
+                return None
+            else:
+                logger.error(f"BigQuery query failed for address {address}: {e}")
+                return None
 
     def get_whale_addresses_by_volume(self, min_volume_eth: float = 1000) -> Optional[Dict[str, Any]]:
         """

@@ -114,10 +114,22 @@ def on_whale_message(ws, message):
                 
                 # Run full enhanced analysis
                 analysis_result = whale_engine.analyze_transaction_comprehensive(enhanced_tx)
-                classification = analysis_result.get('classification', 'TRANSFER')
-                confidence = analysis_result.get('confidence', 0.0)
-                whale_score = analysis_result.get('whale_score', 0)
-                reasoning = analysis_result.get('master_classifier_reasoning', 'Basic whale alert classification')
+                
+                # Handle IntelligenceResult object vs dictionary
+                if hasattr(analysis_result, '__dict__'):
+                    # IntelligenceResult object
+                    classification = getattr(analysis_result, 'classification', 'TRANSFER')
+                    if hasattr(classification, 'value'):
+                        classification = classification.value  # Handle enum
+                    confidence = getattr(analysis_result, 'confidence', 0.0)
+                    whale_score = getattr(analysis_result, 'whale_score', 0)
+                    reasoning = getattr(analysis_result, 'reasoning', 'Enhanced whale alert classification')
+                else:
+                    # Dictionary (legacy format)
+                    classification = analysis_result.get('classification', 'TRANSFER')
+                    confidence = analysis_result.get('confidence', 0.0)
+                    whale_score = analysis_result.get('whale_score', 0)
+                    reasoning = analysis_result.get('master_classifier_reasoning', 'Basic whale alert classification')
                 
                 # Override with enhanced classification
                 if classification in ['BUY', 'SELL', 'TRANSFER']:

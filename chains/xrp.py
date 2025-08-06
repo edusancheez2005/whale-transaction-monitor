@@ -59,7 +59,7 @@ def on_xrp_message(ws, message):
                 filtered_by_threshold += 1
                 return
                 
-            classification, processed_amount = classify_xrp_transaction(txn, "xrp")
+            classification, processed_amount = classify_xrp_transaction(txn)
             
             # Skip already classified transactions
             if classification == "already_classified":

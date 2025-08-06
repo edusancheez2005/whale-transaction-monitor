@@ -328,3 +328,7 @@ CHAIN_SPECIFIC_TOKENS = {
         "patterns": ["SOL-", "SPL-", "SOLANA-"]
     }
 }
+
+# 🧪 TESTING CONFIGURATION
+TEST_MODE = False  # Set to True to disable BigQuery and reduce network calls during testing
+FAST_TEST_MODE = False  # Set to True for ultra-fast testing with mocked components
