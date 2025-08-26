@@ -1,16 +1,15 @@
-certifi==2025.1.31
-charset-normalizer==3.4.1
-idna==3.10
-requests==2.32.3
-urllib3==2.3.0
-websocket-client==1.8.0
-keyboard==0.13.5
-windows-curses==2.3.1; platform_system == "Windows"
-Flask==2.3.3
-requests==2.32.3
-websocket-client==1.8.0
-certifi==2025.1.31
-charset-normalizer==3.4.1
-idna==3.10
-urllib3==2.3.0
-keyboard==0.13.5
+# Core dependencies
+fastapi==0.95.0
+uvicorn==0.21.1
+pydantic==1.10.7
+redis==4.5.4
+aiohttp==3.8.4
+httpx==0.24.0
+pandas==1.5.3
+numpy==1.24.2
+python-dotenv==1.0.0
+
+# For testing and development
+pytest==7.3.1
+black==23.3.0
+flake8==6.0.0

@@ -11,7 +11,7 @@ from chains.whale_alert import start_whale_thread
 from chains.xrp import start_xrp_thread
 from chains.solana import start_solana_thread
 from models.classes import initialize_prices
-from utils.dedup import get_stats, deduplicator, deduped_transactions
+from utils.dedup import get_stats as get_dedup_stats, deduplicator, deduped_transactions
 from config.settings import (
     GLOBAL_USD_THRESHOLD,
     etherscan_buy_counts,
@@ -141,7 +141,7 @@ def get_stats():
     stats_list.sort(key=lambda x: x['total'], reverse=True)
     
     # Get deduplication stats
-    dedup_stats = get_stats()
+    dedup_stats = get_dedup_stats()
     
     return jsonify({
         'tokens': stats_list,

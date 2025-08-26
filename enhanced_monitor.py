@@ -18,6 +18,12 @@ import signal
 import threading
 from collections import defaultdict
 import traceback
+import asyncio
+import json
+import logging
+import argparse
+from datetime import datetime
+from typing import Dict, Any, List, Optional
 
 # Local imports
 from config.settings import (
@@ -38,6 +44,11 @@ from chains.xrp import start_xrp_thread
 from chains.solana import start_solana_thread
 from models.classes import initialize_prices
 from utils.dedup import get_stats, deduped_transactions
+
+# Import the new classification system
+from address_enrichment import AddressEnrichmentService, EnrichedAddress, ChainType
+from rule_engine import RuleEngine, Transaction, AddressMetadata, ClassificationType
+from transaction_classifier import TransactionClassifier
 
 # Basic colors
 GREEN = '\033[92m'
@@ -524,3 +535,309 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+class EnhancedMonitor:
+    """
+    Enhanced transaction monitoring system that integrates address enrichment
+    and rule-based classification.
+    
+    This class:
+    1. Monitors transactions from various sources
+    2. Enriches addresses with metadata from external services
+    3. Classifies transactions as buys, sells, or transfers
+    4. Provides analytics and alerts
+    """
+    
+    def __init__(
+        self,
+        redis_url: Optional[str] = None,
+        output_dir: str = "output",
+        sources: Optional[List[str]] = None
+    ):
+        """
+        Initialize the enhanced monitor
+        
+        Args:
+            redis_url: Redis connection URL
+            output_dir: Directory for output files
+            sources: Transaction sources to monitor
+        """
+        # Create output directory
+        os.makedirs(output_dir, exist_ok=True)
+        self.output_dir = output_dir
+        
+        # Initialize the transaction classifier
+        self.classifier = TransactionClassifier(redis_url=redis_url)
+        
+        # Setup transaction sources
+        self.sources = sources or ["ethereum", "solana", "polygon", "xrp"]
+        
+        # Tracking stats
+        self.stats = {
+            "transactions_processed": 0,
+            "buys": 0,
+            "sells": 0,
+            "transfers": 0,
+            "unknown": 0,
+            "start_time": datetime.now().isoformat()
+        }
+    
+    async def process_transaction(self, transaction: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Process a single transaction
+        
+        Args:
+            transaction: Transaction data
+            
+        Returns:
+            Dict[str, Any]: Processed transaction with classification
+        """
+        # Extract transaction fields
+        tx_hash = transaction.get("hash") or transaction.get("tx_hash")
+        from_address = transaction.get("from_address") or transaction.get("from")
+        to_address = transaction.get("to_address") or transaction.get("to")
+        chain = transaction.get("chain") or transaction.get("blockchain", "ethereum")
+        token = transaction.get("token") or transaction.get("symbol", "")
+        amount = float(transaction.get("amount") or transaction.get("value", 0))
+        usd_value = float(transaction.get("usd_value") or transaction.get("value_usd", 0))
+        timestamp_str = transaction.get("timestamp")
+        
+        # Process timestamp
+        timestamp = None
+        if timestamp_str:
+            if isinstance(timestamp_str, (int, float)):
+                # Unix timestamp
+                timestamp = datetime.fromtimestamp(timestamp_str)
+            else:
+                # ISO string
+                try:
+                    timestamp = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
+                except (ValueError, AttributeError):
+                    pass
+        
+        if not timestamp:
+            timestamp = datetime.now()
+        
+        # Classify the transaction
+        result = await self.classifier.classify_transaction(
+            tx_hash=tx_hash,
+            from_address=from_address,
+            to_address=to_address,
+            chain=chain,
+            token=token,
+            amount=amount,
+            usd_value=usd_value,
+            timestamp=timestamp
+        )
+        
+        # Update stats
+        self.stats["transactions_processed"] += 1
+        if result.classification == ClassificationType.BUY:
+            self.stats["buys"] += 1
+        elif result.classification == ClassificationType.SELL:
+            self.stats["sells"] += 1
+        elif result.classification == ClassificationType.TRANSFER:
+            self.stats["transfers"] += 1
+        else:
+            self.stats["unknown"] += 1
+        
+        # Generate human-readable summary
+        summary = self.classifier.generate_classification_summary(result)
+        
+        # Prepare the enhanced transaction record
+        enhanced_tx = {
+            # Original transaction data
+            "tx_hash": tx_hash,
+            "from_address": from_address,
+            "to_address": to_address,
+            "chain": chain,
+            "token": token,
+            "amount": amount,
+            "usd_value": usd_value,
+            "timestamp": timestamp.isoformat(),
+            
+            # Classification data
+            "classification": result.classification.value,
+            "confidence": result.confidence,
+            "confidence_level": result.confidence_level.value,
+            "rule": result.triggered_rule,
+            "explanation": result.explanation,
+            
+            # Address entity information
+            "from_entity": summary["from_entity"],
+            "to_entity": summary["to_entity"],
+            
+            # Summary
+            "summary": summary["summary"]
+        }
+        
+        # Log result
+        logger.info(f"Transaction {tx_hash}: {enhanced_tx['classification']} "
+                   f"(confidence: {enhanced_tx['confidence']:.2f})")
+        
+        return enhanced_tx
+    
+    async def process_batch(self, transactions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Process a batch of transactions
+        
+        Args:
+            transactions: List of transaction data
+            
+        Returns:
+            List[Dict[str, Any]]: List of processed transactions
+        """
+        tasks = []
+        for tx in transactions:
+            task = self.process_transaction(tx)
+            tasks.append(task)
+        
+        return await asyncio.gather(*tasks)
+    
+    def save_transactions(self, transactions: List[Dict[str, Any]], file_path: str) -> None:
+        """
+        Save processed transactions to file
+        
+        Args:
+            transactions: List of processed transactions
+            file_path: Output file path
+        """
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+        
+        with open(file_path, "w") as f:
+            json.dump(transactions, f, indent=2, default=str)
+            
+        logger.info(f"Saved {len(transactions)} transactions to {file_path}")
+    
+    def save_stats(self, file_path: str) -> None:
+        """
+        Save monitoring stats to file
+        
+        Args:
+            file_path: Output file path
+        """
+        # Add end time
+        self.stats["end_time"] = datetime.now().isoformat()
+        self.stats["duration_seconds"] = (
+            datetime.fromisoformat(self.stats["end_time"]) - 
+            datetime.fromisoformat(self.stats["start_time"])
+        ).total_seconds()
+        
+        # Calculate percentages
+        total = self.stats["transactions_processed"]
+        if total > 0:
+            self.stats["buy_percentage"] = round(self.stats["buys"] / total * 100, 2)
+            self.stats["sell_percentage"] = round(self.stats["sells"] / total * 100, 2)
+            self.stats["transfer_percentage"] = round(self.stats["transfers"] / total * 100, 2)
+            self.stats["unknown_percentage"] = round(self.stats["unknown"] / total * 100, 2)
+        
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+        
+        with open(file_path, "w") as f:
+            json.dump(self.stats, f, indent=2)
+            
+        logger.info(f"Saved monitoring stats to {file_path}")
+    
+    async def simulate_monitoring(self, num_transactions: int = 10) -> None:
+        """
+        Simulate transaction monitoring with dummy data
+        
+        Args:
+            num_transactions: Number of dummy transactions to generate
+        """
+        logger.info(f"Starting simulated monitoring with {num_transactions} dummy transactions")
+        
+        # Generate dummy transactions
+        dummy_transactions = []
+        
+        # Example addresses (including some known exchanges)
+        from_addresses = [
+            "0x28c6c06298d514db089934071355e5743bf21d60",  # Binance
+            "0xdfd5293d8e347dfe59e90efd55b2956a1343963d",  # Coinbase
+            "0x3f5CE5FBFe3E9af3971dD833D26bA9b5C936f0bE",  # Binance
+            "0x8315177aB297bA92A06054cE80a67Ed4DBd7ed3a",  # Random
+            "0x47ac0Fb4F2D84898e4D9E7b4DaB3C24507a6D503"   # Random
+        ]
+        
+        to_addresses = [
+            "0x8315177aB297bA92A06054cE80a67Ed4DBd7ed3a",  # Random
+            "0x47ac0Fb4F2D84898e4D9E7b4DaB3C24507a6D503",  # Random
+            "0x28c6c06298d514db089934071355e5743bf21d60",  # Binance
+            "0xdfd5293d8e347dfe59e90efd55b2956a1343963d",  # Coinbase
+            "0x11E4A2A167C614F900BC7784bdF9F373BB189c3f"   # Uniswap Router
+        ]
+        
+        # Generate transactions
+        import random
+        for i in range(num_transactions):
+            from_idx = random.randint(0, len(from_addresses) - 1)
+            to_idx = random.randint(0, len(to_addresses) - 1)
+            
+            # Ensure from and to addresses are different
+            while from_idx == to_idx:
+                to_idx = random.randint(0, len(to_addresses) - 1)
+            
+            tx = {
+                "tx_hash": f"0x{i:064x}",
+                "from_address": from_addresses[from_idx],
+                "to_address": to_addresses[to_idx],
+                "chain": random.choice(["ethereum", "solana", "polygon", "xrp"]),
+                "token": random.choice(["ETH", "BTC", "USDC", "SOL", "XRP"]),
+                "amount": round(random.uniform(0.1, 10.0), 4),
+                "usd_value": round(random.uniform(100, 50000), 2),
+                "timestamp": datetime.now().isoformat()
+            }
+            
+            dummy_transactions.append(tx)
+        
+        # Process transactions
+        processed_transactions = await self.process_batch(dummy_transactions)
+        
+        # Save results
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        transactions_file = os.path.join(self.output_dir, f"transactions_{timestamp}.json")
+        stats_file = os.path.join(self.output_dir, f"stats_{timestamp}.json")
+        
+        self.save_transactions(processed_transactions, transactions_file)
+        self.save_stats(stats_file)
+        
+        # Print summary
+        print("\nMonitoring Summary:")
+        print(f"Processed {self.stats['transactions_processed']} transactions")
+        print(f"Buys: {self.stats['buys']} ({self.stats.get('buy_percentage', 0)}%)")
+        print(f"Sells: {self.stats['sells']} ({self.stats.get('sell_percentage', 0)}%)")
+        print(f"Transfers: {self.stats['transfers']} ({self.stats.get('transfer_percentage', 0)}%)")
+        print(f"Unknown: {self.stats['unknown']} ({self.stats.get('unknown_percentage', 0)}%)")
+        
+        logger.info("Simulated monitoring completed")
+    
+    async def close(self):
+        """Close resources"""
+        await self.classifier.close()
+
+async def main():
+    """Main entry point"""
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description="Enhanced Whale Transaction Monitor")
+    parser.add_argument("--redis-url", type=str, help="Redis URL for caching")
+    parser.add_argument("--output-dir", type=str, default="output", help="Output directory")
+    parser.add_argument("--num-transactions", type=int, default=10, 
+                       help="Number of dummy transactions for simulation")
+    
+    args = parser.parse_args()
+    
+    # Create monitor
+    monitor = EnhancedMonitor(
+        redis_url=args.redis_url,
+        output_dir=args.output_dir
+    )
+    
+    try:
+        # Run simulation
+        await monitor.simulate_monitoring(args.num_transactions)
+    finally:
+        # Clean up
+        await monitor.close()
+
+if __name__ == "__main__":
+    asyncio.run(main())
