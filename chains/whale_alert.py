@@ -14,7 +14,7 @@ from config.settings import (
     print_lock
 )
 from data.tokens import STABLE_COINS
-from utils.classification import transaction_classifier
+from utils.classification_final import transaction_classifier
 from utils.base_helpers import safe_print
 from config.settings import etherscan_buy_counts, etherscan_sell_counts
 from data.tokens import TOKEN_PRICES
@@ -93,13 +93,59 @@ def on_whale_message(ws, message):
         if not valid_transfers:
             return
 
-        # Get classification for the overall transaction
-        classification, confidence = transaction_classifier(
-            tx_from=tx_from, 
-            tx_to=tx_to,
-            tx_hash=tx_hash,
-            source="whale_alert"
-        )
+        # Get classification using ENHANCED WHALE INTELLIGENCE ENGINE
+        if valid_transfers:
+            # Create a transaction object for enhanced analysis
+            enhanced_tx = {
+                'hash': tx_hash,
+                'from_address': tx_from,
+                'to_address': tx_to,
+                'blockchain': blockchain,
+                'value_usd': total_usd_value,
+                'symbol': valid_transfers[0]['symbol'],  # Primary token
+                'amount': valid_transfers[0]['amount'],
+                'timestamp': data.get("timestamp", time.time())
+            }
+            
+            # Import whale intelligence engine
+            try:
+                from utils.classification_final import WhaleIntelligenceEngine
+                whale_engine = WhaleIntelligenceEngine()
+                
+                # Run full enhanced analysis
+                analysis_result = whale_engine.analyze_transaction_comprehensive(enhanced_tx)
+                
+                # Handle IntelligenceResult object vs dictionary
+                if hasattr(analysis_result, '__dict__'):
+                    # IntelligenceResult object
+                    classification = getattr(analysis_result, 'classification', 'TRANSFER')
+                    if hasattr(classification, 'value'):
+                        classification = classification.value  # Handle enum
+                    confidence = getattr(analysis_result, 'confidence', 0.0)
+                    whale_score = getattr(analysis_result, 'whale_score', 0)
+                    reasoning = getattr(analysis_result, 'reasoning', 'Enhanced whale alert classification')
+                else:
+                    # Dictionary (legacy format)
+                    classification = analysis_result.get('classification', 'TRANSFER')
+                    confidence = analysis_result.get('confidence', 0.0)
+                    whale_score = analysis_result.get('whale_score', 0)
+                    reasoning = analysis_result.get('master_classifier_reasoning', 'Basic whale alert classification')
+                
+                # Override with enhanced classification
+                if classification in ['BUY', 'SELL', 'TRANSFER']:
+                    classification = classification.lower()
+                
+            except Exception as e:
+                print(f"Enhanced classification failed, using basic: {e}")
+                # Fallback to basic classification
+                classification, confidence = transaction_classifier(
+                    tx_from=tx_from, 
+                    tx_to=tx_to,
+                    tx_hash=tx_hash,
+                    source="whale_alert"
+                )
+                whale_score = 0
+                reasoning = "Basic whale alert classification"
 
         # Normalize probable classifications (e.g. "probable_buy" becomes "buy")
         if classification.startswith("probable_"):
@@ -162,7 +208,7 @@ def on_whale_open(ws):
     print("Whale Alert WS connection established.")
     subscription_request = {
         "type": "subscribe_alerts",
-        "min_value_usd": 100000,  # Updated threshold to $2M
+        "min_value_usd": 25000,  # LOWERED to $25K to catch small-cap gem whale activity
         "tx_types": ["transfer", "mint", "burn"],
         "blockchain": [
             "ethereum",
@@ -178,7 +224,9 @@ def on_whale_open(ws):
         ]
     }
     ws.send(json.dumps(subscription_request))
-    print("Whale Alert subscription request sent with configuration:")
+    print("🚀 Whale Alert subscription: SMALL-CAP GEM DETECTION MODE")
+    print("   → Min Value: $25K (catches early whale moves)")
+    print("   → Focus: Trending small caps & meme coins")
     print(json.dumps(subscription_request, indent=2))
 
 def connect_whale_websocket():

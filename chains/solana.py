@@ -14,8 +14,8 @@ from config.settings import (
     print_lock
 )
 from data.tokens import SOL_TOKENS_TO_MONITOR, TOKEN_PRICES
-from utils.classification import enhanced_solana_classification
-from utils.base_helpers import safe_print
+from utils.classification_final import enhanced_solana_classification
+from utils.base_helpers import safe_print, log_error
 from utils.summary import record_transfer
 from utils.summary import has_been_classified, mark_as_classified
 from utils.dedup import deduplicator, get_dedup_stats, deduped_transactions, handle_event
@@ -143,7 +143,9 @@ def on_solana_message(ws, message):
                 solana_previous_balances[owner][mint] = current_amount
 
     except Exception as e:
-        safe_print(f"Error processing Solana transfer: {str(e)}")
+        error_msg = f"Error processing Solana transfer: {str(e)}"
+        safe_print(error_msg)
+        log_error(error_msg)
         traceback.print_exc()
 
 
@@ -167,7 +169,9 @@ def connect_solana_websocket(retry_count=0, max_retries=5):
         ws.send(json.dumps(subscribe_msg))
 
     def on_error(ws, error):
-        print(f"Solana connection error: {error}")
+        error_msg = f"Solana connection error: {error}"
+        print(error_msg)
+        log_error(error_msg)
 
     def on_close(ws, close_status_code, close_msg):
         if not shutdown_flag.is_set():  # Only retry if we're not shutting down

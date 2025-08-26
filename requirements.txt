@@ -1,13 +1,48 @@
 # Core dependencies
+certifi==2025.1.31
+charset-normalizer==3.4.1
+idna==3.10
+requests==2.32.3
+urllib3==2.3.0
+
+# WebSocket and keyboard handling
+websocket-client==1.8.0
+keyboard==0.13.5
+
+# Platform-specific dependencies
+windows-curses==2.3.1; platform_system == "Windows"
+
+# Web framework
+Flask==2.3.3
 fastapi==0.95.0
 uvicorn==0.21.1
 pydantic==1.10.7
+
+# Database and caching
 redis==4.5.4
-aiohttp==3.8.4
-httpx==0.24.0
-pandas==1.5.3
-numpy==1.24.2
+
+# Phase 1 - Foundation & Core Setup dependencies
 python-dotenv==1.0.0
+supabase==2.9.1
+google-cloud-bigquery==3.28.0
+google-auth==2.36.0
+
+# Phase 2 - Data Acquisition dependencies
+websockets==12.0
+aiohttp>=3.11.18,<4.0.0
+asyncio-throttle==1.0.2
+GitPython==3.1.40
+pandas==2.1.4
+numpy==1.24.4
+httpx>=0.26,<0.28
+tenacity==8.2.3
+ratelimit==2.2.1
+backoff==2.2.1
+
+# Additional utilities for future phases
+typing-extensions==4.12.2
+pytz==2023.3  # For proper timezone handling in enhanced APIs
+beautifulsoup4==4.12.2
 
 # For testing and development
 pytest==7.3.1

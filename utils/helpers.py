@@ -4,7 +4,7 @@ import time
 import signal
 import threading
 import traceback
-from typing import Dict
+from typing import Dict, List, Tuple, Optional, Union
 from config.settings import print_lock, shutdown_flag
 from collections import defaultdict
 from utils.base_helpers import safe_print
@@ -21,6 +21,11 @@ from config.settings import (
 from utils.dedup import deduplicator
 from utils.summary import print_final_aggregated_summary
 from datetime import datetime, timedelta
+import ast
+import csv
+import json
+import importlib.util
+from pathlib import Path
 
 transaction_cache = {'token_symbol': {'tx_hash': {'timestamp': datetime, 'amount': float}}}
 
@@ -256,5 +261,412 @@ def clean_shutdown():
 def compute_buy_percentage(buys, sells):
     total = buys + sells
     return buys / total if total else 0
+
+
+# ============================================================================
+# ADDRESS LIST MANAGEMENT FUNCTIONS FOR PHASE 1 INTEGRATION
+# ============================================================================
+
+def load_addresses_from_file(filepath: str, dict_name: str) -> Dict[str, str]:
+    """
+    Safely loads a specific dictionary from data/addresses.py using AST parsing.
+    
+    Args:
+        filepath: Path to the addresses file (e.g., 'data/addresses.py')
+        dict_name: Name of the dictionary to extract (e.g., 'known_exchange_addresses')
+    
+    Returns:
+        Dictionary containing the address mappings
+    
+    Raises:
+        FileNotFoundError: If the file doesn't exist
+        ValueError: If the dictionary name is not found
+    """
+    try:
+        with open(filepath, 'r', encoding='utf-8') as file:
+            content = file.read()
+        
+        # Parse the file content as an AST
+        tree = ast.parse(content)
+        
+        # Find the target dictionary assignment
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if isinstance(target, ast.Name) and target.id == dict_name:
+                        # Safely evaluate the dictionary literal
+                        if isinstance(node.value, ast.Dict):
+                            return ast.literal_eval(node.value)
+        
+        raise ValueError(f"Dictionary '{dict_name}' not found in {filepath}")
+        
+    except Exception as e:
+        safe_print(f"Error loading addresses from {filepath}: {str(e)}")
+        raise
+
+
+def fetch_and_parse_nemesiaai_data(local_repo_path: str) -> Dict[str, str]:
+    """
+    Fetches and parses Ethereum exchange addresses from the nemesiaai/crypto-exchange-wallets repository.
+    
+    Args:
+        local_repo_path: Path to local clone/download of the nemesiaai repository
+    
+    Returns:
+        Dictionary of {address: label} mappings
+    """
+    addresses = {}
+    repo_path = Path(local_repo_path)
+    
+    if not repo_path.exists():
+        safe_print(f"Repository path does not exist: {local_repo_path}")
+        return addresses
+    
+    # Target files to parse (adjust based on actual repository structure)
+    target_files = [
+        "etherscan_labs_labeled_exchange_addresses.js",
+        "coincarp_exchange_wallets_ethereum.json",
+        "exchange_wallets.json",
+        "ethereum_exchange_addresses.json"
+    ]
+    
+    for filename in target_files:
+        file_path = repo_path / filename
+        if file_path.exists():
+            try:
+                safe_print(f"Processing {filename}...")
+                
+                if filename.endswith('.json'):
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                    
+                    # Handle different JSON structures
+                    if isinstance(data, dict):
+                        for addr, label in data.items():
+                            if addr and isinstance(addr, str) and addr.startswith('0x'):
+                                addresses[addr.lower()] = str(label)
+                    elif isinstance(data, list):
+                        for item in data:
+                            if isinstance(item, dict):
+                                addr = item.get('address') or item.get('wallet_address')
+                                label = item.get('label') or item.get('exchange') or item.get('name')
+                                if addr and label and addr.startswith('0x'):
+                                    addresses[addr.lower()] = str(label)
+                
+                elif filename.endswith('.js'):
+                    # Parse JavaScript files containing address objects
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                    
+                    # Extract JSON-like objects from JavaScript
+                    import re
+                    json_pattern = r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}'
+                    matches = re.findall(json_pattern, content)
+                    
+                    for match in matches:
+                        try:
+                            # Clean up JavaScript syntax to make it JSON-compatible
+                            cleaned = re.sub(r'(\w+):', r'"\1":', match)  # Quote keys
+                            cleaned = re.sub(r"'([^']*)'", r'"\1"', cleaned)  # Convert single quotes
+                            data = json.loads(cleaned)
+                            
+                            for addr, label in data.items():
+                                if addr and isinstance(addr, str) and addr.startswith('0x'):
+                                    addresses[addr.lower()] = str(label)
+                        except json.JSONDecodeError:
+                            continue
+                            
+            except Exception as e:
+                safe_print(f"Error processing {filename}: {str(e)}")
+                continue
+    
+    safe_print(f"Extracted {len(addresses)} addresses from nemesiaai repository")
+    return addresses
+
+
+def parse_coincarp_csv(csv_filepath: str, address_column: str = 'address', 
+                      label_column: str = 'exchange') -> Dict[str, str]:
+    """
+    Parses CoinCarp CSV files to extract exchange addresses.
+    
+    Args:
+        csv_filepath: Path to the CoinCarp CSV file
+        address_column: Name of the column containing addresses
+        label_column: Name of the column containing exchange labels
+    
+    Returns:
+        Dictionary of {address: label} mappings
+    """
+    addresses = {}
+    
+    try:
+        with open(csv_filepath, 'r', encoding='utf-8') as csvfile:
+            # Detect delimiter
+            sample = csvfile.read(1024)
+            csvfile.seek(0)
+            sniffer = csv.Sniffer()
+            delimiter = sniffer.sniff(sample).delimiter
+            
+            reader = csv.DictReader(csvfile, delimiter=delimiter)
+            
+            for row in reader:
+                addr = row.get(address_column, '').strip()
+                label = row.get(label_column, '').strip()
+                
+                if addr and label:
+                    # Normalize address format
+                    if addr.startswith('0x'):  # Ethereum-style
+                        addr = addr.lower()
+                    addresses[addr] = label
+        
+        safe_print(f"Extracted {len(addresses)} addresses from {csv_filepath}")
+        
+    except Exception as e:
+        safe_print(f"Error parsing CSV {csv_filepath}: {str(e)}")
+    
+    return addresses
+
+
+def merge_address_data(current_dict: Dict[str, str], new_data: Dict[str, str], 
+                      conflict_strategy: str = "prefer_existing_if_specific") -> Dict[str, str]:
+    """
+    Merges new address data with existing address dictionary using intelligent conflict resolution.
+    
+    Args:
+        current_dict: Current address dictionary from data/addresses.py
+        new_data: New address data to merge
+        conflict_strategy: Strategy for handling conflicts
+            - "prefer_existing_if_specific": Keep existing if it's more specific
+            - "prefer_new": Always use new label
+            - "concatenate_if_different": Combine labels if they differ
+            - "always_overwrite_with_por_label": For PoR data, always overwrite
+    
+    Returns:
+        Updated merged dictionary
+    """
+    merged = current_dict.copy()
+    conflicts_logged = []
+    additions_logged = []
+    
+    def is_more_specific(label1: str, label2: str) -> bool:
+        """Determines if label1 is more specific than label2"""
+        specific_indicators = ['hot', 'cold', 'wallet', 'deposit', 'withdrawal', 'trading']
+        label1_lower = label1.lower()
+        label2_lower = label2.lower()
+        
+        label1_specific = any(indicator in label1_lower for indicator in specific_indicators)
+        label2_specific = any(indicator in label2_lower for indicator in specific_indicators)
+        
+        if label1_specific and not label2_specific:
+            return True
+        elif label2_specific and not label1_specific:
+            return False
+        else:
+            return len(label1) > len(label2)  # Longer labels often more descriptive
+    
+    for addr, new_label in new_data.items():
+        addr_normalized = addr.lower() if addr.startswith('0x') else addr
+        
+        if addr_normalized not in merged:
+            # New address - add it
+            merged[addr_normalized] = new_label
+            additions_logged.append(f"Added: {addr_normalized} -> {new_label}")
+        else:
+            # Address exists - handle conflict
+            existing_label = merged[addr_normalized]
+            
+            if existing_label == new_label:
+                continue  # No conflict
+            
+            if conflict_strategy == "prefer_existing_if_specific":
+                if is_more_specific(existing_label, new_label):
+                    conflicts_logged.append(f"Kept existing: {addr_normalized} -> {existing_label} (vs {new_label})")
+                else:
+                    merged[addr_normalized] = new_label
+                    conflicts_logged.append(f"Updated: {addr_normalized} -> {new_label} (was {existing_label})")
+            
+            elif conflict_strategy == "prefer_new":
+                merged[addr_normalized] = new_label
+                conflicts_logged.append(f"Updated: {addr_normalized} -> {new_label} (was {existing_label})")
+            
+            elif conflict_strategy == "concatenate_if_different":
+                if existing_label.lower() != new_label.lower():
+                    combined_label = f"{existing_label}|{new_label}"
+                    merged[addr_normalized] = combined_label
+                    conflicts_logged.append(f"Combined: {addr_normalized} -> {combined_label}")
+            
+            elif conflict_strategy == "always_overwrite_with_por_label":
+                merged[addr_normalized] = new_label
+                conflicts_logged.append(f"PoR Override: {addr_normalized} -> {new_label} (was {existing_label})")
+    
+    # Log summary
+    safe_print(f"\nMerge Summary:")
+    safe_print(f"  New addresses added: {len(additions_logged)}")
+    safe_print(f"  Conflicts resolved: {len(conflicts_logged)}")
+    safe_print(f"  Total addresses: {len(merged)}")
+    
+    if conflicts_logged:
+        safe_print(f"\nConflict Details:")
+        for conflict in conflicts_logged[:10]:  # Show first 10
+            safe_print(f"  {conflict}")
+        if len(conflicts_logged) > 10:
+            safe_print(f"  ... and {len(conflicts_logged) - 10} more conflicts")
+    
+    return merged
+
+
+def merge_manual_por_data(current_dict: Dict[str, str], 
+                         por_address_list: List[Tuple[str, str]]) -> Dict[str, str]:
+    """
+    Merges manually collected Proof-of-Reserve (PoR) addresses with high authority.
+    
+    Args:
+        current_dict: Current address dictionary
+        por_address_list: List of (address, label) tuples from PoR disclosures
+    
+    Returns:
+        Updated dictionary with PoR data integrated
+    """
+    por_data = {}
+    for addr, label in por_address_list:
+        addr_normalized = addr.lower() if addr.startswith('0x') else addr
+        # Mark PoR labels as authoritative
+        por_label = f"{label}_por" if not label.endswith('_por') else label
+        por_data[addr_normalized] = por_label
+    
+    return merge_address_data(current_dict, por_data, "always_overwrite_with_por_label")
+
+
+def pretty_print_address_dict_for_update(updated_dict: Dict[str, str], dict_name: str) -> None:
+    """
+    Prints the updated dictionary in a clean, Python-formatted string ready for copy-pasting.
+    
+    Args:
+        updated_dict: The updated address dictionary
+        dict_name: Name of the dictionary variable
+    """
+    safe_print(f"\n{'='*80}")
+    safe_print(f"UPDATED {dict_name.upper()} FOR data/addresses.py")
+    safe_print(f"{'='*80}")
+    safe_print(f"\n{dict_name} = {{")
+    
+    # Sort addresses for consistent output
+    sorted_items = sorted(updated_dict.items())
+    
+    for addr, label in sorted_items:
+        safe_print(f'    "{addr}": "{label}",')
+    
+    safe_print("}")
+    safe_print(f"\n{'='*80}")
+    safe_print(f"Copy the above dictionary to replace {dict_name} in data/addresses.py")
+    safe_print(f"{'='*80}\n")
+
+
+def validate_address_format(address: str, chain: str = "ethereum") -> bool:
+    """
+    Validates address format for different blockchain networks.
+    
+    Args:
+        address: The address to validate
+        chain: The blockchain network ("ethereum", "solana", "xrp")
+    
+    Returns:
+        True if address format is valid
+    """
+    if chain.lower() == "ethereum":
+        return bool(address and isinstance(address, str) and 
+                   address.startswith('0x') and len(address) == 42)
+    elif chain.lower() == "solana":
+        return bool(address and isinstance(address, str) and 
+                   len(address) >= 32 and len(address) <= 44)
+    elif chain.lower() == "xrp":
+        return bool(address and isinstance(address, str) and 
+                   (address.startswith('r') or address.startswith('X')))
+    else:
+        return bool(address and isinstance(address, str) and len(address) > 10)
+
+
+# ============================================================================
+# DEVELOPER WORKFLOW HELPER FUNCTIONS
+# ============================================================================
+
+def execute_nemesiaai_integration_workflow(repo_path: str) -> None:
+    """
+    Complete workflow for integrating nemesiaai repository data.
+    
+    Args:
+        repo_path: Path to the local nemesiaai repository
+    """
+    safe_print("Starting nemesiaai integration workflow...")
+    
+    try:
+        # Load current data
+        current_known_eth_exchanges = load_addresses_from_file('data/addresses.py', 'known_exchange_addresses')
+        safe_print(f"Loaded {len(current_known_eth_exchanges)} existing Ethereum exchange addresses")
+        
+        # Fetch new data
+        nemesiaai_eth_data = fetch_and_parse_nemesiaai_data(repo_path)
+        
+        if not nemesiaai_eth_data:
+            safe_print("No data extracted from nemesiaai repository")
+            return
+        
+        # Merge data
+        updated_known_eth_exchanges = merge_address_data(
+            current_known_eth_exchanges, 
+            nemesiaai_eth_data,
+            "prefer_existing_if_specific"
+        )
+        
+        # Print formatted output
+        pretty_print_address_dict_for_update(updated_known_eth_exchanges, 'known_exchange_addresses')
+        
+    except Exception as e:
+        safe_print(f"Error in nemesiaai integration workflow: {str(e)}")
+
+
+def execute_coincarp_integration_workflow(csv_files: List[str]) -> None:
+    """
+    Complete workflow for integrating CoinCarp CSV data.
+    
+    Args:
+        csv_files: List of paths to CoinCarp CSV files
+    """
+    safe_print("Starting CoinCarp integration workflow...")
+    
+    try:
+        # Load current data
+        current_known_eth_exchanges = load_addresses_from_file('data/addresses.py', 'known_exchange_addresses')
+        current_solana_exchanges = load_addresses_from_file('data/addresses.py', 'solana_exchange_addresses')
+        
+        all_new_data = {}
+        
+        for csv_file in csv_files:
+            safe_print(f"Processing {csv_file}...")
+            csv_data = parse_coincarp_csv(csv_file)
+            all_new_data.update(csv_data)
+        
+        if not all_new_data:
+            safe_print("No data extracted from CoinCarp CSVs")
+            return
+        
+        # Separate by chain type
+        eth_data = {addr: label for addr, label in all_new_data.items() 
+                   if validate_address_format(addr, "ethereum")}
+        solana_data = {addr: label for addr, label in all_new_data.items() 
+                      if validate_address_format(addr, "solana")}
+        
+        # Merge Ethereum data
+        if eth_data:
+            updated_eth_exchanges = merge_address_data(current_known_eth_exchanges, eth_data)
+            pretty_print_address_dict_for_update(updated_eth_exchanges, 'known_exchange_addresses')
+        
+        # Merge Solana data
+        if solana_data:
+            updated_solana_exchanges = merge_address_data(current_solana_exchanges, solana_data)
+            pretty_print_address_dict_for_update(updated_solana_exchanges, 'solana_exchange_addresses')
+        
+    except Exception as e:
+        safe_print(f"Error in CoinCarp integration workflow: {str(e)}")
 
 

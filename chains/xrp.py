@@ -14,7 +14,7 @@ from config.settings import (
     print_lock
 )
 from data.addresses import xrp_exchange_addresses
-from utils.classification import classify_xrp_transaction
+from utils.classification_final import classify_xrp_transaction
 from utils.base_helpers import safe_print
 from data.tokens import TOKEN_PRICES
 from utils.summary import has_been_classified, mark_as_classified, record_transfer
@@ -59,7 +59,7 @@ def on_xrp_message(ws, message):
                 filtered_by_threshold += 1
                 return
                 
-            classification, processed_amount = classify_xrp_transaction(txn, "xrp")
+            classification, processed_amount = classify_xrp_transaction(txn)
             
             # Skip already classified transactions
             if classification == "already_classified":

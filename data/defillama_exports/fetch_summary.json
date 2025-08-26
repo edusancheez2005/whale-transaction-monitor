@@ -1,0 +1,15 @@
+{
+  "fetch_timestamp": "2025-05-29T10:14:48.836969",
+  "total_cex_entities": 67,
+  "total_defi_entities": 1508,
+  "defi_categories_included": [
+    "Lending",
+    "DEXes",
+    "CDP",
+    "Liquid Staking",
+    "Yield"
+  ],
+  "cex_entities_with_addresses": 4,
+  "defi_entities_with_addresses": 857,
+  "ethereum_focused_entities": 475
+}

@@ -1,0 +1,1233 @@
+{
+  "test_metadata": {
+    "timestamp": "2025-07-10T20:20:11.851359",
+    "test_type": "live_multi_chain",
+    "total_duration": 415.85387992858887
+  },
+  "summary_statistics": {
+    "total_tests": 10,
+    "successful_tests": 10,
+    "accuracy": 100.0,
+    "buy_sell_rate": 0.0,
+    "avg_confidence": 20.9,
+    "avg_processing_time": 41.0284286737442,
+    "correct_classifications": 10,
+    "buy_sell_classifications": 0
+  },
+  "performance_targets": {
+    "accuracy": 80.0,
+    "buy_sell_rate": 65.0,
+    "confidence": 40.0,
+    "processing_time": 30.0
+  },
+  "detailed_results": [
+    {
+      "test_number": 1,
+      "transaction": {
+        "hash": "0xdc930d0946410c09c18fe85bf962a125e817215a8ed08f1f4f66bf1e3a4cbf81",
+        "from": "0x36a454aef52938c8637cd4689b2980c1cfd43389",
+        "to": "0xa69babef1ca67a37ffaf7a485dfff3382056e78c",
+        "value": 15006466,
+        "blockNumber": 22890791,
+        "blockchain": "ethereum",
+        "explorer_url": "https://etherscan.io/tx/0xdc930d0946410c09c18fe85bf962a125e817215a8ed08f1f4f66bf1e3a4cbf81"
+      },
+      "result": {
+        "classification": "TRANSFER",
+        "confidence": 0.225,
+        "final_whale_score": 83.7,
+        "evidence": [],
+        "whale_signals": [
+          "From address: High frequency trader (110,909 transactions)",
+          "From address: Long-term active (366 days)",
+          "To address: MEGA WHALE (14017 ETH volume)",
+          "To address: High frequency trader (2,362,588 transactions)",
+          "To address: Long-term active (366 days)"
+        ],
+        "phase_results": {
+          "bigquery": {
+            "classification": "TRANSFER",
+            "confidence": 0.2,
+            "evidence": [
+              "From address shows algorithmic trading patterns",
+              "To address is mega whale with 14017 ETH volume (no auto-classification)",
+              "To address shows algorithmic trading patterns"
+            ],
+            "whale_signals": [
+              "From address: High frequency trader (110,909 transactions)",
+              "From address: Long-term active (366 days)",
+              "To address: MEGA WHALE (14017 ETH volume)",
+              "To address: High frequency trader (2,362,588 transactions)",
+              "To address: Long-term active (366 days)"
+            ],
+            "phase": "bigquery_historical",
+            "raw_data": {
+              "analyzed_addresses": 2
+            }
+          },
+          "blockchain_specific": {
+            "classification": "TRANSFER",
+            "confidence": 0.0,
+            "evidence": [
+              "No blockchain analysis result"
+            ],
+            "whale_signals": [],
+            "phase": "failed",
+            "raw_data": {}
+          },
+          "supabase": {
+            "classification": "TRANSFER",
+            "confidence": 0.0,
+            "evidence": [
+              "Insufficient whale intelligence"
+            ],
+            "whale_signals": [],
+            "phase": "failed",
+            "raw_data": {}
+          },
+          "cex_matching": {
+            "classification": null,
+            "confidence": 0.0,
+            "evidence": [],
+            "whale_signals": [],
+            "phase": "cex_matching",
+            "raw_data": {
+              "supabase_matches": 2
+            }
+          },
+          "stablecoin_flow": {
+            "classification": "TRANSFER",
+            "confidence": 0.0,
+            "evidence": [],
+            "whale_signals": [],
+            "phase": "stablecoin_flow",
+            "raw_data": {
+              "value_usd": 0
+            }
+          },
+          "moralis": {
+            "classification": "TRANSFER",
+            "confidence": 0.0,
+            "evidence": [
+              "Insufficient Moralis data"
+            ],
+            "whale_signals": [],
+            "phase": "failed",
+            "raw_data": {}
+          },
+          "zerion": {
+            "classification": "TRANSFER",
+            "confidence": 0.55,
+            "evidence": [
+              "From address: Portfolio data available",
+              "To address: Portfolio data available"
+            ],
+            "whale_signals": [],
+            "phase": "zerion_portfolio",
+            "raw_data": {
+              "addresses_analyzed": 2
+            }
+          }
+        },
+        "master_classifier_reasoning": "TRANSFER evidence: 0.075. Phases: bigquery: TRANSFER (0.20), zerion: TRANSFER (0.55). Evidence: From address shows algorithmic trading patterns; To address is mega whale with 14017 ETH volume (no auto-classification); To address shows algorithmic trading patterns + 5 more",
+        "behavioral_analysis": {
+          "gas_price_analysis": {
+            "analysis": "no_gas_data",
+            "confidence_boost": 0.0
+          },
+          "address_behavior_analysis": {
+            "analysis": "normal_addresses",
+            "confidence_boost": 0.0
+          },
+          "timing_analysis": {
+            "analysis": "no_timestamp",
+            "confidence_boost": 0.0
+          },
+          "confidence_adjustments": [],
+          "total_confidence_boost": 0.0
+        }
+      },
+      "processing_time": 53.46506714820862,
+      "final_classification": "TRANSFER",
+      "final_confidence": 22.5,
+      "whale_score": 83.7,
+      "is_correct": true
+    },
+    {
+      "test_number": 2,
+      "transaction": {
+        "hash": "0x030b546b6622d4761468e8baa7f655f7ed16e5c911c4a52f26afee377df12711",
+        "from": "0x18d47a5ecef73347aff453ea5532fb68b5133768",
+        "to": "0xfe44daeb65166846fccb3f4aa7186e36247b1c1e",
+        "value": 5122256008501001,
+        "blockNumber": 22890791,
+        "blockchain": "ethereum",
+        "explorer_url": "https://etherscan.io/tx/0x030b546b6622d4761468e8baa7f655f7ed16e5c911c4a52f26afee377df12711"
+      },
+      "result": {
+        "classification": "TRANSFER",
+        "confidence": 0.215,
+        "final_whale_score": 57.6,
+        "evidence": [],
+        "whale_signals": [
+          "To address: High volume whale (1624 ETH)",
+          "To address: High frequency trader (17,973 transactions)",
+          "To address: Long-term active (366 days)"
+        ],
+        "phase_results": {
+          "bigquery": {
+            "classification": "TRANSFER",
+            "confidence": 0.1,
+            "evidence": [
+              "To address shows algorithmic trading patterns"
+            ],
+            "whale_signals": [
+              "To address: High volume whale (1624 ETH)",
+              "To address: High frequency trader (17,973 transactions)",
+              "To address: Long-term active (366 days)"
+            ],
+            "phase": "bigquery_historical",
+            "raw_data": {
+              "analyzed_addresses": 2
+            }
+          },
+          "blockchain_specific": {
+            "classification": "TRANSFER",
+            "confidence": 0.0,
+            "evidence": [
+              "No blockchain analysis result"
+            ],
+            "whale_signals": [],
+            "phase": "failed",
+            "raw_data": {}
+          },
+          "supabase": {
+            "classification": "TRANSFER",
+            "confidence": 0.0,
+            "evidence": [
+              "Insufficient whale intelligence"
+            ],
+            "whale_signals": [],
+            "phase": "failed",
+            "raw_data": {}
+          },
+          "cex_matching": {
+            "classification": "SELL",
+            "confidence": 0.12,
+            "evidence": [
+              "Supabase: Cat in a Box - Cat in a Box - potential_exchange_needs_review (to)"
+            ],
+            "whale_signals": [],
+            "phase": "cex_matching",
+            "raw_data": {
+              "supabase_matches": 1
+            }
+          },
+          "stablecoin_flow": {
+            "classification": "TRANSFER",
+            "confidence": 0.0,
+            "evidence": [],
+            "whale_signals": [],
+            "phase": "stablecoin_flow",
+            "raw_data": {
+              "value_usd": 0
+            }
+          },
+          "moralis": {
+            "classification": "TRANSFER",
+            "confidence": 0.0,
+            "evidence": [
+              "Insufficient Moralis data"
+            ],
+            "whale_signals": [],
+            "phase": "failed",
+            "raw_data": {}
+          },
+          "zerion": {
+            "classification": "TRANSFER",
+            "confidence": 0.55,
+            "evidence": [
+              "From address: Portfolio data available",
+              "To address: Portfolio data available"
+            ],
+            "whale_signals": [],
+            "phase": "zerion_portfolio",
+            "raw_data": {
+              "addresses_analyzed": 2
+            }
+          }
+        },
+        "master_classifier_reasoning": "TRANSFER evidence: 0.065. Phases: bigquery: TRANSFER (0.10), cex matching: SELL (0.12), zerion: TRANSFER (0.55). Evidence: To address shows algorithmic trading patterns; No blockchain analysis result; Insufficient whale intelligence + 4 more",
+        "behavioral_analysis": {
+          "gas_price_analysis": {
+            "analysis": "no_gas_data",
+            "confidence_boost": 0.0
+          },
+          "address_behavior_analysis": {
+            "analysis": "normal_addresses",
+            "confidence_boost": 0.0
+          },
+          "timing_analysis": {
+            "analysis": "no_timestamp",
+            "confidence_boost": 0.0
+          },
+          "confidence_adjustments": [],
+          "total_confidence_boost": 0.0
+        }
+      },
+      "processing_time": 36.365208864212036,
+      "final_classification": "TRANSFER",
+      "final_confidence": 21.5,
+      "whale_score": 57.6,
+      "is_correct": true
+    },
+    {
+      "test_number": 3,
+      "transaction": {
+        "hash": "0xbebea7be34c13311f8ced92e7fb84279a895949d0efed53bed200c8c5c80b01d",
+        "from": "0xaffa4a3ed9f5a3ba8aa7b6f5bb56ea42093216ea",
+        "to": "0x462e9c447cf2a2f35742380e2751740729695423",
+        "value": 1000000000000000000,
+        "blockNumber": 22890791,
+        "blockchain": "ethereum",
+        "explorer_url": "https://etherscan.io/tx/0xbebea7be34c13311f8ced92e7fb84279a895949d0efed53bed200c8c5c80b01d"
+      },
+      "result": {
+        "classification": "TRANSFER",
+        "confidence": 0.20500000000000002,
+        "final_whale_score": 0.0,
+        "evidence": [],
+        "whale_signals": [],
+        "phase_results": {
+          "bigquery": {
+            "classification": "TRANSFER",
+            "confidence": 0.0,
+            "evidence": [],
+            "whale_signals": [],
+            "phase": "bigquery_historical",
+            "raw_data": {
+              "analyzed_addresses": 2
+            }
+          },
+          "blockchain_specific": {
+            "classification": "TRANSFER",
+            "confidence": 0.0,
+            "evidence": [
+              "No blockchain analysis result"
+            ],
+            "whale_signals": [],
+            "phase": "failed",
+            "raw_data": {}
+          },
+          "supabase": {
+            "classification": "TRANSFER",
+            "confidence": 0.0,
+            "evidence": [
+              "No whale matches found in Supabase"
+            ],
+            "whale_signals": [],
+            "phase": "failed",
+            "raw_data": {}
+          },
+          "cex_matching": {
+            "classification": null,
+            "confidence": 0.0,
+            "evidence": [],
+            "whale_signals": [],
+            "phase": "cex_matching",
+            "raw_data": {
+              "supabase_matches": 0
+            }
+          },
+          "stablecoin_flow": {
+            "classification": "TRANSFER",
+            "confidence": 0.0,
+            "evidence": [],
+            "whale_signals": [],
+            "phase": "stablecoin_flow",
+            "raw_data": {
+              "value_usd": 0
+            }
+          },
+          "moralis": {
+            "classification": "TRANSFER",
+            "confidence": 0.0,
+            "evidence": [
+              "Insufficient Moralis data"
+            ],
+            "whale_signals": [],
+            "phase": "failed",
+            "raw_data": {}
+          },
+          "zerion": {
+            "classification": "TRANSFER",
+            "confidence": 0.55,
+            "evidence": [
+              "From address: Portfolio data available",
+              "To address: Portfolio data available"
+            ],
+            "whale_signals": [],
+            "phase": "zerion_portfolio",
+            "raw_data": {
+              "addresses_analyzed": 2
+            }
+          }
+        },
+        "master_classifier_reasoning": "TRANSFER evidence: 0.055. Phases: zerion: TRANSFER (0.55). Evidence: No blockchain analysis result; No whale matches found in Supabase; Insufficient Moralis data + 2 more",
+        "behavioral_analysis": {
+          "gas_price_analysis": {
+            "analysis": "no_gas_data",
+            "confidence_boost": 0.0
+          },
+          "address_behavior_analysis": {
+            "analysis": "normal_addresses",
+            "confidence_boost": 0.0
+          },
+          "timing_analysis": {
+            "analysis": "no_timestamp",
+            "confidence_boost": 0.0
+          },
+          "confidence_adjustments": [],
+          "total_confidence_boost": 0.0
+        }
+      },
+      "processing_time": 43.12712240219116,
+      "final_classification": "TRANSFER",
+      "final_confidence": 20.5,
+      "whale_score": 0.0,
+      "is_correct": true
+    },
+    {
+      "test_number": 4,
+      "transaction": {
+        "hash": "0x7cd451cc908c0b85e59a87b01e65ffd3e8e6fc0f3371f718c55349660869d83b",
+        "from": "0xa6495d08909724047d02a80fa0ebd04544ff54f5",
+        "to": "0x3a10dc1a145da500d5fba38b9ec49c8ff11a981f",
+        "value": 60000000000000000,
+        "blockNumber": 22890791,
+        "blockchain": "ethereum",
+        "explorer_url": "https://etherscan.io/tx/0x7cd451cc908c0b85e59a87b01e65ffd3e8e6fc0f3371f718c55349660869d83b"
+      },
+      "result": {
+        "classification": "TRANSFER",
+        "confidence": 0.20500000000000002,
+        "final_whale_score": 58.5,
+        "evidence": [],
+        "whale_signals": [
+          "To address: MEGA WHALE (121621 ETH volume)",
+          "To address: High frequency trader (1,344,538 transactions)"
+        ],
+        "phase_results": {
+          "bigquery": {
+            "classification": "TRANSFER",
+            "confidence": 0.0,
+            "evidence": [
+              "To address is mega whale with 121621 ETH volume (no auto-classification)",
+              "To address shows algorithmic trading patterns"
+            ],
+            "whale_signals": [
+              "To address: MEGA WHALE (121621 ETH volume)",
+              "To address: High frequency trader (1,344,538 transactions)"
+            ],
+            "phase": "bigquery_historical",
+            "raw_data": {
+              "analyzed_addresses": 2
+            }
+          },
+          "blockchain_specific": {
+            "classification": "TRANSFER",
+            "confidence": 0.0,
+            "evidence": [
+              "No blockchain analysis result"
+            ],
+            "whale_signals": [],
+            "phase": "failed",
+            "raw_data": {}
+          },
+          "supabase": {
+            "classification": "TRANSFER",
+            "confidence": 0.0,
+            "evidence": [
+              "Insufficient whale intelligence"
+            ],
+            "whale_signals": [],
+            "phase": "failed",
+            "raw_data": {}
+          },
+          "cex_matching": {
+            "classification": null,
+            "confidence": 0.0,
+            "evidence": [],
+            "whale_signals": [],
+            "phase": "cex_matching",
+            "raw_data": {
+              "supabase_matches": 1
+            }
+          },
+          "stablecoin_flow": {
+            "classification": "TRANSFER",
+            "confidence": 0.0,
+            "evidence": [],
+            "whale_signals": [],
+            "phase": "stablecoin_flow",
+            "raw_data": {
+              "value_usd": 0
+            }
+          },
+          "moralis": {
+            "classification": "TRANSFER",
+            "confidence": 0.0,
+            "evidence": [
+              "Insufficient Moralis data"
+            ],
+            "whale_signals": [],
+            "phase": "failed",
+            "raw_data": {}
+          },
+          "zerion": {
+            "classification": "TRANSFER",
+            "confidence": 0.55,
+            "evidence": [
+              "From address: Portfolio data available",
+              "To address: Portfolio data available"
+            ],
+            "whale_signals": [],
+            "phase": "zerion_portfolio",
+            "raw_data": {
+              "addresses_analyzed": 2
+            }
+          }
+        },
+        "master_classifier_reasoning": "TRANSFER evidence: 0.055. Phases: zerion: TRANSFER (0.55). Evidence: To address is mega whale with 121621 ETH volume (no auto-classification); To address shows algorithmic trading patterns; No blockchain analysis result + 4 more",
+        "behavioral_analysis": {
+          "gas_price_analysis": {
+            "analysis": "no_gas_data",
+            "confidence_boost": 0.0
+          },
+          "address_behavior_analysis": {
+            "analysis": "normal_addresses",
+            "confidence_boost": 0.0
+          },
+          "timing_analysis": {
+            "analysis": "no_timestamp",
+            "confidence_boost": 0.0
+          },
+          "confidence_adjustments": [],
+          "total_confidence_boost": 0.0
+        }
+      },
+      "processing_time": 65.76384687423706,
+      "final_classification": "TRANSFER",
+      "final_confidence": 20.5,
+      "whale_score": 58.5,
+      "is_correct": true
+    },
+    {
+      "test_number": 5,
+      "transaction": {
+        "hash": "0x88674a7cedb3739c1d5a0f9b2ffd327fd5a427e084ff9575f35fb20506958104",
+        "from": "0x2c29c876e0b63fec18e5ea174ffbe4f03e60c728",
+        "to": "0xcbd6832ebc203e49e2b771897067fce3c58575ac",
+        "value": 57113687442931544,
+        "blockNumber": 22890791,
+        "blockchain": "ethereum",
+        "explorer_url": "https://etherscan.io/tx/0x88674a7cedb3739c1d5a0f9b2ffd327fd5a427e084ff9575f35fb20506958104"
+      },
+      "result": {
+        "classification": "TRANSFER",
+        "confidence": 0.215,
+        "final_whale_score": 66.60000000000001,
+        "evidence": [],
+        "whale_signals": [
+          "To address: MEGA WHALE (199951 ETH volume)",
+          "To address: High frequency trader (682,212 transactions)",
+          "To address: Long-term active (366 days)"
+        ],
+        "phase_results": {
+          "bigquery": {
+            "classification": "TRANSFER",
+            "confidence": 0.1,
+            "evidence": [
+              "To address is mega whale with 199951 ETH volume (no auto-classification)",
+              "To address shows algorithmic trading patterns"
+            ],
+            "whale_signals": [
+              "To address: MEGA WHALE (199951 ETH volume)",
+              "To address: High frequency trader (682,212 transactions)",
+              "To address: Long-term active (366 days)"
+            ],
+            "phase": "bigquery_historical",
+            "raw_data": {
+              "analyzed_addresses": 2
+            }
+          },
+          "blockchain_specific": {
+            "classification": "TRANSFER",
+            "confidence": 0.0,
+            "evidence": [
+              "No blockchain analysis result"
+            ],
+            "whale_signals": [],
+            "phase": "failed",
+            "raw_data": {}
+          },
+          "supabase": {
+            "classification": "TRANSFER",
+            "confidence": 0.0,
+            "evidence": [
+              "Insufficient whale intelligence"
+            ],
+            "whale_signals": [],
+            "phase": "failed",
+            "raw_data": {}
+          },
+          "cex_matching": {
+            "classification": null,
+            "confidence": 0.0,
+            "evidence": [],
+            "whale_signals": [],
+            "phase": "cex_matching",
+            "raw_data": {
+              "supabase_matches": 1
+            }
+          },
+          "stablecoin_flow": {
+            "classification": "TRANSFER",
+            "confidence": 0.0,
+            "evidence": [],
+            "whale_signals": [],
+            "phase": "stablecoin_flow",
+            "raw_data": {
+              "value_usd": 0
+            }
+          },
+          "moralis": {
+            "classification": "TRANSFER",
+            "confidence": 0.0,
+            "evidence": [
+              "Insufficient Moralis data"
+            ],
+            "whale_signals": [],
+            "phase": "failed",
+            "raw_data": {}
+          },
+          "zerion": {
+            "classification": "TRANSFER",
+            "confidence": 0.55,
+            "evidence": [
+              "From address: Portfolio data available",
+              "To address: Portfolio data available"
+            ],
+            "whale_signals": [],
+            "phase": "zerion_portfolio",
+            "raw_data": {
+              "addresses_analyzed": 2
+            }
+          }
+        },
+        "master_classifier_reasoning": "TRANSFER evidence: 0.065. Phases: bigquery: TRANSFER (0.10), zerion: TRANSFER (0.55). Evidence: To address is mega whale with 199951 ETH volume (no auto-classification); To address shows algorithmic trading patterns; No blockchain analysis result + 4 more",
+        "behavioral_analysis": {
+          "gas_price_analysis": {
+            "analysis": "no_gas_data",
+            "confidence_boost": 0.0
+          },
+          "address_behavior_analysis": {
+            "analysis": "normal_addresses",
+            "confidence_boost": 0.0
+          },
+          "timing_analysis": {
+            "analysis": "no_timestamp",
+            "confidence_boost": 0.0
+          },
+          "confidence_adjustments": [],
+          "total_confidence_boost": 0.0
+        }
+      },
+      "processing_time": 47.99726176261902,
+      "final_classification": "TRANSFER",
+      "final_confidence": 21.5,
+      "whale_score": 66.60000000000001,
+      "is_correct": true
+    },
+    {
+      "test_number": 6,
+      "transaction": {
+        "hash": "0xe17fe8f51ec9d2cfa2e7ab74d7411e6ec4b229e9dd70d419473aebea7f889624",
+        "from": "0x786915f16536b0e7e4ccc93f27f7a88d6d1faf99",
+        "to": "0x898a4430375e7e86078b43eb2216afc3e79eb8e4",
+        "value": 20000000000000000000,
+        "blockNumber": 73818130,
+        "blockchain": "polygon",
+        "explorer_url": "https://polygonscan.com/tx/0xe17fe8f51ec9d2cfa2e7ab74d7411e6ec4b229e9dd70d419473aebea7f889624"
+      },
+      "result": {
+        "classification": "TRANSFER",
+        "confidence": 0.20500000000000002,
+        "final_whale_score": 0.0,
+        "evidence": [],
+        "whale_signals": [],
+        "phase_results": {
+          "bigquery": {
+            "classification": "TRANSFER",
+            "confidence": 0.0,
+            "evidence": [],
+            "whale_signals": [],
+            "phase": "bigquery_historical",
+            "raw_data": {
+              "analyzed_addresses": 2
+            }
+          },
+          "blockchain_specific": {
+            "classification": "TRANSFER",
+            "confidence": 0.0,
+            "evidence": [
+              "No blockchain analysis result"
+            ],
+            "whale_signals": [],
+            "phase": "failed",
+            "raw_data": {}
+          },
+          "supabase": {
+            "classification": "TRANSFER",
+            "confidence": 0.0,
+            "evidence": [
+              "No whale matches found in Supabase"
+            ],
+            "whale_signals": [],
+            "phase": "failed",
+            "raw_data": {}
+          },
+          "cex_matching": {
+            "classification": null,
+            "confidence": 0.0,
+            "evidence": [],
+            "whale_signals": [],
+            "phase": "cex_matching",
+            "raw_data": {
+              "supabase_matches": 0
+            }
+          },
+          "stablecoin_flow": {
+            "classification": "TRANSFER",
+            "confidence": 0.0,
+            "evidence": [],
+            "whale_signals": [],
+            "phase": "stablecoin_flow",
+            "raw_data": {
+              "value_usd": 0
+            }
+          },
+          "moralis": {
+            "classification": "TRANSFER",
+            "confidence": 0.0,
+            "evidence": [
+              "Insufficient Moralis data"
+            ],
+            "whale_signals": [],
+            "phase": "failed",
+            "raw_data": {}
+          },
+          "zerion": {
+            "classification": "TRANSFER",
+            "confidence": 0.55,
+            "evidence": [
+              "From address: Portfolio data available",
+              "To address: Portfolio data available"
+            ],
+            "whale_signals": [],
+            "phase": "zerion_portfolio",
+            "raw_data": {
+              "addresses_analyzed": 2
+            }
+          }
+        },
+        "master_classifier_reasoning": "TRANSFER evidence: 0.055. Phases: zerion: TRANSFER (0.55). Evidence: No blockchain analysis result; No whale matches found in Supabase; Insufficient Moralis data + 2 more",
+        "behavioral_analysis": {
+          "gas_price_analysis": {
+            "analysis": "no_gas_data",
+            "confidence_boost": 0.0
+          },
+          "address_behavior_analysis": {
+            "analysis": "normal_addresses",
+            "confidence_boost": 0.0
+          },
+          "timing_analysis": {
+            "analysis": "no_timestamp",
+            "confidence_boost": 0.0
+          },
+          "confidence_adjustments": [],
+          "total_confidence_boost": 0.0
+        }
+      },
+      "processing_time": 45.04802107810974,
+      "final_classification": "TRANSFER",
+      "final_confidence": 20.5,
+      "whale_score": 0.0,
+      "is_correct": true
+    },
+    {
+      "test_number": 7,
+      "transaction": {
+        "hash": "0x234bb532ebfcf32196c2f6fcd5b3399154e3334df7bc28ad8623a1a9b1b2ad51",
+        "from": "0x7bd17723aadadc479c19860ef73cdaf28447567d",
+        "to": "0x93afe54f31a13e666eb419a28522097b26069e4f",
+        "value": 60000000000000000000,
+        "blockNumber": 73818130,
+        "blockchain": "polygon",
+        "explorer_url": "https://polygonscan.com/tx/0x234bb532ebfcf32196c2f6fcd5b3399154e3334df7bc28ad8623a1a9b1b2ad51"
+      },
+      "result": {
+        "classification": "TRANSFER",
+        "confidence": 0.20500000000000002,
+        "final_whale_score": 0.0,
+        "evidence": [],
+        "whale_signals": [],
+        "phase_results": {
+          "bigquery": {
+            "classification": "TRANSFER",
+            "confidence": 0.0,
+            "evidence": [],
+            "whale_signals": [],
+            "phase": "bigquery_historical",
+            "raw_data": {
+              "analyzed_addresses": 2
+            }
+          },
+          "blockchain_specific": {
+            "classification": "TRANSFER",
+            "confidence": 0.0,
+            "evidence": [
+              "No blockchain analysis result"
+            ],
+            "whale_signals": [],
+            "phase": "failed",
+            "raw_data": {}
+          },
+          "supabase": {
+            "classification": "TRANSFER",
+            "confidence": 0.0,
+            "evidence": [
+              "No whale matches found in Supabase"
+            ],
+            "whale_signals": [],
+            "phase": "failed",
+            "raw_data": {}
+          },
+          "cex_matching": {
+            "classification": null,
+            "confidence": 0.0,
+            "evidence": [],
+            "whale_signals": [],
+            "phase": "cex_matching",
+            "raw_data": {
+              "supabase_matches": 0
+            }
+          },
+          "stablecoin_flow": {
+            "classification": "TRANSFER",
+            "confidence": 0.0,
+            "evidence": [],
+            "whale_signals": [],
+            "phase": "stablecoin_flow",
+            "raw_data": {
+              "value_usd": 0
+            }
+          },
+          "moralis": {
+            "classification": "TRANSFER",
+            "confidence": 0.0,
+            "evidence": [
+              "Insufficient Moralis data"
+            ],
+            "whale_signals": [],
+            "phase": "failed",
+            "raw_data": {}
+          },
+          "zerion": {
+            "classification": "TRANSFER",
+            "confidence": 0.55,
+            "evidence": [
+              "From address: Portfolio data available",
+              "To address: Portfolio data available"
+            ],
+            "whale_signals": [],
+            "phase": "zerion_portfolio",
+            "raw_data": {
+              "addresses_analyzed": 2
+            }
+          }
+        },
+        "master_classifier_reasoning": "TRANSFER evidence: 0.055. Phases: zerion: TRANSFER (0.55). Evidence: No blockchain analysis result; No whale matches found in Supabase; Insufficient Moralis data + 2 more",
+        "behavioral_analysis": {
+          "gas_price_analysis": {
+            "analysis": "no_gas_data",
+            "confidence_boost": 0.0
+          },
+          "address_behavior_analysis": {
+            "analysis": "normal_addresses",
+            "confidence_boost": 0.0
+          },
+          "timing_analysis": {
+            "analysis": "no_timestamp",
+            "confidence_boost": 0.0
+          },
+          "confidence_adjustments": [],
+          "total_confidence_boost": 0.0
+        }
+      },
+      "processing_time": 16.942737817764282,
+      "final_classification": "TRANSFER",
+      "final_confidence": 20.5,
+      "whale_score": 0.0,
+      "is_correct": true
+    },
+    {
+      "test_number": 8,
+      "transaction": {
+        "hash": "0x101c83bb33a6a49604609f3e35836cbcb94abbff8e478643d55cda881dc8267c",
+        "from": "0xe9ac6c4fcb73d31de46c4a01aa12f086c646b777",
+        "to": "0x0d500b1d8e8ef31e21c99d1db9a6444d3adf1270",
+        "value": 55550000000000,
+        "blockNumber": 73818130,
+        "blockchain": "polygon",
+        "explorer_url": "https://polygonscan.com/tx/0x101c83bb33a6a49604609f3e35836cbcb94abbff8e478643d55cda881dc8267c"
+      },
+      "result": {
+        "classification": "TRANSFER",
+        "confidence": 0.20500000000000002,
+        "final_whale_score": 0.0,
+        "evidence": [],
+        "whale_signals": [],
+        "phase_results": {
+          "bigquery": {
+            "classification": "TRANSFER",
+            "confidence": 0.0,
+            "evidence": [],
+            "whale_signals": [],
+            "phase": "bigquery_historical",
+            "raw_data": {
+              "analyzed_addresses": 2
+            }
+          },
+          "blockchain_specific": {
+            "classification": "TRANSFER",
+            "confidence": 0.0,
+            "evidence": [
+              "No blockchain analysis result"
+            ],
+            "whale_signals": [],
+            "phase": "failed",
+            "raw_data": {}
+          },
+          "supabase": {
+            "classification": "TRANSFER",
+            "confidence": 0.0,
+            "evidence": [
+              "No whale matches found in Supabase"
+            ],
+            "whale_signals": [],
+            "phase": "failed",
+            "raw_data": {}
+          },
+          "cex_matching": {
+            "classification": null,
+            "confidence": 0.0,
+            "evidence": [],
+            "whale_signals": [],
+            "phase": "cex_matching",
+            "raw_data": {
+              "supabase_matches": 1
+            }
+          },
+          "stablecoin_flow": {
+            "classification": "TRANSFER",
+            "confidence": 0.0,
+            "evidence": [],
+            "whale_signals": [],
+            "phase": "stablecoin_flow",
+            "raw_data": {
+              "value_usd": 0
+            }
+          },
+          "moralis": {
+            "classification": "TRANSFER",
+            "confidence": 0.0,
+            "evidence": [
+              "Insufficient Moralis data"
+            ],
+            "whale_signals": [],
+            "phase": "failed",
+            "raw_data": {}
+          },
+          "zerion": {
+            "classification": "TRANSFER",
+            "confidence": 0.55,
+            "evidence": [
+              "From address: Portfolio data available",
+              "To address: Portfolio data available"
+            ],
+            "whale_signals": [],
+            "phase": "zerion_portfolio",
+            "raw_data": {
+              "addresses_analyzed": 2
+            }
+          }
+        },
+        "master_classifier_reasoning": "TRANSFER evidence: 0.055. Phases: zerion: TRANSFER (0.55). Evidence: No blockchain analysis result; No whale matches found in Supabase; Insufficient Moralis data + 2 more",
+        "behavioral_analysis": {
+          "gas_price_analysis": {
+            "analysis": "no_gas_data",
+            "confidence_boost": 0.0
+          },
+          "address_behavior_analysis": {
+            "analysis": "normal_addresses",
+            "confidence_boost": 0.0
+          },
+          "timing_analysis": {
+            "analysis": "no_timestamp",
+            "confidence_boost": 0.0
+          },
+          "confidence_adjustments": [],
+          "total_confidence_boost": 0.0
+        }
+      },
+      "processing_time": 32.99448895454407,
+      "final_classification": "TRANSFER",
+      "final_confidence": 20.5,
+      "whale_score": 0.0,
+      "is_correct": true
+    },
+    {
+      "test_number": 9,
+      "transaction": {
+        "hash": "0x53d402b0548f6d739c8e27bade7fbb460f3b0b6b2c4abf4ac7baaf8fb0601240",
+        "from": "0xb2f665927a876ed2a98174882669781dea823881",
+        "to": "0x0d500b1d8e8ef31e21c99d1db9a6444d3adf1270",
+        "value": 281480000000000,
+        "blockNumber": 73818130,
+        "blockchain": "polygon",
+        "explorer_url": "https://polygonscan.com/tx/0x53d402b0548f6d739c8e27bade7fbb460f3b0b6b2c4abf4ac7baaf8fb0601240"
+      },
+      "result": {
+        "classification": "TRANSFER",
+        "confidence": 0.20500000000000002,
+        "final_whale_score": 0.0,
+        "evidence": [],
+        "whale_signals": [],
+        "phase_results": {
+          "bigquery": {
+            "classification": "TRANSFER",
+            "confidence": 0.0,
+            "evidence": [],
+            "whale_signals": [],
+            "phase": "bigquery_historical",
+            "raw_data": {
+              "analyzed_addresses": 2
+            }
+          },
+          "blockchain_specific": {
+            "classification": "TRANSFER",
+            "confidence": 0.0,
+            "evidence": [
+              "No blockchain analysis result"
+            ],
+            "whale_signals": [],
+            "phase": "failed",
+            "raw_data": {}
+          },
+          "supabase": {
+            "classification": "TRANSFER",
+            "confidence": 0.0,
+            "evidence": [
+              "No whale matches found in Supabase"
+            ],
+            "whale_signals": [],
+            "phase": "failed",
+            "raw_data": {}
+          },
+          "cex_matching": {
+            "classification": null,
+            "confidence": 0.0,
+            "evidence": [],
+            "whale_signals": [],
+            "phase": "cex_matching",
+            "raw_data": {
+              "supabase_matches": 1
+            }
+          },
+          "stablecoin_flow": {
+            "classification": "TRANSFER",
+            "confidence": 0.0,
+            "evidence": [],
+            "whale_signals": [],
+            "phase": "stablecoin_flow",
+            "raw_data": {
+              "value_usd": 0
+            }
+          },
+          "moralis": {
+            "classification": "TRANSFER",
+            "confidence": 0.0,
+            "evidence": [
+              "Insufficient Moralis data"
+            ],
+            "whale_signals": [],
+            "phase": "failed",
+            "raw_data": {}
+          },
+          "zerion": {
+            "classification": "TRANSFER",
+            "confidence": 0.55,
+            "evidence": [
+              "From address: Portfolio data available",
+              "To address: Portfolio data available"
+            ],
+            "whale_signals": [],
+            "phase": "zerion_portfolio",
+            "raw_data": {
+              "addresses_analyzed": 2
+            }
+          }
+        },
+        "master_classifier_reasoning": "TRANSFER evidence: 0.055. Phases: zerion: TRANSFER (0.55). Evidence: No blockchain analysis result; No whale matches found in Supabase; Insufficient Moralis data + 2 more",
+        "behavioral_analysis": {
+          "gas_price_analysis": {
+            "analysis": "no_gas_data",
+            "confidence_boost": 0.0
+          },
+          "address_behavior_analysis": {
+            "analysis": "normal_addresses",
+            "confidence_boost": 0.0
+          },
+          "timing_analysis": {
+            "analysis": "no_timestamp",
+            "confidence_boost": 0.0
+          },
+          "confidence_adjustments": [],
+          "total_confidence_boost": 0.0
+        }
+      },
+      "processing_time": 32.34128499031067,
+      "final_classification": "TRANSFER",
+      "final_confidence": 20.5,
+      "whale_score": 0.0,
+      "is_correct": true
+    },
+    {
+      "test_number": 10,
+      "transaction": {
+        "hash": "0x6329fafa2899fa2164251939c5e2aef48893ef44b9362159c1ea501611882431",
+        "from": "0xe50c115469b8527ce453443873d6e1628502d29e",
+        "to": "0x0d500b1d8e8ef31e21c99d1db9a6444d3adf1270",
+        "value": 272160000000000,
+        "blockNumber": 73818130,
+        "blockchain": "polygon",
+        "explorer_url": "https://polygonscan.com/tx/0x6329fafa2899fa2164251939c5e2aef48893ef44b9362159c1ea501611882431"
+      },
+      "result": {
+        "classification": "TRANSFER",
+        "confidence": 0.20500000000000002,
+        "final_whale_score": 0.0,
+        "evidence": [],
+        "whale_signals": [],
+        "phase_results": {
+          "bigquery": {
+            "classification": "TRANSFER",
+            "confidence": 0.0,
+            "evidence": [],
+            "whale_signals": [],
+            "phase": "bigquery_historical",
+            "raw_data": {
+              "analyzed_addresses": 2
+            }
+          },
+          "blockchain_specific": {
+            "classification": "TRANSFER",
+            "confidence": 0.0,
+            "evidence": [
+              "No blockchain analysis result"
+            ],
+            "whale_signals": [],
+            "phase": "failed",
+            "raw_data": {}
+          },
+          "supabase": {
+            "classification": "TRANSFER",
+            "confidence": 0.0,
+            "evidence": [
+              "No whale matches found in Supabase"
+            ],
+            "whale_signals": [],
+            "phase": "failed",
+            "raw_data": {}
+          },
+          "cex_matching": {
+            "classification": null,
+            "confidence": 0.0,
+            "evidence": [],
+            "whale_signals": [],
+            "phase": "cex_matching",
+            "raw_data": {
+              "supabase_matches": 1
+            }
+          },
+          "stablecoin_flow": {
+            "classification": "TRANSFER",
+            "confidence": 0.0,
+            "evidence": [],
+            "whale_signals": [],
+            "phase": "stablecoin_flow",
+            "raw_data": {
+              "value_usd": 0
+            }
+          },
+          "moralis": {
+            "classification": "TRANSFER",
+            "confidence": 0.0,
+            "evidence": [
+              "Insufficient Moralis data"
+            ],
+            "whale_signals": [],
+            "phase": "failed",
+            "raw_data": {}
+          },
+          "zerion": {
+            "classification": "TRANSFER",
+            "confidence": 0.55,
+            "evidence": [
+              "From address: Portfolio data available",
+              "To address: Portfolio data available"
+            ],
+            "whale_signals": [],
+            "phase": "zerion_portfolio",
+            "raw_data": {
+              "addresses_analyzed": 2
+            }
+          }
+        },
+        "master_classifier_reasoning": "TRANSFER evidence: 0.055. Phases: zerion: TRANSFER (0.55). Evidence: No blockchain analysis result; No whale matches found in Supabase; Insufficient Moralis data + 2 more",
+        "behavioral_analysis": {
+          "gas_price_analysis": {
+            "analysis": "no_gas_data",
+            "confidence_boost": 0.0
+          },
+          "address_behavior_analysis": {
+            "analysis": "normal_addresses",
+            "confidence_boost": 0.0
+          },
+          "timing_analysis": {
+            "analysis": "no_timestamp",
+            "confidence_boost": 0.0
+          },
+          "confidence_adjustments": [],
+          "total_confidence_boost": 0.0
+        }
+      },
+      "processing_time": 36.23924684524536,
+      "final_classification": "TRANSFER",
+      "final_confidence": 20.5,
+      "whale_score": 0.0,
+      "is_correct": true
+    }
+  ]
+}
