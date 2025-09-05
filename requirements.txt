@@ -1,12 +1,13 @@
 # Core dependencies
-certifi==2025.1.31
-charset-normalizer==3.4.1
+certifi==2025.8.3
+charset-normalizer==3.4.3
 idna==3.10
-requests==2.32.3
-urllib3==2.3.0
+requests==2.32.5
+urllib3==2.5.0
 
 # WebSocket and keyboard handling
 websocket-client==1.8.0
+websockets==15.0.1
 keyboard==0.13.5
 
 # Platform-specific dependencies
@@ -16,33 +17,111 @@ windows-curses==2.3.1; platform_system == "Windows"
 Flask==2.3.3
 fastapi==0.95.0
 uvicorn==0.21.1
-pydantic==1.10.7
+
+# Data validation and models
+pydantic==2.11.7
+pydantic-core==2.33.2
+annotated-types==0.7.0
+typing-inspection==0.4.1
 
 # Database and caching
 redis==4.5.4
+supabase==2.18.1
+postgrest==1.1.1
+realtime==2.7.0
+storage3==0.12.1
+supabase-auth==2.12.3
+supabase-functions==0.10.1
 
-# Phase 1 - Foundation & Core Setup dependencies
-python-dotenv==1.0.0
-supabase==2.9.1
+# Google Cloud (optional - for BigQuery)
 google-cloud-bigquery==3.28.0
-google-auth==2.36.0
+google-auth==2.40.3
+google-api-core==2.25.1
+google-cloud-core==2.4.3
+google-resumable-media==2.7.2
 
-# Phase 2 - Data Acquisition dependencies
-websockets==12.0
-aiohttp>=3.11.18,<4.0.0
+# Environment and configuration
+python-dotenv==1.0.0
+pytz==2023.3
+
+# HTTP and networking
+aiohttp==3.12.15
+httpx==0.28.1
+httpcore==1.0.9
+h11==0.16.0
+h2==4.3.0
+anyio==4.10.0
+sniffio==1.3.1
+
+# Rate limiting and async
 asyncio-throttle==1.0.2
-GitPython==3.1.40
-pandas==2.1.4
-numpy==1.24.4
-httpx>=0.26,<0.28
 tenacity==8.2.3
 ratelimit==2.2.1
 backoff==2.2.1
 
-# Additional utilities for future phases
-typing-extensions==4.12.2
-pytz==2023.3  # For proper timezone handling in enhanced APIs
-beautifulsoup4==4.12.2
+# Data processing
+pandas==2.1.4
+numpy==1.24.4
+GitPython==3.1.40
+
+# Blockchain and crypto
+web3==7.13.0
+eth-abi==5.2.0
+eth-account==0.13.7
+eth-hash==0.7.1
+eth-keys==0.7.0
+eth-typing==5.2.1
+eth-utils==5.3.1
+hexbytes==1.3.1
+rlp==4.1.0
+pycryptodome==3.23.0
+
+# Utilities and helpers
+typing-extensions==4.15.0
+beautifulsoup4==4.13.5
+soupsieve==2.8
+python-dateutil==2.9.0.post0
+six==1.17.0
+packaging==25.0
+
+# Logging and monitoring
+python-json-logger==2.0.7
+colorama==0.4.6
+
+# JWT and auth
+PyJWT==2.10.1
+deprecation==2.1.0
+
+# Additional utilities
+toolz==1.0.0
+cytoolz==1.0.1
+regex==2025.9.1
+bitarray==3.7.1
+parsimonious==0.10.0
+pyunormalize==16.0.0
+strenum==0.4.15
+
+# Windows-specific
+pywin32==311; platform_system == "Windows"
+
+# HTTP/2 support
+hpack==4.1.0
+hyperframe==6.1.0
+propcache==0.3.2
+multidict==6.6.4
+frozenlist==1.7.0
+yarl==1.20.1
+aiohappyeyeballs==2.6.1
+aiosignal==1.4.0
+attrs==25.3.0
+
+# Cryptographic utilities
+eth-keyfile==0.8.1
+eth-rlp==2.2.0
+ckzg==2.1.2
+
+# Type checking and validation
+types-requests==2.32.4.20250809
 
 # For testing and development
 pytest==7.3.1
