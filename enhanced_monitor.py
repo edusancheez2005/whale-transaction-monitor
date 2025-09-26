@@ -31,6 +31,8 @@ from colorama import Fore, Style
 from config.logging_config import production_logger, get_transaction_logger
 from utils.classification_final import WhaleIntelligenceEngine, ClassificationType
 
+# Use the production logger throughout this module (including simulation path)
+logger = production_logger
 # Local imports
 from config.settings import (
     shutdown_flag,
@@ -1992,8 +1994,7 @@ def main():
         
         # Test connections
         if not test_etherscan_connection():
-            print(RED + "Failed to connect to Etherscan API." + END)
-            return
+            print(RED + "Failed to connect to Etherscan API. Continuing without Etherscan." + END)
         
         # Start monitoring threads
         active_threads = start_monitoring_threads()
