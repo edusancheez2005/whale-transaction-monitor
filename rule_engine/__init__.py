@@ -1,8 +1,30 @@
 """
-Rule Engine Package
+rule engine package
 
-This package provides a rule-based classification engine for crypto transactions,
-leveraging enriched address metadata to improve classification accuracy.
+exports the rule engine and pydantic models for convenient imports.
 """
 
-__version__ = "1.0.0" 
+from .rules.base import RuleEngine, BaseRule
+from .models.transaction import (
+    TransactionRequest,
+    ClassificationResult,
+    ClassificationType,
+    ConfidenceLevel,
+    AddressMetadata,
+)
+
+# Backwards-compatibility alias expected by some modules
+Transaction = TransactionRequest
+
+__all__ = [
+    "RuleEngine",
+    "BaseRule",
+    "Transaction",
+    "TransactionRequest",
+    "ClassificationResult",
+    "ClassificationType",
+    "ConfidenceLevel",
+    "AddressMetadata",
+]
+
+__version__ = "1.0.0"
