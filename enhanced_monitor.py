@@ -23,7 +23,7 @@ import asyncio
 import json
 import logging
 import argparse
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
 from colorama import Fore, Style
 
@@ -56,11 +56,67 @@ from models.classes import initialize_prices
 from utils.dedup import get_stats, deduped_transactions
 from utils.base_helpers import log_error, print_error_summary
 from data.tokens import TOP_100_ERC20_TOKENS, TOKEN_PRICES
+from data.addresses import DEX_ADDRESSES
+from web3 import Web3
 
 # 🔧 PROFESSIONAL PIPELINE DEDUPLICATION SYSTEM
 pipeline_processed_txs = set()
 pipeline_lock = threading.Lock()
 pipeline_stats = defaultdict(int)
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 🛡️ NEAR-DUPLICATE SUPPRESSION CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════════════════
+# Detects and prevents mirror trades, transfer shadows, and wash-trade patterns
+
+# Time window for considering transactions as potential duplicates (seconds)
+# Increased to 900 seconds (15 minutes) to catch cross-exchange arbitrage/transfers
+# Whale moving funds between Coinbase→Binance can take 10-15 minutes
+NEAR_DUPE_TIME_WINDOW = 900
+
+# USD value tolerance for matching transactions (absolute threshold)
+NEAR_DUPE_USD_THRESHOLD = 5.0
+
+# Percentage tolerance for matching USD values (0.15 = 0.15%)
+NEAR_DUPE_PERCENTAGE_THRESHOLD = 0.0015
+
+# Maximum in-memory cache size for recent transactions per whale
+NEAR_DUPE_CACHE_SIZE = 50
+
+# Number of recent transactions to check from database
+NEAR_DUPE_DB_LOOKBACK = 200
+
+# Minimum USD value to apply safeguards (never dedupe above this)
+NEAR_DUPE_SAFEGUARD_USD = 5_000_000
+
+# Token-level cache size for cross-entity duplicate detection
+TOKEN_DUPE_CACHE_SIZE = 200
+
+# Patterns to detect
+MIRROR_PATTERNS = [
+    ('BUY', 'SELL'),
+    ('SELL', 'BUY'),
+]
+
+TRANSFER_SHADOW_PATTERNS = [
+    ('BUY', 'TRANSFER'),
+    ('TRANSFER', 'BUY'),
+    ('SELL', 'TRANSFER'),
+    ('TRANSFER', 'SELL'),
+]
+
+# In-memory cache for near-duplicate detection
+# Structure: {(whale_addr, token): [{'timestamp': ..., 'usd_value': ..., 'classification': ..., 'tx_hash': ...}]}
+near_dupe_cache = defaultdict(list)
+near_dupe_cache_lock = threading.Lock()
+near_dupe_stats = defaultdict(int)
+
+# Token-level cache to detect cross-whale duplicates (e.g., BUY/SELL pairs of same size)
+token_dupe_cache = defaultdict(list)
+token_dupe_cache_lock = threading.Lock()
+
+HIGH_RISK_COUNTERPARTY_TYPES = {'CEX', 'DEX'}
+TRADE_COUNTERPARTY_TYPES = {'CEX', 'DEX'}
 
 def is_transaction_already_processed(tx_hash: str) -> bool:
     """
@@ -96,10 +152,574 @@ def get_pipeline_stats() -> dict:
     with pipeline_lock:
         return dict(pipeline_stats)
 
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 🛡️ NEAR-DUPLICATE DETECTION SYSTEM
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def is_usd_value_match(usd1: float, usd2: float) -> bool:
+    """
+    Check if two USD values match within configured tolerances.
+    
+    Uses both absolute threshold ($5) and percentage threshold (0.15%).
+    
+    Args:
+        usd1: First USD value
+        usd2: Second USD value
+        
+    Returns:
+        bool: True if values match within tolerance
+    """
+    if usd1 == 0 and usd2 == 0:
+        return True
+    
+    diff = abs(usd1 - usd2)
+    
+    # Check absolute threshold
+    if diff <= NEAR_DUPE_USD_THRESHOLD:
+        return True
+    
+    # Check percentage threshold
+    avg = (usd1 + usd2) / 2
+    if avg > 0:
+        percentage_diff = diff / avg
+        if percentage_diff <= NEAR_DUPE_PERCENTAGE_THRESHOLD:
+            return True
+    
+    return False
+
+
+def detect_duplicate_pattern(existing_class: str, incoming_class: str, 
+                            existing_counterparty: str, incoming_counterparty: str,
+                            existing_is_cex: bool, incoming_is_cex: bool) -> Optional[str]:
+    """
+    Detect if two transactions match a duplicate pattern.
+    
+    Args:
+        existing_class: Classification of existing transaction
+        incoming_class: Classification of incoming transaction
+        existing_counterparty: Counterparty type of existing
+        incoming_counterparty: Counterparty type of incoming
+        existing_is_cex: Is existing a CEX transaction
+        incoming_is_cex: Is incoming a CEX transaction
+        
+    Returns:
+        str: Reason code if duplicate pattern detected, None otherwise
+    """
+    # Pattern 1: Mirror direction (BUY/SELL pair)
+    if (existing_class, incoming_class) in MIRROR_PATTERNS:
+        return "mirror_direction"
+    
+    # Pattern 2: Transfer shadow (BUY/TRANSFER or SELL/TRANSFER pair)
+    if (existing_class, incoming_class) in TRANSFER_SHADOW_PATTERNS:
+        return "transfer_shadow"
+    
+    # Pattern 3: Same classification but opposite flow indicators
+    if existing_class == incoming_class:
+        # Check if counterparty types suggest opposite flows
+        if existing_counterparty != incoming_counterparty:
+            # CEX vs EOA with same classification might be duplicate reporting
+            if {existing_counterparty, incoming_counterparty} == {'CEX', 'EOA'}:
+                return "counterparty_mismatch"
+        
+        # Check if is_cex_transaction differs (one source says CEX, another doesn't)
+        if existing_is_cex != incoming_is_cex:
+            return "cex_flag_mismatch"
+    
+    # Pattern 4: DEFI classification - never dedupe (auditing requirement)
+    if existing_class == 'DEFI' or incoming_class == 'DEFI':
+        return None
+    
+    return None
+
+
+def _normalize_address(addr: Optional[str]) -> str:
+    """Normalize an address for comparisons."""
+    return addr.lower() if addr else ''
+
+
+def _has_shared_entity(existing_entry: Dict[str, Any], incoming_entry: Dict[str, Any]) -> bool:
+    """Check if two transactions share any participant (whale or counterparty)."""
+    existing_parties = {
+        _normalize_address(existing_entry.get('whale_address')),
+        _normalize_address(existing_entry.get('counterparty_address'))
+    }
+    incoming_parties = {
+        _normalize_address(incoming_entry.get('whale_address')),
+        _normalize_address(incoming_entry.get('counterparty_address'))
+    }
+    existing_parties.discard('')
+    incoming_parties.discard('')
+    return bool(existing_parties & incoming_parties)
+
+
+def _is_high_risk_flow(entry: Dict[str, Any]) -> bool:
+    """Return True if the transaction involves a high-risk counterparty (CEX/DEX)."""
+    counterparty = (entry.get('counterparty_type') or '').upper()
+    return entry.get('is_cex_transaction', False) or counterparty in HIGH_RISK_COUNTERPARTY_TYPES
+
+
+def should_merge_cross_entity(existing_entry: Dict[str, Any], incoming_entry: Dict[str, Any], reason: str) -> bool:
+    """
+    Decide if two transactions that belong to different whales should be merged.
+    
+    Rules:
+    - Always merge if they share any participant (either whale or counterparty)
+    - Otherwise, only merge mirror/transfer-shadow patterns when at least one side involves CEX/DEX flow
+    """
+    if _has_shared_entity(existing_entry, incoming_entry):
+        return True
+    
+    if reason in ('mirror_direction', 'transfer_shadow'):
+        if _is_high_risk_flow(existing_entry) or _is_high_risk_flow(incoming_entry):
+            return True
+    
+    return False
+
+
+def is_trade_counterparty(counterparty_type: Optional[str]) -> bool:
+    """Return True if counterparty represents a trade venue (CEX/DEX)."""
+    if not counterparty_type:
+        return False
+    return counterparty_type.upper() in TRADE_COUNTERPARTY_TYPES
+
+
+def classify_from_whale_perspective(
+    whale_address: Optional[str],
+    from_address: Optional[str],
+    to_address: Optional[str],
+    counterparty_type: Optional[str],
+    original_classification: str
+) -> str:
+    """
+    Determine BUY/SELL/TRANSFER/DEFI from the whale's perspective by following token flow.
+
+    Args:
+        whale_address: Determined whale address (post perspective logic)
+        from_address: Transaction sender
+        to_address: Transaction recipient
+        counterparty_type: Counterparty classification (CEX/DEX/EOA/etc)
+        original_classification: Classification suggested by upstream analysis
+
+    Returns:
+        str: Adjusted classification
+    """
+    whale_addr = (whale_address or '').lower()
+    from_addr = (from_address or '').lower()
+    to_addr = (to_address or '').lower()
+    counterparty = (counterparty_type or '').upper()
+    trade = counterparty in TRADE_COUNTERPARTY_TYPES
+
+    # If we cannot determine whale address, fall back to original classification
+    if not whale_addr:
+        return original_classification
+
+    if whale_addr == to_addr:
+        # Whale receives tokens
+        return 'BUY' if trade else 'TRANSFER'
+
+    if whale_addr == from_addr:
+        # Whale sends tokens
+        return 'SELL' if trade else 'TRANSFER'
+
+    # If whale is neither sender nor receiver, treat as DEFI/UNKNOWN interaction
+    if original_classification == 'DEFI':
+        return 'DEFI'
+
+    if trade:
+        # Unknown mapping but involves trade venue: prefer original classification
+        return original_classification if original_classification in {'BUY', 'SELL'} else 'DEFI'
+
+    # Non-trade interaction defaults to TRANSFER unless explicitly DEFI
+    if original_classification == 'TRANSFER':
+        return 'TRANSFER'
+
+    return 'DEFI'
+
+
+def check_near_duplicate(whale_addr: str, token_symbol: str, usd_value: float,
+                        classification: str, timestamp: datetime, tx_hash: str,
+                        counterparty_type: str, is_cex_transaction: bool,
+                        supabase_client=None, counterparty_address: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """
+    Check if incoming transaction is a near-duplicate of recent transactions.
+    
+    This function checks both in-memory cache and recent database records to detect:
+    - Mirror trades (BUY/SELL pairs within seconds)
+    - Transfer shadows (BUY/TRANSFER or SELL/TRANSFER pairs)
+    - Counterparty mismatches (same trade reported differently)
+    
+    Args:
+        whale_addr: Whale address (or from_address if whale is None)
+        token_symbol: Token symbol
+        usd_value: Transaction USD value
+        classification: Transaction classification (BUY/SELL/TRANSFER/DEFI)
+        timestamp: Transaction timestamp
+        tx_hash: Transaction hash
+        counterparty_type: Type of counterparty (CEX/DEX/EOA)
+        is_cex_transaction: Whether this is a CEX transaction
+        supabase_client: Supabase client for database lookback
+        
+    Returns:
+        dict: Duplicate info with 'existing_tx', 'reason', 'action' if duplicate found
+        None: If not a duplicate
+    """
+    # Safeguard: Never dedupe large transactions
+    if usd_value > NEAR_DUPE_SAFEGUARD_USD:
+        return None
+    
+    # Safeguard: Never dedupe DEFI transactions (audit trail)
+    if classification == 'DEFI':
+        return None
+    
+    incoming_entry = {
+        'tx_hash': tx_hash,
+        'usd_value': usd_value,
+        'classification': classification,
+        'timestamp': timestamp,
+        'counterparty_type': counterparty_type,
+        'is_cex_transaction': is_cex_transaction,
+        'whale_address': whale_addr,
+        'counterparty_address': counterparty_address
+    }
+    
+    cache_key = (whale_addr.lower() if whale_addr else '', token_symbol.upper())
+    
+    with near_dupe_cache_lock:
+        # Check in-memory cache
+        recent_txs = near_dupe_cache.get(cache_key, [])
+        
+        for existing in recent_txs:
+            # Skip if same transaction hash
+            if existing['tx_hash'] == tx_hash:
+                continue
+            
+            # Check timestamp window
+            time_diff = abs((timestamp - existing['timestamp']).total_seconds())
+            if time_diff > NEAR_DUPE_TIME_WINDOW:
+                continue
+            
+            # Check USD value match
+            if not is_usd_value_match(usd_value, existing['usd_value']):
+                continue
+            
+            # Check for duplicate pattern
+            reason = detect_duplicate_pattern(
+                existing['classification'], classification,
+                existing.get('counterparty_type', 'EOA'), counterparty_type,
+                existing.get('is_cex_transaction', False), is_cex_transaction
+            )
+            
+            if reason:
+                near_dupe_stats['cache_hits'] += 1
+                near_dupe_stats[f'reason_{reason}'] += 1
+                
+                production_logger.info("Near-duplicate detected in cache", extra={'extra_fields': {
+                    'incoming_tx': tx_hash,
+                    'existing_tx': existing['tx_hash'],
+                    'reason': reason,
+                    'time_diff_seconds': time_diff,
+                    'usd_value': usd_value,
+                    'token': token_symbol,
+                    'pattern': f"{existing['classification']} + {classification}"
+                }})
+                
+                return {
+                    'existing_tx': existing,
+                    'reason': reason,
+                    'action': 'merge'  # Always merge, keep earliest
+                }
+    
+    # Token-level cache for cross-entity duplicates
+    cross_cache_result = _check_token_cache_for_duplicate(
+        token_symbol=token_symbol,
+        incoming_entry=incoming_entry
+    )
+    if cross_cache_result:
+        return cross_cache_result
+    
+    # Check database for recent transactions
+    if supabase_client and whale_addr:
+        try:
+            cutoff_time = timestamp - timedelta(seconds=NEAR_DUPE_TIME_WINDOW)
+            
+            result = supabase_client.table('whale_transactions')\
+                .select('transaction_hash, classification, usd_value, timestamp, counterparty_type, is_cex_transaction, confidence, whale_address, counterparty_address')\
+                .eq('whale_address', whale_addr)\
+                .eq('token_symbol', token_symbol)\
+                .gte('timestamp', cutoff_time.isoformat())\
+                .order('timestamp', desc=True)\
+                .limit(NEAR_DUPE_DB_LOOKBACK)\
+                .execute()
+            
+            if result.data:
+                for existing in result.data:
+                    # Skip if same transaction hash
+                    if existing['transaction_hash'] == tx_hash:
+                        continue
+                    
+                    existing_timestamp = datetime.fromisoformat(existing['timestamp'].replace('Z', '+00:00'))
+                    time_diff = abs((timestamp - existing_timestamp).total_seconds())
+                    
+                    if time_diff > NEAR_DUPE_TIME_WINDOW:
+                        continue
+                    
+                    existing_usd = float(existing.get('usd_value', 0))
+                    if not is_usd_value_match(usd_value, existing_usd):
+                        continue
+                    
+                    reason = detect_duplicate_pattern(
+                        existing['classification'], classification,
+                        existing.get('counterparty_type', 'EOA'), counterparty_type,
+                        existing.get('is_cex_transaction', False), is_cex_transaction
+                    )
+                    
+                    if reason:
+                        near_dupe_stats['db_hits'] += 1
+                        near_dupe_stats[f'reason_{reason}'] += 1
+                        
+                        production_logger.info("Near-duplicate detected in database", extra={'extra_fields': {
+                            'incoming_tx': tx_hash,
+                            'existing_tx': existing['transaction_hash'],
+                            'reason': reason,
+                            'time_diff_seconds': time_diff,
+                            'usd_value': usd_value,
+                            'token': token_symbol,
+                            'pattern': f"{existing['classification']} + {classification}"
+                        }})
+                        
+                        return {
+                            'existing_tx': existing,
+                            'reason': reason,
+                            'action': 'merge'
+                        }
+                        
+        except Exception as e:
+            production_logger.warning("Error checking database for near-duplicates", 
+                                    extra={'extra_fields': {'error': str(e)}})
+    
+    # Cross-entity database lookback (same token, any whale)
+    if supabase_client:
+        try:
+            cutoff_time = timestamp - timedelta(seconds=NEAR_DUPE_TIME_WINDOW)
+            
+            result = supabase_client.table('whale_transactions')\
+                .select('transaction_hash, classification, usd_value, timestamp, counterparty_type, is_cex_transaction, whale_address, counterparty_address')\
+                .eq('token_symbol', token_symbol)\
+                .gte('timestamp', cutoff_time.isoformat())\
+                .order('timestamp', desc=True)\
+                .limit(NEAR_DUPE_DB_LOOKBACK)\
+                .execute()
+            
+            if result.data:
+                for existing in result.data:
+                    if existing.get('transaction_hash') == tx_hash:
+                        continue
+                    
+                    existing_entry = {
+                        'tx_hash': existing.get('transaction_hash'),
+                        'usd_value': float(existing.get('usd_value', 0) or 0),
+                        'classification': existing.get('classification', ''),
+                        'timestamp': datetime.fromisoformat(existing['timestamp'].replace('Z', '+00:00')),
+                        'counterparty_type': existing.get('counterparty_type', 'EOA'),
+                        'is_cex_transaction': existing.get('is_cex_transaction', False),
+                        'whale_address': existing.get('whale_address'),
+                        'counterparty_address': existing.get('counterparty_address')
+                    }
+                    
+                    time_diff = abs((timestamp - existing_entry['timestamp']).total_seconds())
+                    if time_diff > NEAR_DUPE_TIME_WINDOW:
+                        continue
+                    
+                    if not is_usd_value_match(usd_value, existing_entry['usd_value']):
+                        continue
+                    
+                    reason = detect_duplicate_pattern(
+                        existing_entry['classification'], classification,
+                        existing_entry.get('counterparty_type', 'EOA'), counterparty_type,
+                        existing_entry.get('is_cex_transaction', False), is_cex_transaction
+                    )
+                    
+                    if reason and should_merge_cross_entity(existing_entry, incoming_entry, reason):
+                        near_dupe_stats['db_cross_hits'] += 1
+                        near_dupe_stats[f'reason_{reason}'] += 1
+                        
+                        production_logger.info("Near-duplicate detected across whales (database)", extra={'extra_fields': {
+                            'incoming_tx': tx_hash,
+                            'existing_tx': existing_entry['tx_hash'],
+                            'reason': reason,
+                            'time_diff_seconds': time_diff,
+                            'usd_value': usd_value,
+                            'token': token_symbol,
+                            'pattern': f"{existing_entry['classification']} + {classification}"
+                        }})
+                        
+                        return {
+                            'existing_tx': existing,
+                            'reason': reason,
+                            'action': 'merge'
+                        }
+                        
+        except Exception as e:
+            production_logger.warning("Error checking cross-entity duplicates in database", 
+                                      extra={'extra_fields': {'error': str(e)}})
+    
+    return None
+
+
+def _check_token_cache_for_duplicate(token_symbol: str, incoming_entry: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Check token-level cache for cross-entity duplicates."""
+    token_key = token_symbol.upper()
+    
+    with token_dupe_cache_lock:
+        recent_txs = token_dupe_cache.get(token_key, [])
+        if not recent_txs:
+            return None
+        
+        # Remove stale entries while iterating
+        fresh_entries = []
+        for existing in recent_txs:
+            time_diff = abs((incoming_entry['timestamp'] - existing['timestamp']).total_seconds())
+            
+            if time_diff > NEAR_DUPE_TIME_WINDOW * 2:
+                # Drop stale entry
+                continue
+            
+            fresh_entries.append(existing)
+            
+            if time_diff > NEAR_DUPE_TIME_WINDOW:
+                continue
+            
+            if not is_usd_value_match(incoming_entry['usd_value'], existing['usd_value']):
+                continue
+            
+            reason = detect_duplicate_pattern(
+                existing['classification'], incoming_entry['classification'],
+                existing.get('counterparty_type', 'EOA'), incoming_entry.get('counterparty_type', 'EOA'),
+                existing.get('is_cex_transaction', False), incoming_entry.get('is_cex_transaction', False)
+            )
+            
+            if not reason:
+                continue
+            
+            if not should_merge_cross_entity(existing, incoming_entry, reason):
+                continue
+            
+            time_diff = abs((incoming_entry['timestamp'] - existing['timestamp']).total_seconds())
+            near_dupe_stats['token_cache_hits'] += 1
+            near_dupe_stats[f'reason_{reason}'] += 1
+            
+            production_logger.info("Near-duplicate detected across whales (cache)", extra={'extra_fields': {
+                'incoming_tx': incoming_entry['tx_hash'],
+                'existing_tx': existing['tx_hash'],
+                'reason': reason,
+                'time_diff_seconds': time_diff,
+                'usd_value': incoming_entry['usd_value'],
+                'token': token_symbol,
+                'pattern': f"{existing['classification']} + {incoming_entry['classification']}"
+            }})
+            
+            return {
+                'existing_tx': existing,
+                'reason': reason,
+                'action': 'merge'
+            }
+        
+        # Update cache with trimmed fresh entries
+        fresh_entries.sort(key=lambda x: x['timestamp'], reverse=True)
+        token_dupe_cache[token_key] = fresh_entries[:TOKEN_DUPE_CACHE_SIZE]
+    
+    return None
+
+
+def add_to_near_dupe_cache(whale_addr: str, token_symbol: str, usd_value: float,
+                          classification: str, timestamp: datetime, tx_hash: str,
+                          counterparty_type: str, is_cex_transaction: bool,
+                          counterparty_address: Optional[str] = None):
+    """
+    Add a transaction to the near-duplicate detection cache.
+    
+    Args:
+        whale_addr: Whale address
+        token_symbol: Token symbol
+        usd_value: USD value
+        classification: Transaction classification
+        timestamp: Transaction timestamp
+        tx_hash: Transaction hash
+        counterparty_type: Counterparty type
+        is_cex_transaction: Is CEX transaction
+    """
+    if not whale_addr:
+        return
+    
+    cache_key = (whale_addr.lower(), token_symbol.upper())
+    
+    with near_dupe_cache_lock:
+        tx_info = {
+            'tx_hash': tx_hash,
+            'usd_value': usd_value,
+            'classification': classification,
+            'timestamp': timestamp,
+            'counterparty_type': counterparty_type,
+            'is_cex_transaction': is_cex_transaction,
+            'whale_address': whale_addr,
+            'counterparty_address': counterparty_address
+        }
+        
+        recent_txs = near_dupe_cache[cache_key]
+        recent_txs.append(tx_info)
+        
+        # Keep cache size manageable - remove oldest entries
+        if len(recent_txs) > NEAR_DUPE_CACHE_SIZE:
+            # Sort by timestamp and keep most recent
+            recent_txs.sort(key=lambda x: x['timestamp'], reverse=True)
+            near_dupe_cache[cache_key] = recent_txs[:NEAR_DUPE_CACHE_SIZE]
+    
+    add_to_token_dupe_cache(
+        token_symbol=token_symbol,
+        tx_info={
+            'tx_hash': tx_hash,
+            'usd_value': usd_value,
+            'classification': classification,
+            'timestamp': timestamp,
+            'counterparty_type': counterparty_type,
+            'is_cex_transaction': is_cex_transaction,
+            'whale_address': whale_addr,
+            'counterparty_address': counterparty_address
+        }
+    )
+
+
+def add_to_token_dupe_cache(token_symbol: str, tx_info: Dict[str, Any]) -> None:
+    """Track recent transactions per token for cross-entity duplicate detection."""
+    token_key = token_symbol.upper()
+    with token_dupe_cache_lock:
+        token_entries = token_dupe_cache[token_key]
+        token_entries.append(tx_info)
+        token_entries.sort(key=lambda x: x['timestamp'], reverse=True)
+        token_dupe_cache[token_key] = token_entries[:TOKEN_DUPE_CACHE_SIZE]
+
+
+def get_near_dupe_stats() -> dict:
+    """Get near-duplicate detection statistics."""
+    with near_dupe_cache_lock:
+        stats = dict(near_dupe_stats)
+        stats['cache_size'] = sum(len(txs) for txs in near_dupe_cache.values())
+        stats['cache_keys'] = len(near_dupe_cache)
+    
+    with token_dupe_cache_lock:
+        stats['token_cache_size'] = sum(len(txs) for txs in token_dupe_cache.values())
+        stats['token_cache_keys'] = len(token_dupe_cache)
+    
+    return stats
+
 # New imports for real-time market flow engine and Whale Intelligence
 try:
     from utils.real_time_classification import classify_swap_transaction, ClassifiedSwap
     from utils.classification_final import whale_intelligence_engine
+    from utils.etherscan_labels import label_provider
+    from utils.token_intelligence import token_intelligence
+    from utils.whale_registry import whale_registry
     from supabase import create_client, Client
     import config.api_keys as api_keys
     import asyncio
@@ -109,11 +729,13 @@ try:
     REAL_TIME_ENABLED = True
     WHALE_INTELLIGENCE_ENABLED = True
     SENTIMENT_AGGREGATION_ENABLED = True
+    ENHANCED_INTELLIGENCE_ENABLED = True
 except ImportError as e:
     production_logger.warning("Real-time classification not available", error=str(e))
     REAL_TIME_ENABLED = False
     WHALE_INTELLIGENCE_ENABLED = False
     SENTIMENT_AGGREGATION_ENABLED = False
+    ENHANCED_INTELLIGENCE_ENABLED = False
 
 # Initialize Production Whale Intelligence Engine
 whale_engine = WhaleIntelligenceEngine()
@@ -136,6 +758,171 @@ END = '\033[0m'
 min_transaction_value = GLOBAL_USD_THRESHOLD
 active_threads = []
 monitoring_enabled = True  # Flag to control transaction display
+
+# Web3 Transfer topic signature
+ERC20_TRANSFER_TOPIC = Web3.keccak(text='Transfer(address,address,uint256)').hex()
+
+# Rolling cursors for Etherscan fallback and Web3 monitors
+LAST_BLOCK_BY_CONTRACT: dict[str, int] = {}
+LAST_BLOCK_WEB3_BY_CHAIN: dict[str, int] = {}
+LAST_BLOCK_WEB3_SWAP_BY_CHAIN: dict[str, int] = {}
+
+def run_web3_transfer_monitor(chain: str) -> None:
+    """Web3 log monitor for ERC-20 Transfer events with rolling block cursors."""
+    try:
+        from data.tokens import TOP_100_ERC20_TOKENS, TOKEN_PRICES
+        import config.api_keys as api_keys
+        from utils.enhanced_classification import process_with_enhanced_intelligence
+    except Exception as e:
+        print(RED + f"Web3 monitor init failed: {e}" + END)
+        return
+
+    # Build Web3 client per chain
+    if chain == 'ethereum':
+        rpc_url = api_keys.ETHEREUM_RPC_URL
+    elif chain == 'polygon':
+        rpc_url = api_keys.POLYGON_RPC_URL
+    else:
+        print(YELLOW + f"Unsupported chain for Web3 monitor: {chain}" + END)
+        return
+
+    # Detailed Web3 connection with error logging
+    try:
+        print(f"🔗 Attempting Web3 connection to {chain}: {rpc_url[:50]}...")
+        w3 = Web3(Web3.HTTPProvider(rpc_url, request_kwargs={'timeout': 10}))
+        
+        # Test connection with detailed error reporting
+        if not w3.is_connected():
+            print(RED + f"❌ Web3 connection test failed for {chain}" + END)
+            try:
+                # Try to get more details about why it failed
+                block = w3.eth.get_block('latest')
+                print(f"✅ Actually connected! Latest block: {block['number']}")
+            except Exception as test_error:
+                error_msg = str(test_error)
+                print(RED + f"❌ Web3 connection error for {chain}:" + END)
+                print(RED + f"   Error type: {type(test_error).__name__}" + END)
+                print(RED + f"   Error message: {error_msg}" + END)
+                
+                # Check for specific error types
+                if "429" in error_msg or "rate limit" in error_msg.lower():
+                    print(YELLOW + "   🚨 RATE LIMIT DETECTED - Too many API requests" + END)
+                elif "timeout" in error_msg.lower():
+                    print(YELLOW + "   ⏱️  TIMEOUT - RPC endpoint not responding" + END)
+                elif "unauthorized" in error_msg.lower() or "403" in error_msg:
+                    print(YELLOW + "   🔒 UNAUTHORIZED - Check your API key" + END)
+                elif "connection" in error_msg.lower():
+                    print(YELLOW + "   🌐 CONNECTION ERROR - Network issue" + END)
+                
+                return
+        else:
+            print(GREEN + f"✅ Web3 connected successfully to {chain}" + END)
+    except Exception as init_error:
+        print(RED + f"❌ Failed to initialize Web3 for {chain}:" + END)
+        print(RED + f"   Error: {type(init_error).__name__}: {init_error}" + END)
+        return
+
+    # Precompute token metadata maps
+    token_meta_by_addr = {t['address'].lower(): t for t in TOP_100_ERC20_TOKENS}
+    token_price_by_symbol = TOKEN_PRICES
+
+    # Rolling cursor
+    last_block = LAST_BLOCK_WEB3_BY_CHAIN.get(chain)
+
+    while not shutdown_flag.is_set() and monitoring_enabled:
+        try:
+            latest = w3.eth.block_number
+            if last_block is None:
+                # Start a few blocks behind to catch up
+                last_block = max(0, latest - 12)
+
+            from_block = last_block + 1
+            to_block = min(latest, from_block + 12)
+            if to_block < from_block:
+                time.sleep(0.5)
+                continue
+
+            # Batch query: gather logs for tracked token contracts in this window
+            addresses = [t['address'] for t in TOP_100_ERC20_TOKENS]
+            logs: list = []
+            # Some providers require splitting by address; iterate small subsets
+            batch_size = 15
+            for i in range(0, len(addresses), batch_size):
+                addr_batch = [Web3.to_checksum_address(a) for a in addresses[i:i + batch_size]]
+                try:
+                    filter_params = {
+                        'fromBlock': hex(from_block),
+                        'toBlock': hex(to_block),
+                        'topics': [ERC20_TRANSFER_TOPIC],
+                    }
+                    # web3.py doesn't support multiple addresses in a single call for some providers; loop
+                    for addr in addr_batch:
+                        params = dict(filter_params)
+                        params['address'] = addr
+                        try:
+                            part = w3.eth.get_logs(params)
+                            if part:
+                                logs.extend(part)
+                        except Exception:
+                            continue
+                except Exception:
+                    continue
+
+            # Process logs
+            for lg in logs:
+                try:
+                    contract_addr = lg['address'].lower()
+                    meta = token_meta_by_addr.get(contract_addr)
+                    if not meta:
+                        continue
+                    symbol = meta.get('symbol')
+                    decimals = meta.get('decimals', 18)
+                    price = token_price_by_symbol.get(symbol, 0)
+                    if price == 0:
+                        continue
+                    data_hex = lg['data'] if isinstance(lg['data'], str) else lg['data'].hex()
+                    raw_value = int(data_hex, 16)
+                    token_amount = raw_value / (10 ** decimals)
+                    estimated_usd = token_amount * price
+                    if estimated_usd < GLOBAL_USD_THRESHOLD:
+                        continue
+                    from_addr = '0x' + lg['topics'][1].hex()[-40:] if isinstance(lg['topics'][1], (bytes, bytearray)) else lg['topics'][1][-40:]
+                    to_addr = '0x' + lg['topics'][2].hex()[-40:] if isinstance(lg['topics'][2], (bytes, bytearray)) else lg['topics'][2][-40:]
+                    tx_hash = lg['transactionHash'].hex()
+
+                    event = {
+                        'blockchain': chain,
+                        'tx_hash': tx_hash,
+                        'from': Web3.to_checksum_address(from_addr),
+                        'to': Web3.to_checksum_address(to_addr),
+                        'symbol': symbol,
+                        'amount': token_amount,
+                        'estimated_usd': estimated_usd,
+                        'block_number': int(lg['blockNumber'])
+                    }
+                    # Use enhanced classification with Etherscan labels, token intelligence, and whale registry
+                    from utils.enhanced_classification import process_with_enhanced_intelligence
+                    enriched = process_with_enhanced_intelligence(event)
+                    if enriched:
+                        # Display and trigger storage via display path
+                        display_transaction({
+                            'chain': chain,
+                            'hash': tx_hash,
+                            'from_address': event['from'],
+                            'to_address': event['to'],
+                            'usd_value': estimated_usd,
+                            'token_symbol': symbol
+                        })
+                except Exception:
+                    continue
+
+            # Advance cursor
+            last_block = to_block
+            LAST_BLOCK_WEB3_BY_CHAIN[chain] = last_block
+            time.sleep(0.4)
+        except Exception:
+            time.sleep(1.0)
+            continue
 
 # Real-time market flow engine components
 class TransactionStorage:
@@ -166,12 +953,26 @@ class TransactionStorage:
         
         try:
             # Convert swap to database format
+            # Normalize DEX to satisfy Supabase enum/check constraint while preserving original in metadata
+            allowed_dex_values = {"uniswap_v2", "uniswap_v3", "sushiswap", "quickswap"}
+            dex_value = swap.dex if swap.dex in allowed_dex_values else "defi"
+            raw_meta = swap.raw_log_data or {}
+            if dex_value == "defi" and swap.dex:
+                # Preserve original dex label for auditability
+                try:
+                    if isinstance(raw_meta, dict):
+                        raw_meta.setdefault('original_dex', swap.dex)
+                    else:
+                        raw_meta = {'original_dex': swap.dex}
+                except Exception:
+                    raw_meta = {'original_dex': swap.dex}
+            
             swap_data = {
                 'transaction_hash': swap.transaction_hash,
                 'block_number': swap.block_number,
                 'block_timestamp': swap.block_timestamp.isoformat(),
                 'chain': swap.chain,
-                'dex': swap.dex,
+                'dex': dex_value,
                 'token_in_address': swap.token_in_address,
                 'token_out_address': swap.token_out_address,
                 'token_in_symbol': swap.token_in_symbol,
@@ -192,12 +993,15 @@ class TransactionStorage:
                 'gas_used': swap.gas_used,
                 'gas_price': str(swap.gas_price) if swap.gas_price else None,
                 'transaction_fee_usd': str(swap.transaction_fee_usd) if swap.transaction_fee_usd else None,
-                'raw_log_data': swap.raw_log_data,
+                'raw_log_data': raw_meta,
                 'classification_method': swap.classification_method
             }
             
-            # Insert into database
-            result = self.supabase.table('transaction_monitoring').insert(swap_data).execute()
+            # Upsert into database for idempotency
+            result = self.supabase.table('transaction_monitoring').upsert(
+                swap_data,
+                on_conflict='transaction_hash'
+            ).execute()
             
             if result.data:
                 return True
@@ -214,6 +1018,120 @@ class TransactionStorage:
                                       'stack_trace': traceback.format_exc()
                                   }})
             return False
+    
+    def _determine_whale_perspective(self, from_addr: str, to_addr: str, blockchain: str) -> dict:
+        """
+        🐋 WHALE PERSPECTIVE LOGIC - Identify the actual whale and counterparty
+        
+        Rules:
+        - CEX/DEX addresses are NEVER whales, they're counterparties
+        - Classification is from the NON-CEX party's viewpoint
+        - CEX → User = User is BUYING
+        - User → CEX = User is SELLING
+        
+        Returns:
+            dict with whale_address, counterparty_address, counterparty_type, is_cex_transaction
+        """
+        try:
+            # Query address types from Supabase
+            from_data = None
+            to_data = None
+            
+            if from_addr and self.supabase:
+                result = self.supabase.table('addresses')\
+                    .select('address, address_type, label, entity_name')\
+                    .eq('address', from_addr.lower())\
+                    .eq('blockchain', blockchain)\
+                    .execute()
+                from_data = result.data[0] if result.data else None
+            
+            if to_addr and self.supabase:
+                result = self.supabase.table('addresses')\
+                    .select('address, address_type, label, entity_name')\
+                    .eq('address', to_addr.lower())\
+                    .eq('blockchain', blockchain)\
+                    .execute()
+                to_data = result.data[0] if result.data else None
+            
+            # Determine address types
+            from_type = from_data.get('address_type', '') if from_data else ''
+            to_type = to_data.get('address_type', '') if to_data else ''
+            from_label = from_data.get('label', '') if from_data else ''
+            to_label = to_data.get('label', '') if to_data else ''
+            
+            # Check if addresses are CEX or DEX
+            from_is_cex = from_type in ['CEX Wallet', 'exchange', 'Exchange Wallet'] or 'binance' in from_label.lower() or 'coinbase' in from_label.lower()
+            to_is_cex = to_type in ['CEX Wallet', 'exchange', 'Exchange Wallet'] or 'binance' in to_label.lower() or 'coinbase' in to_label.lower()
+            from_is_dex = from_type in ['DEX', 'dex_router', 'DEX Router'] or from_addr.lower() in DEX_ADDRESSES
+            to_is_dex = to_type in ['DEX', 'dex_router', 'DEX Router'] or to_addr.lower() in DEX_ADDRESSES
+            
+            # Determine whale and counterparty
+            whale_address = None
+            counterparty_address = None
+            counterparty_type = 'EOA'
+            is_cex_transaction = False
+            
+            if from_is_cex and not to_is_cex:
+                # CEX → User: User is the whale (receiving/buying)
+                whale_address = to_addr
+                counterparty_address = from_addr
+                counterparty_type = 'CEX'
+                is_cex_transaction = True
+                
+            elif to_is_cex and not from_is_cex:
+                # User → CEX: User is the whale (sending/selling)
+                whale_address = from_addr
+                counterparty_address = to_addr
+                counterparty_type = 'CEX'
+                is_cex_transaction = True
+                
+            elif from_is_dex and not to_is_dex:
+                # DEX → User: User is the whale (receiving/buying from DEX)
+                whale_address = to_addr
+                counterparty_address = from_addr
+                counterparty_type = 'DEX'
+                
+            elif to_is_dex and not from_is_dex:
+                # User → DEX: User is the whale (sending/selling to DEX)
+                whale_address = from_addr
+                counterparty_address = to_addr
+                counterparty_type = 'DEX'
+                
+            elif from_is_cex and to_is_cex:
+                # CEX → CEX: Internal transfer, no whale
+                whale_address = None
+                counterparty_address = None
+                counterparty_type = 'CEX_INTERNAL'
+                is_cex_transaction = True
+                
+            else:
+                # Wallet → Wallet: Could be both whales, track both
+                # Default: from_address is the initiator/whale
+                whale_address = from_addr
+                counterparty_address = to_addr
+                counterparty_type = 'EOA'
+            
+            return {
+                'whale_address': whale_address,
+                'counterparty_address': counterparty_address,
+                'counterparty_type': counterparty_type,
+                'is_cex_transaction': is_cex_transaction,
+                'from_label': from_label,
+                'to_label': to_label
+            }
+            
+        except Exception as e:
+            production_logger.error("Error determining whale perspective", 
+                                  extra={'extra_fields': {'error': str(e)}})
+            # Fallback: treat from_address as whale
+            return {
+                'whale_address': from_addr,
+                'counterparty_address': to_addr,
+                'counterparty_type': 'EOA',
+                'is_cex_transaction': False,
+                'from_label': '',
+                'to_label': ''
+            }
     
     def store_whale_transaction(self, tx_data: dict, intelligence_result: dict) -> bool:
         """Store a whale transaction classification in the whale_transactions table."""
@@ -232,9 +1150,13 @@ class TransactionStorage:
             confidence = getattr(intelligence_result, 'confidence', 0.0)
             whale_score = getattr(intelligence_result, 'final_whale_score', 0.0)
             
-            # Only store BUY and SELL classifications
+            # Store BUY/SELL by default; also store TRANSFERs above threshold
             if classification_str not in ['BUY', 'SELL']:
-                return False
+                usd_value = float(tx_data.get('estimated_usd', 0) or tx_data.get('value_usd', 0) or tx_data.get('usd_value', 0) or 0)
+                if usd_value < GLOBAL_USD_THRESHOLD:
+                    return False
+                # infer flow direction if available
+                flow_direction = tx_data.get('cex_flow_direction')
             
             # Extract token symbol using multiple fallback methods
             token_symbol = self._extract_token_symbol(tx_data)
@@ -243,7 +1165,40 @@ class TransactionStorage:
                                         extra={'extra_fields': {'tx_hash': tx_data.get('tx_hash', '')}})
                 return False
             
-            # Prepare whale transaction data
+            # 🐋 NEW: Determine whale perspective
+            from_address = tx_data.get('from_address', tx_data.get('from', ''))
+            to_address = tx_data.get('to_address', tx_data.get('to', ''))
+            blockchain = tx_data.get('blockchain', tx_data.get('chain', 'ethereum'))
+            
+            whale_perspective = self._determine_whale_perspective(from_address, to_address, blockchain)
+            
+            # Skip CEX-to-CEX internal transfers
+            if whale_perspective['counterparty_type'] == 'CEX_INTERNAL':
+                production_logger.info("Skipping CEX internal transfer", 
+                                     extra={'extra_fields': {'tx_hash': tx_data.get('tx_hash', '')}})
+                return False
+
+            adjusted_classification = classify_from_whale_perspective(
+                whale_address=whale_perspective['whale_address'],
+                from_address=from_address,
+                to_address=to_address,
+                counterparty_type=whale_perspective['counterparty_type'],
+                original_classification=classification_str
+            )
+            if adjusted_classification != classification_str:
+                production_logger.info(
+                    "Classification adjusted based on whale perspective",
+                    extra={'extra_fields': {
+                        'tx_hash': tx_data.get('tx_hash', ''),
+                        'original_classification': classification_str,
+                        'adjusted_classification': adjusted_classification,
+                        'whale_address': whale_perspective['whale_address'],
+                        'counterparty_type': whale_perspective['counterparty_type']
+                    }}
+                )
+                classification_str = adjusted_classification
+            
+            # Prepare whale transaction data with new perspective columns
             whale_data = {
                 'transaction_hash': tx_data.get('tx_hash', tx_data.get('hash', '')),
                 'token_symbol': token_symbol,
@@ -252,15 +1207,82 @@ class TransactionStorage:
                 'confidence': confidence,
                 'usd_value': float(tx_data.get('estimated_usd', 0) or tx_data.get('value_usd', 0) or tx_data.get('usd_value', 0) or 0),
                 'whale_score': whale_score,
-                'blockchain': tx_data.get('blockchain', tx_data.get('chain', 'ethereum')),
-                'from_address': tx_data.get('from_address', tx_data.get('from', '')),
-                'to_address': tx_data.get('to_address', tx_data.get('to', '')),
+                'blockchain': blockchain,
+                'from_address': from_address,
+                'to_address': to_address,
                 'analysis_phases': len(getattr(intelligence_result, 'phase_results', {})),
-                'reasoning': getattr(intelligence_result, 'master_classifier_reasoning', '')
+                'reasoning': getattr(intelligence_result, 'master_classifier_reasoning', ''),
+                # 🐋 NEW COLUMNS - Whale Perspective
+                'whale_address': whale_perspective['whale_address'],
+                'counterparty_address': whale_perspective['counterparty_address'],
+                'counterparty_type': whale_perspective['counterparty_type'],
+                'is_cex_transaction': whale_perspective['is_cex_transaction'],
+                'from_label': whale_perspective['from_label'],
+                'to_label': whale_perspective['to_label']
             }
+            # Note: Do not add non-existent columns (e.g., flow_direction) to upsert payload
             
-            # Insert into whale_transactions table
-            result = self.supabase.table('whale_transactions').insert(whale_data).execute()
+            # 🛡️ NEAR-DUPLICATE DETECTION - Check before storing
+            # Use whale_address if available, otherwise fall back to from_address for matching
+            check_whale_addr = whale_perspective['whale_address'] or from_address
+            tx_timestamp = datetime.utcnow()  # Use current time as default
+            
+            # Try to parse transaction timestamp if available
+            if 'timestamp' in tx_data:
+                try:
+                    if isinstance(tx_data['timestamp'], (int, float)):
+                        tx_timestamp = datetime.fromtimestamp(tx_data['timestamp'])
+                    elif isinstance(tx_data['timestamp'], str):
+                        tx_timestamp = datetime.fromisoformat(tx_data['timestamp'].replace('Z', '+00:00'))
+                except Exception:
+                    pass  # Use current time as fallback
+            
+            # Check for near-duplicates
+            dupe_check = check_near_duplicate(
+                whale_addr=check_whale_addr,
+                token_symbol=token_symbol,
+                usd_value=whale_data['usd_value'],
+                classification=classification_str,
+                timestamp=tx_timestamp,
+                tx_hash=whale_data['transaction_hash'],
+                counterparty_type=whale_perspective['counterparty_type'],
+                is_cex_transaction=whale_perspective['is_cex_transaction'],
+                supabase_client=self.supabase,
+                counterparty_address=whale_perspective['counterparty_address']
+            )
+            
+            if dupe_check:
+                # Near-duplicate detected - skip storage but log it
+                production_logger.warning("Near-duplicate suppressed - not storing", extra={'extra_fields': {
+                    'incoming_tx': whale_data['transaction_hash'],
+                    'existing_tx': dupe_check['existing_tx'].get('tx_hash') or dupe_check['existing_tx'].get('transaction_hash'),
+                    'reason': dupe_check['reason'],
+                    'token': token_symbol,
+                    'usd_value': whale_data['usd_value'],
+                    'pattern': f"{dupe_check['existing_tx'].get('classification', 'N/A')} + {classification_str}"
+                }})
+                
+                near_dupe_stats['suppressed'] += 1
+                return False  # Don't store duplicate
+            
+            # Add to cache for future duplicate detection
+            add_to_near_dupe_cache(
+                whale_addr=check_whale_addr,
+                token_symbol=token_symbol,
+                usd_value=whale_data['usd_value'],
+                classification=classification_str,
+                timestamp=tx_timestamp,
+                tx_hash=whale_data['transaction_hash'],
+                counterparty_type=whale_perspective['counterparty_type'],
+                is_cex_transaction=whale_perspective['is_cex_transaction'],
+                counterparty_address=whale_perspective['counterparty_address']
+            )
+            
+            # Upsert into whale_transactions table to avoid duplicate key errors
+            result = self.supabase.table('whale_transactions').upsert(
+                whale_data,
+                on_conflict='transaction_hash'
+            ).execute()
             
             if result.data:
                 production_logger.info("Whale transaction stored successfully", 
@@ -694,11 +1716,343 @@ def print_classified_swap(swap: ClassifiedSwap):
     # Add a blank line
     print()
 
+def run_web3_swap_monitor(chain: str) -> None:
+    """Web3 log monitor for Uniswap v2/v3 Swap events with rolling cursors (no placeholders)."""
+    try:
+        import config.api_keys as api_keys
+        from config import settings as cfg
+        from utils.real_time_classification import classify_swap_transaction
+    except Exception as e:
+        print(RED + f"Web3 swap monitor init failed: {e}" + END)
+        return
+    
+    # Build Web3 client per chain
+    if chain == 'ethereum':
+        rpc_url = api_keys.ETHEREUM_RPC_URL
+    elif chain == 'polygon':
+        rpc_url = api_keys.POLYGON_RPC_URL
+    else:
+        print(YELLOW + f"Unsupported chain for Web3 swap monitor: {chain}" + END)
+        return
+    
+    # Detailed Web3 connection with error logging
+    try:
+        print(f"🔗 Attempting Web3 connection to {chain} (swaps): {rpc_url[:50]}...")
+        w3 = Web3(Web3.HTTPProvider(rpc_url, request_kwargs={'timeout': 10}))
+        
+        # Test connection with detailed error reporting
+        if not w3.is_connected():
+            print(RED + f"❌ Web3 connection test failed for {chain} (swaps)" + END)
+            try:
+                block = w3.eth.get_block('latest')
+                print(f"✅ Actually connected! Latest block: {block['number']}")
+            except Exception as test_error:
+                error_msg = str(test_error)
+                print(RED + f"❌ Web3 swap monitor connection error for {chain}:" + END)
+                print(RED + f"   Error type: {type(test_error).__name__}" + END)
+                print(RED + f"   Error message: {error_msg}" + END)
+                
+                if "429" in error_msg or "rate limit" in error_msg.lower():
+                    print(YELLOW + "   🚨 RATE LIMIT DETECTED - Too many API requests" + END)
+                elif "timeout" in error_msg.lower():
+                    print(YELLOW + "   ⏱️  TIMEOUT - RPC endpoint not responding" + END)
+                elif "unauthorized" in error_msg.lower() or "403" in error_msg:
+                    print(YELLOW + "   🔒 UNAUTHORIZED - Check your API key" + END)
+                elif "connection" in error_msg.lower():
+                    print(YELLOW + "   🌐 CONNECTION ERROR - Network issue" + END)
+                
+                return
+        else:
+            print(GREEN + f"✅ Web3 swap monitor connected to {chain}" + END)
+    except Exception as init_error:
+        print(RED + f"❌ Failed to initialize Web3 swap monitor for {chain}:" + END)
+        print(RED + f"   Error: {type(init_error).__name__}: {init_error}" + END)
+        return
+    
+    topic_v2 = cfg.EVENT_SIGNATURES.get('uniswap_v2_swap')
+    topic_v3 = cfg.EVENT_SIGNATURES.get('uniswap_v3_swap')
+    topic_balancer = cfg.EVENT_SIGNATURES.get('balancer_v2_swap')
+    topic_curve = cfg.EVENT_SIGNATURES.get('curve_token_exchange')
+    if not topic_v2 or not topic_v3 or not topic_balancer or not topic_curve:
+        print(RED + "Missing swap event signatures in settings" + END)
+        return
+    
+    async def process_logs(logs: list[dict], dex: str) -> int:
+        processed = 0
+        for log in logs:
+            try:
+                tx_hash = log.get('transactionHash')
+                tx_hash_hex_raw = tx_hash.hex() if hasattr(tx_hash, 'hex') else str(tx_hash)
+                tx_hash_hex = tx_hash_hex_raw if isinstance(tx_hash_hex_raw, str) and tx_hash_hex_raw.startswith('0x') else f"0x{tx_hash_hex_raw}"
+                block_number = log.get('blockNumber')
+                data_field = log.get('data')
+                data_hex_raw = data_field.hex() if hasattr(data_field, 'hex') else str(data_field)
+                data_hex = data_hex_raw if isinstance(data_hex_raw, str) and data_hex_raw.startswith('0x') else f"0x{data_hex_raw}"
+                address = log.get('address')
+                topics_list = log.get('topics', [])
+                # Normalize topics to hex strings with 0x prefix
+                norm_topics = []
+                for t in topics_list:
+                    t_hex = t.hex() if hasattr(t, 'hex') else str(t)
+                    norm_topics.append(t_hex if t_hex.startswith('0x') else f"0x{t_hex}")
+                raw = {
+                    'transactionHash': tx_hash_hex,
+                    'blockNumber': block_number,
+                    'data': data_hex,
+                    'address': address,
+                    'topics': norm_topics
+                }
+                swap = await classify_swap_transaction(raw, chain, dex)
+                if swap and swap.amount_in_usd is not None and REAL_TIME_ENABLED and transaction_storage.storage_enabled:
+                    try:
+                        transaction_storage.store_classified_swap(swap)
+                        processed += 1
+                    except Exception:
+                        pass
+            except Exception:
+                continue
+        return processed
+    
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    
+    last_block = LAST_BLOCK_WEB3_SWAP_BY_CHAIN.get(chain)
+    block_stride = 50
+    print(BLUE + f"🔄 Starting Web3 swap monitor for {chain}..." + END)
+    while not shutdown_flag.is_set() and monitoring_enabled:
+        try:
+            latest = w3.eth.block_number
+            if last_block is None:
+                last_block = max(0, latest - 20)
+                LAST_BLOCK_WEB3_SWAP_BY_CHAIN[chain] = last_block
+            if latest <= last_block:
+                time.sleep(1.0)
+                continue
+            from_block = last_block + 1
+            to_block = min(latest, from_block + block_stride)
+            v2_filter = {'fromBlock': from_block, 'toBlock': to_block, 'topics': [topic_v2]}
+            v3_filter = {'fromBlock': from_block, 'toBlock': to_block, 'topics': [topic_v3]}
+            balancer_filter = {'fromBlock': from_block, 'toBlock': to_block, 'topics': [topic_balancer]}
+            curve_filter = {'fromBlock': from_block, 'toBlock': to_block, 'topics': [topic_curve]}
+            v2_logs = []
+            v3_logs = []
+            balancer_logs = []
+            curve_logs = []
+            try:
+                v2_logs = w3.eth.get_logs(v2_filter)
+            except Exception as e:
+                print(YELLOW + f"{chain} v2 get_logs error {from_block}-{to_block}: {e}" + END)
+            try:
+                v3_logs = w3.eth.get_logs(v3_filter)
+            except Exception as e:
+                print(YELLOW + f"{chain} v3 get_logs error {from_block}-{to_block}: {e}" + END)
+            try:
+                balancer_logs = w3.eth.get_logs(balancer_filter)
+            except Exception as e:
+                print(YELLOW + f"{chain} balancer get_logs error {from_block}-{to_block}: {e}" + END)
+            try:
+                curve_logs = w3.eth.get_logs(curve_filter)
+            except Exception as e:
+                print(YELLOW + f"{chain} curve get_logs error {from_block}-{to_block}: {e}" + END)
+            total = 0
+            if v2_logs:
+                total += loop.run_until_complete(process_logs(v2_logs, 'uniswap_v2'))
+            if v3_logs:
+                total += loop.run_until_complete(process_logs(v3_logs, 'uniswap_v3'))
+            if balancer_logs:
+                total += loop.run_until_complete(process_logs(balancer_logs, 'balancer_v2'))
+            if curve_logs:
+                total += loop.run_until_complete(process_logs(curve_logs, 'curve'))
+            if total:
+                print(GREEN + f"✅ {chain} Web3 swaps processed: {total} (blocks {from_block}-{to_block})" + END)
+            LAST_BLOCK_WEB3_SWAP_BY_CHAIN[chain] = to_block
+            last_block = to_block
+            time.sleep(0.5)
+        except Exception as e:
+            if not shutdown_flag.is_set():
+                print(YELLOW + f"{chain} Web3 swap loop error: {e}" + END)
+            time.sleep(1.0)
+
+def run_1inch_monitor(chain: str) -> None:
+    """Monitor transactions sent to 1inch routers and classify via Transfer delta."""
+    try:
+        import config.api_keys as api_keys
+        from config import settings as cfg
+        from utils.real_time_classification import classifier
+    except Exception as e:
+        print(RED + f"1inch monitor init failed: {e}" + END)
+        return
+    
+    if chain == 'ethereum':
+        rpc_url = api_keys.ETHEREUM_RPC_URL
+    elif chain == 'polygon':
+        rpc_url = api_keys.POLYGON_RPC_URL
+    else:
+        print(YELLOW + f"Unsupported chain for 1inch monitor: {chain}" + END)
+        return
+    
+    # Detailed Web3 connection with error logging
+    try:
+        print(f"🔗 Attempting Web3 connection to {chain} (1inch): {rpc_url[:50]}...")
+        w3 = Web3(Web3.HTTPProvider(rpc_url, request_kwargs={'timeout': 10}))
+        
+        # Test connection with detailed error reporting
+        if not w3.is_connected():
+            print(RED + f"❌ Web3 connection test failed for {chain} (1inch)" + END)
+            try:
+                block = w3.eth.get_block('latest')
+                print(f"✅ Actually connected! Latest block: {block['number']}")
+            except Exception as test_error:
+                error_msg = str(test_error)
+                print(RED + f"❌ Web3 1inch monitor connection error for {chain}:" + END)
+                print(RED + f"   Error type: {type(test_error).__name__}" + END)
+                print(RED + f"   Error message: {error_msg}" + END)
+                
+                if "429" in error_msg or "rate limit" in error_msg.lower():
+                    print(YELLOW + "   🚨 RATE LIMIT DETECTED - Too many API requests" + END)
+                    print(YELLOW + "   💡 Solution: Wait a few minutes or use a different RPC provider" + END)
+                elif "timeout" in error_msg.lower():
+                    print(YELLOW + "   ⏱️  TIMEOUT - RPC endpoint not responding" + END)
+                    print(YELLOW + "   💡 Solution: Check internet connection or try a different RPC" + END)
+                elif "unauthorized" in error_msg.lower() or "403" in error_msg:
+                    print(YELLOW + "   🔒 UNAUTHORIZED - Check your API key" + END)
+                    print(YELLOW + f"   💡 Current RPC: {rpc_url[:80]}" + END)
+                elif "connection" in error_msg.lower():
+                    print(YELLOW + "   🌐 CONNECTION ERROR - Network issue" + END)
+                
+                return
+        else:
+            print(GREEN + f"✅ Web3 1inch monitor connected to {chain}" + END)
+    except Exception as init_error:
+        print(RED + f"❌ Failed to initialize Web3 1inch monitor for {chain}:" + END)
+        print(RED + f"   Error: {type(init_error).__name__}: {init_error}" + END)
+        return
+    
+    router_addr = cfg.DEX_CONTRACT_INFO.get(chain, {}).get('1inch_v6_router', {}).get('address')
+    if not router_addr:
+        print(YELLOW + f"1inch router address not found for {chain}" + END)
+        return
+    
+    router_addr = router_addr.lower()
+    
+    async def process_1inch_tx(tx_hash: str) -> bool:
+        try:
+            swap = await classifier.classify_1inch_swap(tx_hash, chain)
+            if swap and swap.amount_in_usd is not None and swap.amount_in_usd >= cfg.GLOBAL_USD_THRESHOLD and REAL_TIME_ENABLED and transaction_storage.storage_enabled:
+                try:
+                    transaction_storage.store_classified_swap(swap)
+                    return True
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        return False
+    
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    
+    last_block = LAST_BLOCK_WEB3_SWAP_BY_CHAIN.get(f"{chain}_1inch")
+    block_stride = 20
+    print(BLUE + f"🔄 Starting 1inch monitor for {chain}..." + END)
+    while not shutdown_flag.is_set() and monitoring_enabled:
+        try:
+            latest = w3.eth.block_number
+            if last_block is None:
+                last_block = max(0, latest - 10)
+                LAST_BLOCK_WEB3_SWAP_BY_CHAIN[f"{chain}_1inch"] = last_block
+            if latest <= last_block:
+                time.sleep(2.0)
+                continue
+            from_block = last_block + 1
+            to_block = min(latest, from_block + block_stride)
+            
+            # Fetch all transactions to 1inch router in this block range
+            processed = 0
+            for block_num in range(from_block, to_block + 1):
+                try:
+                    block = w3.eth.get_block(block_num, full_transactions=True)
+                    for tx in block.get('transactions', []):
+                        if tx.get('to', '').lower() == router_addr:
+                            tx_hash = tx['hash'].hex() if hasattr(tx['hash'], 'hex') else str(tx['hash'])
+                            if loop.run_until_complete(process_1inch_tx(tx_hash)):
+                                processed += 1
+                except Exception as e:
+                    logger.debug(f"{chain} 1inch block {block_num} error: {e}")
+            
+            if processed:
+                print(GREEN + f"✅ {chain} 1inch processed: {processed} (blocks {from_block}-{to_block})" + END)
+            LAST_BLOCK_WEB3_SWAP_BY_CHAIN[f"{chain}_1inch"] = to_block
+            last_block = to_block
+            time.sleep(1.0)
+        except Exception as e:
+            if not shutdown_flag.is_set():
+                print(YELLOW + f"{chain} 1inch loop error: {e}" + END)
+            time.sleep(2.0)
+
+def diagnose_rpc_connections():
+    """Test and diagnose all RPC connections before starting monitors."""
+    print("\n" + "="*80)
+    print("🔍 DIAGNOSING RPC CONNECTIONS")
+    print("="*80)
+    
+    # Check Ethereum RPC
+    print(f"\n📡 ETHEREUM RPC Configuration:")
+    print(f"   URL: {api_keys.ETHEREUM_RPC_URL}")
+    print(f"   Available providers: {len(api_keys.ETHEREUM_RPC_PROVIDERS)}")
+    
+    try:
+        eth_w3 = Web3(Web3.HTTPProvider(api_keys.ETHEREUM_RPC_URL, request_kwargs={'timeout': 5}))
+        if eth_w3.is_connected():
+            block = eth_w3.eth.block_number
+            print(GREEN + f"   ✅ Connected! Latest block: {block}" + END)
+        else:
+            print(YELLOW + "   ⚠️  Connection test returned False" + END)
+            try:
+                block = eth_w3.eth.block_number
+                print(GREEN + f"   ✅ But we can get blocks: {block}" + END)
+            except Exception as e:
+                print(RED + f"   ❌ Cannot get blocks: {type(e).__name__}: {str(e)[:100]}" + END)
+    except Exception as e:
+        print(RED + f"   ❌ Connection failed: {type(e).__name__}: {str(e)[:100]}" + END)
+    
+    # Check Polygon RPC
+    print(f"\n📡 POLYGON RPC Configuration:")
+    print(f"   URL: {api_keys.POLYGON_RPC_URL}")
+    print(f"   Available providers: {len(api_keys.POLYGON_RPC_PROVIDERS)}")
+    
+    try:
+        poly_w3 = Web3(Web3.HTTPProvider(api_keys.POLYGON_RPC_URL, request_kwargs={'timeout': 5}))
+        if poly_w3.is_connected():
+            block = poly_w3.eth.block_number
+            print(GREEN + f"   ✅ Connected! Latest block: {block}" + END)
+        else:
+            print(YELLOW + "   ⚠️  Connection test returned False" + END)
+            try:
+                block = poly_w3.eth.block_number
+                print(GREEN + f"   ✅ But we can get blocks: {block}" + END)
+            except Exception as e:
+                print(RED + f"   ❌ Cannot get blocks: {type(e).__name__}: {str(e)[:100]}" + END)
+    except Exception as e:
+        print(RED + f"   ❌ Connection failed: {type(e).__name__}: {str(e)[:100]}" + END)
+    
+    # Check Alchemy API key
+    print(f"\n🔑 API KEY STATUS:")
+    alchemy_key = api_keys.ALCHEMY_API_KEY
+    if alchemy_key and alchemy_key != "YourApiKeyToken" and len(alchemy_key) > 10:
+        print(GREEN + f"   ✅ Alchemy API key configured: {alchemy_key[:10]}...{alchemy_key[-4:]}" + END)
+    else:
+        print(YELLOW + "   ⚠️  Alchemy API key not properly configured" + END)
+    
+    print("\n" + "="*80 + "\n")
+
 def start_real_time_monitoring():
     """Start real-time DEX monitoring threads."""
     if not REAL_TIME_ENABLED:
         print("⚠️  Real-time monitoring not available")
         return []
+    
+    # Run diagnostics first
+    diagnose_rpc_connections()
     
     real_time_threads = []
     
@@ -721,14 +2075,10 @@ def start_real_time_monitoring():
         polygon_thread.start()
         real_time_threads.append(polygon_thread)
         
-        # Start Solana monitoring (webhook-based)
-        solana_thread = threading.Thread(
-            target=monitor_solana_swaps,
-            name="SolanaSwapMonitor",
-            daemon=True
-        )
-        solana_thread.start()
-        real_time_threads.append(solana_thread)
+        # Start Solana monitoring (websocket-based)
+        solana_thread = start_solana_thread()
+        if solana_thread:
+            real_time_threads.append(solana_thread)
         
         print(f"✅ Started {len(real_time_threads)} real-time monitoring threads")
         
@@ -1020,7 +2370,7 @@ def monitor_transactions():
             # Reset safety counter on success
             safety_counter = 0
                 
-            time.sleep(0.1)
+            time.sleep(0.05)
             
         except Exception as e:
             if not shutdown_flag.is_set():
@@ -1058,10 +2408,12 @@ def start_multi_token_monitoring():
     
     try:
         # Conservative grouping for rate limiting
-        tokens_per_group = 15  # Conservative to respect API limits
+        tokens_per_group = 20  # Increase throughput while respecting limits
+        # Exclude OXT from monitoring as requested
+        filtered_tokens = [t for t in TOP_100_ERC20_TOKENS if t.get('symbol') != 'OXT']
         token_groups = [
-            TOP_100_ERC20_TOKENS[i:i + tokens_per_group] 
-            for i in range(0, len(TOP_100_ERC20_TOKENS), tokens_per_group)
+            filtered_tokens[i:i + tokens_per_group]
+            for i in range(0, len(filtered_tokens), tokens_per_group)
         ]
         
         # 🚀 FULL MONITORING: Monitor ALL 109 tokens (limit removed)
@@ -1087,7 +2439,7 @@ def start_multi_token_monitoring():
                 
                 # Staggered startup
                 if group_idx < len(token_groups) - 1:
-                    time.sleep(3)
+                    time.sleep(2)
                     
             except Exception as e:
                 print(f"{RED}❌ Failed to start group {group_idx}: {e}{END}")
@@ -1182,7 +2534,7 @@ def monitor_token_group(tokens: list, group_id: int):
             print(f"{GREEN}✅ {group_name}: Cycle {cycle_count} completed in {cycle_duration:.1f}s{END}")
             
             # Wait between cycles (staggered by group ID)
-            cycle_wait = 60 + (group_id * 10)  # 60-120 seconds between cycles
+            cycle_wait = 45 + (group_id * 8)  # shorter cycle spacing
             time.sleep(cycle_wait)
             
         except Exception as e:
@@ -1251,28 +2603,96 @@ def start_monitoring_threads():
     threads = []
     
     try:
-        # 🚀 PRIORITY: Start Enhanced Multi-Token Monitoring (109 tokens)
-        print(BLUE + "🚀 Starting enhanced multi-token monitoring..." + END)
+        # 🚀 PRIORITY: Start Web3 event-driven monitors (ethereum & polygon)
+        print(BLUE + "🚀 Starting Web3 event-driven monitors..." + END)
+        try:
+            eth_thread = threading.Thread(
+                target=run_web3_transfer_monitor,
+                args=('ethereum',),
+                daemon=True,
+                name="Web3-Ethereum"
+            )
+            eth_thread.start()
+            threads.append(eth_thread)
+            print(GREEN + "✅ Web3 Ethereum monitor started" + END)
+        except Exception as e:
+            print(RED + f"❌ Error starting Web3 Ethereum monitor: {e}" + END)
+        try:
+            poly_thread = threading.Thread(
+                target=run_web3_transfer_monitor,
+                args=('polygon',),
+                daemon=True,
+                name="Web3-Polygon"
+            )
+            poly_thread.start()
+            threads.append(poly_thread)
+            print(GREEN + "✅ Web3 Polygon monitor started" + END)
+        except Exception as e:
+            print(RED + f"❌ Error starting Web3 Polygon monitor: {e}" + END)
+
+        # Start Web3 swap monitors (Uniswap v2/v3) for exact DEX swaps
+        try:
+            eth_swaps_thread = threading.Thread(
+                target=run_web3_swap_monitor,
+                args=('ethereum',),
+                daemon=True,
+                name="Web3-Ethereum-Swaps"
+            )
+            eth_swaps_thread.start()
+            threads.append(eth_swaps_thread)
+            print(GREEN + "✅ Web3 Ethereum swaps monitor started" + END)
+        except Exception as e:
+            print(RED + f"❌ Error starting Web3 Ethereum swaps monitor: {e}" + END)
+        try:
+            poly_swaps_thread = threading.Thread(
+                target=run_web3_swap_monitor,
+                args=('polygon',),
+                daemon=True,
+                name="Web3-Polygon-Swaps"
+            )
+            poly_swaps_thread.start()
+            threads.append(poly_swaps_thread)
+            print(GREEN + "✅ Web3 Polygon swaps monitor started" + END)
+        except Exception as e:
+            print(RED + f"❌ Error starting Web3 Polygon swaps monitor: {e}" + END)
+        
+        # Start 1inch monitors (Transfer delta analysis)
+        try:
+            eth_1inch_thread = threading.Thread(
+                target=run_1inch_monitor,
+                args=('ethereum',),
+                daemon=True,
+                name="1inch-Ethereum"
+            )
+            eth_1inch_thread.start()
+            threads.append(eth_1inch_thread)
+            print(GREEN + "✅ 1inch Ethereum monitor started" + END)
+        except Exception as e:
+            print(RED + f"❌ Error starting 1inch Ethereum monitor: {e}" + END)
+        try:
+            poly_1inch_thread = threading.Thread(
+                target=run_1inch_monitor,
+                args=('polygon',),
+                daemon=True,
+                name="1inch-Polygon"
+            )
+            poly_1inch_thread.start()
+            threads.append(poly_1inch_thread)
+            print(GREEN + "✅ 1inch Polygon monitor started" + END)
+        except Exception as e:
+            print(RED + f"❌ Error starting 1inch Polygon monitor: {e}" + END)
+
+        # Etherscan fallback: start multi-token polling as a supplementary source
+        print(BLUE + "🔧 Starting Etherscan fallback multi-token polling..." + END)
         try:
             multi_token_threads = start_multi_token_monitoring()
             if multi_token_threads:
                 threads.extend(multi_token_threads)
-                print(GREEN + f"✅ Enhanced multi-token monitor started ({len(multi_token_threads)} groups)" + END)
+                print(GREEN + f"✅ Fallback multi-token monitor started ({len(multi_token_threads)} groups)" + END)
             else:
-                print(YELLOW + "⚠️ Enhanced multi-token monitor could not be started" + END)
+                print(YELLOW + "⚠️ Fallback multi-token monitor could not be started" + END)
         except Exception as e:
-            print(RED + f"❌ Error starting enhanced multi-token monitor: {e}" + END)
-            print(YELLOW + "⚠️ Falling back to legacy Ethereum monitoring..." + END)
-            
-            # Fallback: Start legacy Ethereum monitoring thread
-            ethereum_thread = threading.Thread(
-                target=print_new_erc20_transfers,
-                daemon=True,
-                name="Ethereum"
-            )
-            ethereum_thread.start()
-            threads.append(ethereum_thread)
-            print(GREEN + "✅ Legacy Ethereum monitor started" + END)
+            print(RED + f"❌ Error starting fallback monitor: {e}" + END)
         
         # Try to start Whale Alert monitor
         try:
@@ -1308,6 +2728,17 @@ def start_monitoring_threads():
             print(GREEN + "✅ Polygon monitor started" + END)
         except Exception as e:
             print(RED + f"❌ Error starting Polygon monitor: {e}" + END)
+        
+        # Try to start Solana monitor
+        try:
+            solana_thread = start_solana_thread()
+            if solana_thread:
+                threads.append(solana_thread)
+                print(GREEN + "✅ Solana monitor started" + END)
+            else:
+                print(YELLOW + "⚠️ Solana monitor could not be started" + END)
+        except Exception as e:
+            print(RED + f"❌ Error starting Solana monitor: {e}" + END)
         
         # Try to start Solana API monitor
         try:
@@ -1725,10 +3156,17 @@ def prompt_for_minimum_value():
     """Prompt user for minimum transaction value"""
     global min_transaction_value
     
-    print(BLUE + BOLD + "\nEnter minimum transaction value to monitor (USD): " + END, end='')
-    value_input = input()
+    # Check if running in non-interactive mode (e.g., background/daemon)
+    import sys
+    if not sys.stdin.isatty():
+        print(YELLOW + f"Running in non-interactive mode, using default threshold: ${GLOBAL_USD_THRESHOLD:,.2f}" + END)
+        min_transaction_value = GLOBAL_USD_THRESHOLD
+        return
     
+    print(BLUE + BOLD + "\nEnter minimum transaction value to monitor (USD): " + END, end='')
     try:
+        value_input = input()
+        
         if value_input.strip():
             min_value = float(value_input)
             if min_value > 0:
@@ -1737,8 +3175,9 @@ def prompt_for_minimum_value():
                 print(YELLOW + "Value must be greater than 0, using default" + END)
         else:
             print(YELLOW + f"Using default value: ${GLOBAL_USD_THRESHOLD:,.2f}" + END)
-    except ValueError:
-        print(YELLOW + f"Invalid input, using default value: ${GLOBAL_USD_THRESHOLD:,.2f}" + END)
+    except (ValueError, EOFError):
+        print(YELLOW + f"Invalid input or EOF, using default value: ${GLOBAL_USD_THRESHOLD:,.2f}" + END)
+        min_transaction_value = GLOBAL_USD_THRESHOLD
 
 def display_transaction(tx_data, enhanced_display=True):
     """
@@ -1756,10 +3195,20 @@ def display_transaction(tx_data, enhanced_display=True):
         
         token_symbol = tx_data.get('token_symbol', 'ETH')
         
+        # Enforce global minimum before logging or heavy analysis
+        if value_usd < min_transaction_value:
+            return
+
         # Initialize transaction-specific logger
         tx_logger = get_transaction_logger(tx_hash)
-        tx_logger.info("Transaction display started", 
-                      chain=chain, value_usd=value_usd, token_symbol=token_symbol)
+        tx_logger.info(
+            "Transaction display started",
+            extra={'extra_fields': {
+                'chain': chain,
+                'value_usd': value_usd,
+                'token_symbol': token_symbol
+            }}
+        )
         
         # Run PRODUCTION whale intelligence analysis
         whale_result = whale_engine.analyze_transaction_comprehensive(tx_data)
@@ -1784,9 +3233,14 @@ def display_transaction(tx_data, enhanced_display=True):
             classification_str = str(classification)
         
         # Log analysis results
-        tx_logger.info("Whale intelligence analysis completed",
-                      classification=classification_str, confidence=confidence, 
-                      whale_score=whale_score)
+        tx_logger.info(
+            "Whale intelligence analysis completed",
+            extra={'extra_fields': {
+                'classification': classification_str,
+                'confidence': confidence,
+                'whale_score': whale_score
+            }}
+        )
         
         # 🐋 WHALE INDICATOR
         whale_indicator = ""
@@ -1926,8 +3380,14 @@ def display_transaction(tx_data, enhanced_display=True):
                 score_color = Fore.GREEN
             print(f"🐋 Whale Score: {score_color}{whale_score:.0f}/100{Style.RESET_ALL}")
         
-        # ENHANCED: Whale signals from advanced analysis
-        whale_signals = whale_result.get('whale_signals', [])
+        # ENHANCED: Whale signals from advanced analysis (robust to object/dict forms)
+        whale_signals = []
+        if hasattr(whale_result, 'whale_signals'):
+            whale_signals = getattr(whale_result, 'whale_signals') or []
+        elif isinstance(whale_result, dict):
+            whale_signals = whale_result.get('whale_signals', []) or []
+            if isinstance(whale_signals, dict):
+                whale_signals = whale_signals.get('signals') or list(whale_signals.values())
         if whale_signals:
             print(f"\n🔍 Whale Intelligence Signals:")
             for signal in whale_signals:
@@ -1971,9 +3431,14 @@ def display_transaction(tx_data, enhanced_display=True):
         
     except Exception as e:
         error_msg = f"Error displaying transaction {tx_data.get('hash', 'unknown')}: {e}"
-        production_logger.error("Transaction display failed", 
-                              transaction_hash=tx_data.get('hash', 'unknown'),
-                              error=str(e), stack_trace=traceback.format_exc())
+        production_logger.error(
+            "Transaction display failed",
+            extra={'extra_fields': {
+                'transaction_hash': tx_data.get('hash', 'unknown'),
+                'error': str(e),
+                'stack_trace': traceback.format_exc()
+            }}
+        )
         print(f"❌ {error_msg}")
 
 def main():

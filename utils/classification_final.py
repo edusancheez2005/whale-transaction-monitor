@@ -86,6 +86,9 @@ except ImportError:
 # Initialize logger
 logger = logging.getLogger(__name__)
 
+# Global whale engine instance to avoid re-initialization
+_GLOBAL_WHALE_ENGINE = None
+
 # =============================================================================
 # CONFIGURATION AND ENUMS
 # =============================================================================
@@ -4876,8 +4879,10 @@ def process_and_enrich_transaction(event: Dict[str, Any]) -> Optional[Dict[str, 
             symbol=event.get('symbol', 'unknown')
         )
         
-        # Initialize whale intelligence engine (production-ready instance)
-        whale_engine = WhaleIntelligenceEngine()
+        # Use global whale intelligence engine (avoid re-init)
+        global _GLOBAL_WHALE_ENGINE
+        if _GLOBAL_WHALE_ENGINE is None:
+            _GLOBAL_WHALE_ENGINE = WhaleIntelligenceEngine()
         
         # Convert event to standardized transaction format for the whale intelligence engine
         transaction_data = {
@@ -4901,7 +4906,7 @@ def process_and_enrich_transaction(event: Dict[str, Any]) -> Optional[Dict[str, 
         )
         
         # Run FULL PRODUCTION-READY comprehensive analysis
-        result = whale_engine.analyze_transaction_comprehensive(transaction_data)
+        result = _GLOBAL_WHALE_ENGINE.analyze_transaction_comprehensive(transaction_data)
         
         if not result:
             tx_logger.warning("Whale intelligence analysis returned no result")
@@ -5003,21 +5008,26 @@ def process_and_enrich_transaction(event: Dict[str, Any]) -> Optional[Dict[str, 
 
 def transaction_classifier(from_addr: str, to_addr: str, symbol: str, amount: float, blockchain: str = "ethereum") -> tuple:
     """
-    Legacy function for backward compatibility
+    Legacy function for backward compatibility.
+    Uses global _GLOBAL_WHALE_ENGINE to avoid re-initialization.
     """
     try:
-        # Create mock transaction data
+        # Create mock transaction data with required fields
         transaction_data = {
-            'chain': blockchain,
-            'from_address': from_addr,
-            'to_address': to_addr,
-            'value_usd': amount,
+            'hash': f"legacy_classifier_{from_addr[:8]}_{to_addr[:8]}",  # Mock hash for backward compat
+            'from': from_addr,
+            'to': to_addr,
+            'blockchain': blockchain,
+            'amount_usd': amount,
             'token_symbol': symbol
         }
         
-        # Use comprehensive analysis
-        whale_engine = WhaleIntelligenceEngine()
-        result = whale_engine.analyze_transaction_comprehensive(transaction_data)
+        # Use global whale engine (avoid re-init)
+        global _GLOBAL_WHALE_ENGINE
+        if _GLOBAL_WHALE_ENGINE is None:
+            _GLOBAL_WHALE_ENGINE = WhaleIntelligenceEngine()
+        
+        result = _GLOBAL_WHALE_ENGINE.analyze_transaction_comprehensive(transaction_data)
         
         classification = result.classification.value
         confidence = result.confidence
@@ -5050,9 +5060,11 @@ def classify_xrp_transaction(tx_data: Dict[str, Any]) -> tuple:
             'token_symbol': 'XRP'
         }
         
-        # Use comprehensive analysis
-        whale_engine = WhaleIntelligenceEngine()
-        result = whale_engine.analyze_transaction_comprehensive(transaction_data)
+        # Use global whale engine (avoid re-init)
+        global _GLOBAL_WHALE_ENGINE
+        if _GLOBAL_WHALE_ENGINE is None:
+            _GLOBAL_WHALE_ENGINE = WhaleIntelligenceEngine()
+        result = _GLOBAL_WHALE_ENGINE.analyze_transaction_comprehensive(transaction_data)
         
         classification = result.classification.value
         confidence = result.confidence
@@ -5085,9 +5097,11 @@ def analyze_address_characteristics(address: str, blockchain: str = "ethereum") 
             'token_symbol': ''
         }
         
-        # Use whale intelligence engine for analysis
-        whale_engine = WhaleIntelligenceEngine()
-        result = whale_engine.analyze_transaction_comprehensive(transaction_data)
+        # Use global whale engine (avoid re-init)
+        global _GLOBAL_WHALE_ENGINE
+        if _GLOBAL_WHALE_ENGINE is None:
+            _GLOBAL_WHALE_ENGINE = WhaleIntelligenceEngine()
+        result = _GLOBAL_WHALE_ENGINE.analyze_transaction_comprehensive(transaction_data)
         
         return {
             'address': address,
@@ -5138,9 +5152,11 @@ def enhanced_solana_classification(owner: str, prev_owner: Optional[str], amount
             'amount_change': amount_change
         }
         
-        # Use the whale intelligence engine for comprehensive analysis
-        whale_engine = WhaleIntelligenceEngine()
-        result = whale_engine.analyze_transaction_comprehensive(transaction_data)
+        # Use global whale engine (avoid re-init)
+        global _GLOBAL_WHALE_ENGINE
+        if _GLOBAL_WHALE_ENGINE is None:
+            _GLOBAL_WHALE_ENGINE = WhaleIntelligenceEngine()
+        result = _GLOBAL_WHALE_ENGINE.analyze_transaction_comprehensive(transaction_data)
         
         # Extract classification and confidence
         classification = result.classification.value.lower()
@@ -5189,7 +5205,8 @@ def enhanced_solana_classification(owner: str, prev_owner: Optional[str], amount
 
 # Initialize the main engine instance for use by other modules
 try:
-    whale_engine = WhaleIntelligenceEngine()
+    _GLOBAL_WHALE_ENGINE = WhaleIntelligenceEngine()
+    whale_engine = _GLOBAL_WHALE_ENGINE  # Keep backward compatibility
     logger.info("Whale Intelligence Engine module initialized successfully")
 except Exception as e:
     logger.error(f"Failed to initialize whale engine: {e}")

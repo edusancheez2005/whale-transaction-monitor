@@ -30,9 +30,16 @@ ADMIN_API_KEY = "dev_key"  # Replace with a secure key in production
 WHALE_ALERT_API_KEY = os.getenv("WHALE_ALERT_API_KEY", "Kj7GlLsRpxoCBz1zZBINUUqBCgDFdHyV")
 
 # Provider API Keys (for professional RPC endpoints)
-ALCHEMY_API_KEY = os.getenv("ALCHEMY_API_KEY", "")
+ALCHEMY_API_KEY = os.getenv("ALCHEMY_API_KEY", "fo8NbYyCOVp35sUKYle2JS9TdiJcUpes")
 INFURA_PROJECT_ID = os.getenv("INFURA_PROJECT_ID", "")
-ETHERSCAN_API_KEY = os.getenv("ETHERSCAN_API_KEY", "MZVFRTZVZXQCK178Z5PXN3ZCN1MBN9GJWT")  # SONAR key
+ETHERSCAN_API_KEY = os.getenv("ETHERSCAN_API_KEY", "G8K3WVHIZWDFRTMQQ39526GGDZWIY5EC8V")  # SONAR key
+
+# Multiple Etherscan API keys for load balancing and failover
+ETHERSCAN_API_KEYS = [
+    "G8K3WVHIZWDFRTMQQ39526GGDZWIY5EC8V",  # SonarTrackerApi
+    "UMMRGSP6BM6DZ3UZ2AWBFJ2M9X9BAPS47I",  # sonar2
+    "MZVFRTZVZXQCK178Z5PXN3ZCN1MBN9GJWT"   # Sonar
+]
 NEWS_API_KEY = "b7c1fdbffb8842f18a495bf8d32df7cf"
 DUNE_API_KEY = "OMOjlnPKwqG1OiLvZ4bTcs3V6EYX9ymF"  # Updated Dune Analytics API key for whale discovery
 BITQUERY_API_KEY = "ory_at_1z07_FgKYYRlTvrAaUzSxTdelBd--L-IyVTM3LGxbho.SCYADMgS1bCW_xNTI-wh_i049B8DjgpI5OeCjb3TXOo"
@@ -109,8 +116,8 @@ ETHEREUM_RPC_PROVIDERS = [
         ALCHEMY_ETHEREUM_RPC,      # Best reliability, 330k req/day free
         INFURA_ETHEREUM_RPC,       # High reliability, 100k req/day free  
         CLOUDFLARE_ETHEREUM_RPC,   # No API key needed, good uptime
-        ANKR_ETHEREUM_RPC,         # No API key needed, 25 req/sec
-        PUBLICNODE_ETHEREUM_RPC    # No API key needed, backup
+        PUBLICNODE_ETHEREUM_RPC,   # No API key needed, backup
+        ANKR_ETHEREUM_RPC          # Some regions require API key; keep last
     ] if provider is not None
 ]
 

@@ -2,7 +2,8 @@ import requests
 import time
 from datetime import datetime
 from typing import Dict, List, Optional
-from config.api_keys import ETHERSCAN_API_KEY
+from config.api_keys import ETHERSCAN_API_KEY, ETHERSCAN_API_KEYS
+import random
 from config.settings import (
     GLOBAL_USD_THRESHOLD,
     last_processed_block,
@@ -102,46 +103,85 @@ def _is_whale_relevant_transaction(from_addr: str, to_addr: str, token_symbol: s
     return is_relevant
 
 
-def fetch_erc20_transfers(contract_address, sort="desc"):
+def fetch_erc20_transfers(contract_address, sort="desc", start_block: int = 0, end_block: int = 99999999, page: int | None = None, offset: int | None = None):
     
-    url = "https://api.etherscan.io/api"
+    url = "https://api.etherscan.io/v2/api"
+    
+    # Key rotation for better throughput and failover
+    api_key = random.choice(ETHERSCAN_API_KEYS)
+    
     params = {
+        "chainid": 1,  # Ethereum mainnet
         "module": "account",
         "action": "tokentx",
         "contractaddress": contract_address,
-        "startblock": 0,
-        "endblock": 99999999,
+        "startblock": start_block,
+        "endblock": end_block,
         "sort": sort,
-        "apikey": ETHERSCAN_API_KEY
+        "apikey": api_key
     }
-    try:
-        safe_print(f"\n📡 Fetching ERC-20 transfers for contract: {contract_address}")
-        safe_print(f"Full URL: {url}?{'&'.join([f'{k}={v}' for k,v in params.items()])}")
-        
-        r = requests.get(url, params=params, timeout=20)
-        data = r.json()
-        
-        if data.get("status") == "1":
-            transfers = data.get("result", [])
-            safe_print(f"✅ Found {len(transfers)} transfers")
-            # Print a sample transaction
-            if transfers:
-                sample = transfers[0]
-                safe_print(f"Sample transfer value: {sample.get('value', 'N/A')}")
-                safe_print(f"Sample transfer block: {sample.get('blockNumber', 'N/A')}")
-                
-        else:
-            msg = data.get("message", "No message")
-            safe_print(f"❌ Etherscan API error: {msg}")
-            # Print the full response for debugging
+    if page is not None:
+        params["page"] = page
+    if offset is not None:
+        params["offset"] = offset
+    # Robust fetch with retries, key rotation, and backoff
+    max_attempts = 4
+    backoff = 1.5
+    last_error = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            safe_print(f"\n📡 Fetching ERC-20 transfers for contract: {contract_address}")
+            safe_print(f"Full URL: {url}?{'&'.join([f'{k}={v}' for k,v in params.items()])}")
+
+            r = requests.get(url, params=params, timeout=20)
+            r.raise_for_status()
+            data = r.json()
+
+            status = data.get("status")
+            message = data.get("message", "")
+            result = data.get("result", [])
+
+            # v2 "No transactions found" is normal empty result
+            if status == "0" and message == "No transactions found":
+                return []
+
+            if status == "1" and isinstance(result, list):
+                transfers = result
+                safe_print(f"✅ Found {len(transfers)} transfers")
+                if transfers:
+                    sample = transfers[0]
+                    if isinstance(sample, dict):
+                        safe_print(f"Sample transfer value: {sample.get('value', 'N/A')}")
+                        safe_print(f"Sample transfer block: {sample.get('blockNumber', 'N/A')}")
+                return transfers
+
+            # Handle rate limits or generic NOTOK by rotating key and retrying
+            safe_print(f"❌ Etherscan API error: {message or 'Unknown'}")
             safe_print(f"Full response: {data}")
-        return data.get("result", [])
-    
-    except Exception as e:
-        error_msg = f"❌ Error fetching transfers: {str(e)}"
-        safe_print(error_msg)
-        log_error(error_msg)
-        return []
+            # rotate key for next attempt
+            params["apikey"] = random.choice(ETHERSCAN_API_KEYS)
+            time.sleep(backoff * attempt)
+            continue
+
+        except requests.RequestException as e:
+            last_error = e
+            safe_print(f"❌ Error fetching transfers (attempt {attempt}/{max_attempts}): {e}")
+            log_error(str(e))
+            # rotate key and backoff
+            params["apikey"] = random.choice(ETHERSCAN_API_KEYS)
+            time.sleep(backoff * attempt)
+            continue
+        except Exception as e:
+            last_error = e
+            error_msg = f"❌ Error fetching transfers: {str(e)}"
+            safe_print(error_msg)
+            log_error(error_msg)
+            return []
+
+    # If all attempts failed
+    if last_error:
+        log_error(f"Etherscan fetch failed after retries: {last_error}")
+    return []
 
 
 # In ethereum.py
@@ -164,7 +204,9 @@ def print_new_erc20_transfers():
             safe_print(f"Skipping {symbol} - no price data")
             continue
             
-        transfers = fetch_erc20_transfers(contract, sort="desc")
+        # Rolling start block per token symbol to avoid reprocessing
+        start_block = last_processed_block.get(symbol, 0)
+        transfers = fetch_erc20_transfers(contract, sort="desc", start_block=start_block)
         if not transfers:
             continue
             
@@ -210,23 +252,23 @@ def print_new_erc20_transfers():
                     from utils.classification_final import process_and_enrich_transaction
                     
                     enriched_transaction = process_and_enrich_transaction(event)
-                    
+
                     # 🚀 Storage handled by WhaleIntelligenceEngine (no additional batch needed)
                     if enriched_transaction:
                         print(f"✅ ETHEREUM: {symbol} transaction processed by WhaleIntelligenceEngine")
-                        
+
                         # 🔧 CRITICAL FIX: Define all variables before use
                         block_number = int(tx["blockNumber"])
                         timestamp = int(tx.get("timeStamp", "0"))
                         formatted_time = datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M:%S") if timestamp else "Unknown"
-                        
+
                         # Display the transaction
                         print(f"\n[{symbol} | ${estimated_usd:,.2f} USD] Block {block_number} | Tx {tx_hash}")
                         print(f"  Time: {formatted_time}")
                         print(f"  From: {from_addr}")
                         print(f"  To:   {to_addr}")
                         print(f"  Amount: {token_amount:,.2f} {symbol} (~${estimated_usd:,.2f} USD)")
-                        
+
                         # 🔧 CRITICAL FIX: Proper classification and confidence extraction
                         whale_result = enriched_transaction
                         if hasattr(whale_result, 'classification'):
@@ -235,34 +277,33 @@ def print_new_erc20_transfers():
                         else:
                             classification = 'UNKNOWN'
                             confidence = 0.0
-                            
+
                         print(f"  Classification: {classification} (confidence: {confidence:.2f})")
-                        
+
                         transactions_processed += 1
-                    
-                    # Always update counters regardless of confidence
-                    if classification == "buy":
-                        etherscan_buy_counts[symbol] += 1
-                    elif classification == "sell":
-                        etherscan_sell_counts[symbol] += 1
-                    
-                    timestamp = int(tx["timeStamp"])
-                    human_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(timestamp))
-                    
-                    # Print with enhanced information
-                    whale_indicator = " 🐋" if enriched_transaction.get('is_whale_transaction') else ""
-                    safe_print(f"\n[{symbol} | ${estimated_usd:,.2f} USD] Block {tx['blockNumber']} | Tx {tx_hash}{whale_indicator}")
-                    safe_print(f"  Time: {human_time}")
-                    safe_print(f"  From: {from_addr}")
-                    safe_print(f"  To:   {to_addr}")
-                    safe_print(f"  Amount: {token_amount:,.2f} {symbol} (~${estimated_usd:,.2f} USD)")
-                    safe_print(f"  Classification: {classification.upper()} (confidence: {confidence:.2f})")
-                    
-                    if enriched_transaction.get('whale_classification'):
-                        safe_print(f"  Whale Analysis: {enriched_transaction['whale_classification']}")
-                    
-                    # Record transfer for volume tracking
-                    record_transfer(symbol, token_amount, from_addr, to_addr, tx_hash)
+
+                        # Update counters and detailed prints only when we have an enriched result
+                        if classification == "buy":
+                            etherscan_buy_counts[symbol] += 1
+                        elif classification == "sell":
+                            etherscan_sell_counts[symbol] += 1
+
+                        ts_val = int(tx.get("timeStamp", "0"))
+                        human_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(ts_val)) if ts_val else "Unknown"
+
+                        whale_indicator = " 🐋" if isinstance(enriched_transaction, dict) and enriched_transaction.get('is_whale_transaction') else ""
+                        safe_print(f"\n[{symbol} | ${estimated_usd:,.2f} USD] Block {tx['blockNumber']} | Tx {tx_hash}{whale_indicator}")
+                        safe_print(f"  Time: {human_time}")
+                        safe_print(f"  From: {from_addr}")
+                        safe_print(f"  To:   {to_addr}")
+                        safe_print(f"  Amount: {token_amount:,.2f} {symbol} (~${estimated_usd:,.2f} USD)")
+                        safe_print(f"  Classification: {classification.upper()} (confidence: {confidence:.2f})")
+
+                        if isinstance(enriched_transaction, dict) and enriched_transaction.get('whale_classification'):
+                            safe_print(f"  Whale Analysis: {enriched_transaction['whale_classification']}")
+
+                        # Record transfer for volume tracking
+                        record_transfer(symbol, token_amount, from_addr, to_addr, tx_hash)
                     
                     # TODO: Store enriched_transaction in Supabase here
                     
@@ -278,11 +319,16 @@ def print_new_erc20_transfers():
 
 def test_etherscan_connection():
     """Test Etherscan API connection"""
-    url = "https://api.etherscan.io/api"
+    url = "https://api.etherscan.io/v2/api"
+    
+    # Test with first key
+    api_key = ETHERSCAN_API_KEYS[0]
+    
     params = {
+        "chainid": 1,  # Ethereum mainnet
         "module": "stats",
         "action": "ethsupply",
-        "apikey": ETHERSCAN_API_KEY
+        "apikey": api_key
     }
     try:
         safe_print("Testing Etherscan API connection...")

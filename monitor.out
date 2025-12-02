@@ -1,0 +1,26 @@
+BigQuery credentials file not found: config/bigquery_credentials.json
+⚠️ BigQuery initialization failed: 'NoneType' object has no attribute 'query'
+INFO:utils.real_time_classification:✅ RealTimeClassifier initialized with Web3 connections
+INFO:utils.whale_registry:No existing whale registry found, starting fresh
+{"timestamp": "2025-11-16T11:56:00.564668Z", "level": "INFO", "service": "whale-intelligence-engine", "version": "1.0.0", "message": "Whale sentiment aggregator initialized", "trace_id": null, "transaction_hash": null, "phase": null, "classification": null, "confidence": null, "evidence": null, "extra_fields": {"supabase_url": "https://fwbwfvqzomipoftgodof.supabase.co"}}
+INFO:utils.evm_parser:Initialized ethereum EVM parser with 6 DEX contracts
+INFO:utils.evm_parser:Initialized polygon EVM parser with 5 DEX contracts
+INFO:utils.solana_parser:Initialized Solana parser with 19 tracked tokens
+INFO:utils.classification_final.WhaleIntelligenceEngine:Blockchain parsers initialized
+INFO:utils.classification_final.WhaleIntelligenceEngine:✅ Supabase connection established
+WARNING:utils.classification_final.WhaleIntelligenceEngine:⚠️ BigQuery initialization failed: 'NoneType' object has no attribute 'query'
+INFO:utils.classification_final.WhaleIntelligenceEngine:⚠️ System continuing with other phases - BigQuery analysis disabled
+INFO:utils.classification_final.WhaleIntelligenceEngine:Analysis engines initialized
+INFO:utils.classification_final.WhaleIntelligenceEngine:Enhanced API integrations initialized
+INFO:opportunity_engine.market_data_provider.MarketDataProvider:MarketDataProvider initialized with enhanced CoinGecko integration
+INFO:utils.classification_final.WhaleIntelligenceEngine:✅ MarketDataProvider initialized successfully
+INFO:utils.classification_final.WhaleIntelligenceEngine:Whale Intelligence Engine initialized successfully
+{"timestamp": "2025-11-16T11:56:00.633451Z", "level": "INFO", "service": "whale-intelligence-engine", "version": "1.0.0", "message": "Database storage initialized", "trace_id": null, "transaction_hash": null, "phase": null, "classification": null, "confidence": null, "evidence": null, "extra_fields": {"supabase_url": "https://fwbwfvqzomipoftgodof.supabase.co"}}
+[94m[1m
+Enter minimum transaction value to monitor (USD): [0mTraceback (most recent call last):
+  File "/Users/edusanchez/OneDrive/Desktop/whale-transaction-monitor/enhanced_monitor.py", line 3363, in main
+    prompt_for_minimum_value()
+  File "/Users/edusanchez/OneDrive/Desktop/whale-transaction-monitor/enhanced_monitor.py", line 3077, in prompt_for_minimum_value
+    value_input = input()
+                  ^^^^^^^
+EOFError: EOF when reading a line

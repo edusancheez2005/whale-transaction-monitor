@@ -3,51 +3,41 @@
 # =======================
 
 # --- ERC‑20 tokens to monitor on Ethereum ---
+# ⚠️ REDUCED TO TOP 20 TOKENS TO AVOID RATE LIMITS
 TOKENS_TO_MONITOR = {
-    # 🚀 SMALL-CAP GEM DETECTION - Focus on trending/smaller tokens with whale activity
+    # 🔥 TOP MEME/TRENDING TOKENS (High whale activity)
+    "PEPE": {"contract": "0x6982508145454ce325ddbe47a25d4ec3d2311933", "decimals": 18, "min_threshold": 15_000},
+    "SHIB": {"contract": "0x95aD61b0a150d79219dCF64E1E6Cc01f0B64C4cE", "decimals": 18, "min_threshold": 10_000},
+    "FLOKI": {"contract": "0xcf0C122c6b73ff809C693DB761e7BaeBe62b6a2E", "decimals": 9, "min_threshold": 8_000},
     
-    # Trending Meme/Small Caps (Lower thresholds to catch early whale activity)
-    "PEPE": {"contract": "0x6982508145454ce325ddbe47a25d4ec3d2311933", "decimals": 18, "min_threshold": 15_000},   # Raised slightly
-    "SHIB": {"contract": "0x95aD61b0a150d79219dCF64E1E6Cc01f0B64C4cE", "decimals": 18, "min_threshold": 10_000},   # Lowered 
-    "FLOKI": {"contract": "0xcf0C122c6b73ff809C693DB761e7BaeBe62b6a2E", "decimals": 9, "min_threshold": 8_000},    # Trending meme
-    "DOGE": {"contract": "0x4206931337dc273a630d328dA6441786BfaD668f", "decimals": 8, "min_threshold": 15_000},   # Lowered
+    # 💎 TOP DEFI BLUE CHIPS
+    "UNI": {"contract": "0x1F9840a85d5aF5bf1D1762F925BDADdC4201F984", "decimals": 18, "min_threshold": 8_000},
+    "LINK": {"contract": "0x514910771af9ca656af840dff83e8264ecf986ca", "decimals": 18, "min_threshold": 10_000},
+    "CRV": {"contract": "0xD533a949740bb3306d119CC777fa900bA034cd52", "decimals": 18, "min_threshold": 5_000},
+    "SUSHI": {"contract": "0x6B3595068778DD592e39A122f4f5a5cF09C90fE2", "decimals": 18, "min_threshold": 4_000},
     
-    # Small/Mid-Cap DeFi Gems (Catch before they moon)
-    "1INCH": {"contract": "0x111111111117dC0aa78b770fA6A738034120C302", "decimals": 18, "min_threshold": 5_000},   # DEX aggregator
-    "LRC": {"contract": "0xBBbbCA6A901c926F240b89EacB641d8Aec7AEafD", "decimals": 18, "min_threshold": 3_000},    # Layer 2 play
-    "GRT": {"contract": "0xC944E90C64B2c07662A292be6244BDf05Cda44a7", "decimals": 18, "min_threshold": 5_000},    # The Graph
-    "APE": {"contract": "0x4d224452801ACEd8B2F0aebE155379bb5D594381", "decimals": 18, "min_threshold": 8_000},    # NFT ecosystem
-    "SAND": {"contract": "0x3845badAde8e6dFF049820680d1F14bD3903a5d0", "decimals": 18, "min_threshold": 8_000},    # Lowered
-    "MANA": {"contract": "0x0F5D2fB29fb7d3CFeE444a200298f468908cC942", "decimals": 18, "min_threshold": 8_000},    # Lowered
+    # 🚀 LAYER 2 / SCALING
+    "MATIC": {"contract": "0x7d1afa7b718fb893db30a3abc0cfc608aacfebb0", "decimals": 18, "min_threshold": 8_000},
+    "ARB": {"contract": "0x912CE59144191C1204E64559FE8253a0e49E6548", "decimals": 18, "min_threshold": 8_000},
+    "OP": {"contract": "0x4200000000000000000000000000000000000042", "decimals": 18, "min_threshold": 6_000},
     
-    # Gaming/Metaverse Small Caps
-    "GALA": {"contract": "0x15D4c048F83bd7e37d49eA4C83a07267Ec4203dA", "decimals": 8, "min_threshold": 6_000},    # Gaming platform
-    "CHZ": {"contract": "0x3506424F91fD33084466F402d5D97f05F8e3b4AF", "decimals": 18, "min_threshold": 6_000},     # Lowered
-    "ENJ": {"contract": "0xF629cBd94d3791C9250152BD8dfBDF380E2a3B9c", "decimals": 18, "min_threshold": 7_000},    # Enjin ecosystem
+    # 🎮 METAVERSE/GAMING
+    "APE": {"contract": "0x4d224452801ACEd8B2F0aebE155379bb5D594381", "decimals": 18, "min_threshold": 8_000},
+    "SAND": {"contract": "0x3845badAde8e6dFF049820680d1F14bD3903a5d0", "decimals": 18, "min_threshold": 8_000},
+    "MANA": {"contract": "0x0F5D2fB29fb7d3CFeE444a200298f468908cC942", "decimals": 18, "min_threshold": 8_000},
     
-    # Layer 2 & Scaling (Early movers)
-    "MATIC": {"contract": "0x7d1afa7b718fb893db30a3abc0cfc608aacfebb0", "decimals": 18, "min_threshold": 8_000},    # Lowered
-    "OP": {"contract": "0x4200000000000000000000000000000000000042", "decimals": 18, "min_threshold": 6_000},     # Lowered 
-    "ARB": {"contract": "0x912CE59144191C1204E64559FE8253a0e49E6548", "decimals": 18, "min_threshold": 8_000},    # Lowered
-    "LDO": {"contract": "0x5A98FcBEA516Cf06857215779Fd812CA3beF1B32", "decimals": 18, "min_threshold": 6_000},     # Lowered
+    # 🤖 AI TOKENS
+    "FET": {"contract": "0xaea46A60368A7bD060eec7DF8CBa43b7EF41Ad85", "decimals": 18, "min_threshold": 6_000},
     
-    # AI/Data Tokens (Hot sector)
-    "FET": {"contract": "0xaea46A60368A7bD060eec7DF8CBa43b7EF41Ad85", "decimals": 18, "min_threshold": 6_000},    # Fetch.ai
-    "OCEAN": {"contract": "0x967da4048cD07aB37855c090aAF366e4ce1b9F48", "decimals": 18, "min_threshold": 5_000},  # Ocean Protocol
-    "AGIX": {"contract": "0x5B7533812759B45C2B44C19e320ba2cD2681b542", "decimals": 8, "min_threshold": 7_000},    # SingularityNET
+    # 💰 MAJOR TOKENS (for big whale moves)
+    "WETH": {"contract": "0xC02aaa39b223FE8D0A0e5C4F27ead9083C756Cc2", "decimals": 18, "min_threshold": 50_000},  # Higher threshold
+    "WBTC": {"contract": "0x2260fac5e5542a773aa44fbcfedf7c193bc2c599", "decimals": 8, "min_threshold": 100_000},  # Very high threshold
+    "USDT": {"contract": "0xdac17f958d2ee523a2206206994597c13d831ec7", "decimals": 6, "min_threshold": 500_000},  # Mega whales only
+    "USDC": {"contract": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", "decimals": 6, "min_threshold": 500_000},  # Mega whales only
+    "DAI": {"contract": "0x6b175474e89094c44da98b954eedeac495271d0f", "decimals": 18, "min_threshold": 500_000},  # Mega whales only
     
-    # Small DeFi Protocols (Explosive potential)
-    "CRV": {"contract": "0xD533a949740bb3306d119CC777fa900bA034cd52", "decimals": 18, "min_threshold": 5_000},    # Curve
-    "BAL": {"contract": "0xba100000625a3754423978a60c9317c58a424e3D", "decimals": 18, "min_threshold": 6_000},    # Balancer
-    "SUSHI": {"contract": "0x6B3595068778DD592e39A122f4f5a5cF09C90fE2", "decimals": 18, "min_threshold": 4_000},  # SushiSwap
-    "CVX": {"contract": "0x4e3FBD56CD56c3e72c1403e103b45Db9da5B9D2B", "decimals": 18, "min_threshold": 6_000},    # Convex
-    
-    # Major tokens but LOWER thresholds for more activity  
-    "WETH": {"contract": "0xC02aaa39b223FE8D0A0e5C4F27ead9083C756Cc2", "decimals": 18, "min_threshold": 15_000},   # Lowered from 50K
-    "LINK": {"contract": "0x514910771af9ca656af840dff83e8264ecf986ca", "decimals": 18, "min_threshold": 10_000},   # Lowered from 25K
-    "UNI": {"contract": "0x1F9840a85d5aF5bf1D1762F925BDADdC4201F984", "decimals": 18, "min_threshold": 8_000},     # Lowered from 20K
-    
-    # REMOVED: USDC, USDT, DAI (no stablecoins - we want trending coins only)
+    # 💡 NOTE: Reduced from 108 to 20 tokens to stay within Etherscan rate limits
+    #     If you need more tokens, upgrade to Etherscan Pro plan
 }
 
 # 🏛️ PROFESSIONAL-GRADE TOP 100 ERC-20 TOKEN MONITORING LIST

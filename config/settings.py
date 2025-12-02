@@ -121,7 +121,7 @@ solana_api_sell_counts = defaultdict(int)
 solana_last_processed_signature = defaultdict(str)
 
 # Transaction monitoring thresholds
-GLOBAL_USD_THRESHOLD = 2_500  # Lowered to catch more diverse whale activity
+GLOBAL_USD_THRESHOLD = 10_000
 
 # Network settings
 SOLANA_RPC_URL = "https://api.mainnet-beta.solana.com"
@@ -235,6 +235,9 @@ PROTOCOL_CONTRACT_VERIFICATION = {
 EVENT_SIGNATURES = {
     "uniswap_v2_swap": "0xd78ad95fa46c994b6551d0da85fc275fe613ce37657fb8d5e3d130840159d822",
     "uniswap_v3_swap": "0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67",
+    "balancer_v2_swap": "0x2170c741c41531aec20e7c107c24eecfdd15e69c9bb0a8dd37b1840b9e0b207b",  # Swap(bytes32 indexed poolId, address indexed tokenIn, address indexed tokenOut, uint256 amountIn, uint256 amountOut)
+    "curve_token_exchange": "0x8b3e96f2b889fa771c53c981b40daf005f63f637f1869f707052d15a3dd97140",  # TokenExchange(address indexed buyer, int128 sold_id, uint256 tokens_sold, int128 bought_id, uint256 tokens_bought)
+    "curve_token_exchange_underlying": "0xd013ca23e77a65003c2c659c5442c00c805371b7fc1ebd4c206c41d1536bd90b",  # TokenExchangeUnderlying(address indexed buyer, int128 sold_id, uint256 tokens_sold, int128 bought_id, uint256 tokens_bought)
     "transfer": "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",
     "approval": "0x8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925",
     "deposit": "0xe1fffcc4923d04b559f4d29a8bfc6cda04eb5b0d3c460751c2402c5c5cc9109c",
@@ -258,6 +261,21 @@ DEX_CONTRACT_INFO = {
             'address': '0xd9e1ce17f2641f24ae83637ab66a2cca9c378b9f',
             'swap_topic': '0xd78ad95fa46c994b6551d0da85fc275fe613ce37657fb8d5e3d130840159d822',
             'abi_name': 'sushiswap'
+        },
+        'balancer_v2_vault': {
+            'address': '0xBA12222222228d8Ba445958a75a0704d566BF2C8',
+            'swap_topic': '0x2170c741c41531aec20e7c107c24eecfdd15e69c9bb0a8dd37b1840b9e0b207b',
+            'abi_name': 'balancer_v2'
+        },
+        'curve_router': {
+            'address': '0x16C6521Dff6baB339122a0FE25a9116693265353',
+            'swap_topic': '0x8b3e96f2b889fa771c53c981b40daf005f63f637f1869f707052d15a3dd97140',
+            'abi_name': 'curve'
+        },
+        '1inch_v6_router': {
+            'address': '0x111111125421cA6dc452d289314280a0f8842A65',
+            'swap_topic': None,  # 1inch uses tx calldata + Transfer analysis
+            'abi_name': '1inch_v6'
         }
     },
     'polygon': {
@@ -275,6 +293,16 @@ DEX_CONTRACT_INFO = {
             'address': '0x1b02da8cb0d097eb8d57a175b88c7d8b47997506',
             'swap_topic': '0xd78ad95fa46c994b6551d0da85fc275fe613ce37657fb8d5e3d130840159d822',
             'abi_name': 'sushiswap'
+        },
+        'balancer_v2_vault': {
+            'address': '0xBA12222222228d8Ba445958a75a0704d566BF2C8',
+            'swap_topic': '0x2170c741c41531aec20e7c107c24eecfdd15e69c9bb0a8dd37b1840b9e0b207b',
+            'abi_name': 'balancer_v2'
+        },
+        '1inch_v6_router': {
+            'address': '0x111111125421cA6dc452d289314280a0f8842A65',
+            'swap_topic': None,  # 1inch uses tx calldata + Transfer analysis
+            'abi_name': '1inch_v6'
         }
     }
 }
@@ -284,7 +312,7 @@ CLASSIFICATION_CONFIG = {
     "min_usd_value_for_processing": 1000,  # Only process swaps >= $1000
     "whale_threshold_usd": 100000,        # Transactions >= $100k are whale transactions
     "confidence_threshold": 0.7,          # Minimum confidence for classification
-    "price_cache_ttl_seconds": 300,       # Cache token prices for 5 minutes
+    "price_cache_ttl_seconds": 1800,      # Cache token prices for 30 minutes (reduce 429s)
     "max_retries_per_transaction": 3      # Max retries for failed classifications
 }
 

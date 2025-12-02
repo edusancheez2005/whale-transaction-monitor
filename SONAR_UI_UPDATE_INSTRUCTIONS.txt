@@ -1,0 +1,403 @@
+================================================================================
+SONAR UI DATABASE UPDATE - WHALE PERSPECTIVE FIX
+================================================================================
+
+URGENT ACTION REQUIRED: Database schema has been updated. Sonar UI queries must be updated to use new whale_address column.
+
+================================================================================
+PROBLEM SUMMARY
+================================================================================
+
+BEFORE (BROKEN):
+- CEX addresses (Binance, Coinbase) appeared as "whales"
+- Each CEX address showed 100% one-directional flow (all BUY or all SELL)
+- Example: Binance withdrawal wallet showed only BUYs
+- Real whale traders were indistinguishable from exchanges
+
+AFTER (FIXED):
+- New whale_address column identifies the actual trader (not the CEX)
+- Real whales now show mixed BUY/SELL activity
+- CEX addresses properly excluded from whale lists
+- Accurate net flow calculations
+
+================================================================================
+DATABASE SCHEMA CHANGES
+================================================================================
+
+Added 6 new columns to whale_transactions table:
+
+1. whale_address         TEXT    - The actual whale (excludes CEX addresses)
+2. counterparty_address  TEXT    - The CEX/DEX they traded with
+3. counterparty_type     TEXT    - 'CEX', 'DEX', or 'EOA'
+4. is_cex_transaction    BOOLEAN - Flag for filtering
+5. from_label           TEXT    - Address label (e.g., "Binance Hot Wallet 8")
+6. to_label             TEXT    - Address label
+
+STATUS:
+✅ All historical data migrated
+✅ All new transactions automatically use these columns
+⏳ UI queries need updating (BELOW)
+
+================================================================================
+REQUIRED CODE CHANGES
+================================================================================
+
+--------------------------------------------------------------------------------
+1. GET WHALE LIST (Main Dashboard)
+--------------------------------------------------------------------------------
+
+OLD CODE - REMOVE THIS:
+
+SELECT DISTINCT from_address as whale_address
+FROM whale_transactions
+WHERE usd_value > 50000
+ORDER BY timestamp DESC
+
+
+NEW CODE - USE THIS:
+
+SELECT DISTINCT whale_address
+FROM whale_transactions
+WHERE whale_address IS NOT NULL
+  AND whale_address NOT IN (
+    SELECT address FROM addresses 
+    WHERE address_type IN ('CEX Wallet', 'exchange', 'Exchange Wallet')
+  )
+  AND usd_value > 50000
+ORDER BY timestamp DESC
+
+
+--------------------------------------------------------------------------------
+2. GET WHALE DETAIL PAGE TRANSACTIONS
+--------------------------------------------------------------------------------
+
+OLD CODE - REMOVE THIS:
+
+SELECT 
+  transaction_hash,
+  token_symbol,
+  classification,
+  usd_value,
+  from_address,
+  to_address,
+  timestamp
+FROM whale_transactions
+WHERE (from_address = $1 OR to_address = $1)
+ORDER BY timestamp DESC
+LIMIT 100
+
+
+NEW CODE - USE THIS:
+
+SELECT 
+  transaction_hash,
+  token_symbol,
+  classification,
+  usd_value,
+  from_address,
+  to_address,
+  whale_address,
+  counterparty_address,
+  counterparty_type,
+  timestamp
+FROM whale_transactions
+WHERE whale_address = $1
+  AND counterparty_type IN ('CEX', 'DEX')
+  AND classification IN ('BUY', 'SELL')
+ORDER BY timestamp DESC
+LIMIT 100
+
+
+--------------------------------------------------------------------------------
+3. CALCULATE NET FLOW (24h)
+--------------------------------------------------------------------------------
+
+OLD CODE - REMOVE THIS:
+
+SELECT 
+  SUM(CASE WHEN classification = 'BUY' THEN usd_value ELSE 0 END) as buy_volume,
+  SUM(CASE WHEN classification = 'SELL' THEN usd_value ELSE 0 END) as sell_volume,
+  (SUM(CASE WHEN classification = 'BUY' THEN usd_value ELSE 0 END) - 
+   SUM(CASE WHEN classification = 'SELL' THEN usd_value ELSE 0 END)) as net_flow
+FROM whale_transactions
+WHERE (from_address = $1 OR to_address = $1)
+  AND timestamp > NOW() - INTERVAL '24 hours'
+
+
+NEW CODE - USE THIS:
+
+SELECT 
+  SUM(CASE WHEN classification = 'BUY' THEN usd_value ELSE 0 END) as buy_volume,
+  SUM(CASE WHEN classification = 'SELL' THEN usd_value ELSE 0 END) as sell_volume,
+  (SUM(CASE WHEN classification = 'BUY' THEN usd_value ELSE 0 END) - 
+   SUM(CASE WHEN classification = 'SELL' THEN usd_value ELSE 0 END)) as net_flow
+FROM whale_transactions
+WHERE whale_address = $1
+  AND counterparty_type IN ('CEX', 'DEX')
+  AND timestamp > NOW() - INTERVAL '24 hours'
+
+
+--------------------------------------------------------------------------------
+4. TOP TOKENS BY NET FLOW (Whale Detail Page)
+--------------------------------------------------------------------------------
+
+OLD CODE - REMOVE THIS:
+
+SELECT 
+  token_symbol,
+  SUM(CASE WHEN classification = 'BUY' THEN usd_value ELSE -usd_value END) as net_usd
+FROM whale_transactions
+WHERE (from_address = $1 OR to_address = $1)
+  AND timestamp > NOW() - INTERVAL '24 hours'
+GROUP BY token_symbol
+ORDER BY ABS(net_usd) DESC
+LIMIT 10
+
+
+NEW CODE - USE THIS:
+
+SELECT 
+  token_symbol,
+  SUM(CASE WHEN classification = 'BUY' THEN usd_value ELSE -usd_value END) as net_usd,
+  SUM(CASE WHEN classification = 'BUY' THEN usd_value ELSE 0 END) as buy_volume,
+  SUM(CASE WHEN classification = 'SELL' THEN usd_value ELSE 0 END) as sell_volume
+FROM whale_transactions
+WHERE whale_address = $1
+  AND counterparty_type IN ('CEX', 'DEX')
+  AND timestamp > NOW() - INTERVAL '24 hours'
+GROUP BY token_symbol
+ORDER BY ABS(net_usd) DESC
+LIMIT 10
+
+
+--------------------------------------------------------------------------------
+5. RECENT TRADES TABLE (Whale Detail Page)
+--------------------------------------------------------------------------------
+
+OLD CODE - REMOVE THIS:
+
+SELECT 
+  timestamp,
+  token_symbol,
+  classification as side,
+  usd_value,
+  whale_score as score
+FROM whale_transactions
+WHERE (from_address = $1 OR to_address = $1)
+ORDER BY timestamp DESC
+LIMIT 20
+
+
+NEW CODE - USE THIS:
+
+SELECT 
+  timestamp,
+  token_symbol,
+  classification as side,
+  usd_value,
+  whale_score as score,
+  counterparty_type
+FROM whale_transactions
+WHERE whale_address = $1
+  AND counterparty_type IN ('CEX', 'DEX')
+  AND classification IN ('BUY', 'SELL')
+ORDER BY timestamp DESC
+LIMIT 20
+
+
+--------------------------------------------------------------------------------
+6. TOP WHALES BY VOLUME (Leaderboard)
+--------------------------------------------------------------------------------
+
+NEW QUERY - ADD THIS:
+
+SELECT 
+  whale_address,
+  COUNT(*) as trade_count,
+  SUM(CASE WHEN classification = 'BUY' THEN usd_value ELSE 0 END) as buy_volume,
+  SUM(CASE WHEN classification = 'SELL' THEN usd_value ELSE 0 END) as sell_volume,
+  (SUM(CASE WHEN classification = 'BUY' THEN usd_value ELSE 0 END) - 
+   SUM(CASE WHEN classification = 'SELL' THEN usd_value ELSE 0 END)) as net_flow,
+  (SUM(CASE WHEN classification = 'BUY' THEN usd_value ELSE 0 END) + 
+   SUM(CASE WHEN classification = 'SELL' THEN usd_value ELSE 0 END)) as total_volume
+FROM whale_transactions
+WHERE whale_address IS NOT NULL
+  AND whale_address NOT IN (
+    SELECT address FROM addresses 
+    WHERE address_type IN ('CEX Wallet', 'exchange', 'Exchange Wallet')
+  )
+  AND counterparty_type IN ('CEX', 'DEX')
+  AND timestamp > NOW() - INTERVAL '24 hours'
+GROUP BY whale_address
+HAVING COUNT(*) >= 2
+ORDER BY total_volume DESC
+LIMIT 100
+
+
+================================================================================
+VERIFICATION TESTS
+================================================================================
+
+After deploying changes, run these queries to verify everything works:
+
+--------------------------------------------------------------------------------
+TEST 1: Ensure no CEX addresses appear as whales (MUST RETURN 0)
+--------------------------------------------------------------------------------
+
+SELECT COUNT(*) as cex_addresses_in_whale_list
+FROM (
+  SELECT DISTINCT whale_address
+  FROM whale_transactions
+  WHERE whale_address IN (
+    SELECT address FROM addresses 
+    WHERE address_type IN ('CEX Wallet', 'exchange', 'Exchange Wallet')
+  )
+) subquery;
+
+EXPECTED RESULT: 0 (zero CEX addresses should appear)
+
+
+--------------------------------------------------------------------------------
+TEST 2: Check if whales show both BUY and SELL
+--------------------------------------------------------------------------------
+
+SELECT 
+  whale_address,
+  COUNT(DISTINCT classification) as direction_count,
+  SUM(CASE WHEN classification = 'BUY' THEN 1 ELSE 0 END) as buy_count,
+  SUM(CASE WHEN classification = 'SELL' THEN 1 ELSE 0 END) as sell_count
+FROM whale_transactions
+WHERE whale_address IS NOT NULL
+  AND counterparty_type = 'CEX'
+  AND timestamp > NOW() - INTERVAL '7 days'
+GROUP BY whale_address
+HAVING COUNT(*) >= 5
+ORDER BY COUNT(*) DESC
+LIMIT 20;
+
+EXPECTED RESULT: Most whales should have direction_count = 2 (both BUY and SELL)
+
+
+--------------------------------------------------------------------------------
+TEST 3: Sample whale data check
+--------------------------------------------------------------------------------
+
+SELECT 
+  whale_address,
+  token_symbol,
+  classification,
+  usd_value,
+  counterparty_type,
+  from_label,
+  to_label
+FROM whale_transactions
+WHERE whale_address IS NOT NULL
+  AND counterparty_type = 'CEX'
+ORDER BY timestamp DESC
+LIMIT 10;
+
+EXPECTED RESULT: Should show variety of BUY/SELL for same whale addresses
+
+
+--------------------------------------------------------------------------------
+TEST 4: Verify Binance not in whale list
+--------------------------------------------------------------------------------
+
+SELECT COUNT(*) as binance_as_whale
+FROM whale_transactions
+WHERE whale_address LIKE '%21a31ee1afc51d94c2efccaa2092ad1028285549%';
+
+EXPECTED RESULT: 0 (Binance should never be whale_address)
+
+
+================================================================================
+EXAMPLE: BEFORE vs AFTER
+================================================================================
+
+BEFORE (WRONG):
+--------------
+Whale: 0x21a31ee1afc51d94c2efccaa2092ad1028285549 (Binance Hot Wallet 8)
+Recent Trades:
+  USDT    $650,000   BUY
+  API3    $163,692   BUY
+  IMX     $161,535   BUY
+  AXS     $112,553   BUY
+  
+Net Flow: +$1,087,780 (100% positive - all BUYs)
+❌ This is WRONG - Binance is a CEX, not a whale!
+
+
+AFTER (CORRECT):
+---------------
+Real Whale: 0x1234abcd... (excluded Binance from list)
+Recent Trades:
+  ETH     $500,000   BUY    (from Binance)
+  LINK    $200,000   BUY    (from Uniswap)
+  UNI     $150,000   SELL   (to Binance)
+  AAVE    $100,000   SELL   (to Coinbase)
+  SNX     $50,000    BUY    (from Binance)
+  
+Net Flow: +$500,000 (mixed buy/sell activity)
+✅ This is CORRECT - Real whale showing actual trading behavior!
+
+
+================================================================================
+DEPLOYMENT CHECKLIST
+================================================================================
+
+Backend:
+[✅] Database schema updated with new columns
+[✅] Historical data migrated (all transactions processed)
+[✅] New transactions automatically populate new columns
+[✅] Enhanced monitor updated and running
+
+Frontend (Sonar UI):
+[ ] Update whale list query (Query #1)
+[ ] Update whale detail page query (Query #2)
+[ ] Update net flow calculation (Query #3)
+[ ] Update top tokens query (Query #4)
+[ ] Update recent trades query (Query #5)
+[ ] Add/update leaderboard query (Query #6)
+[ ] Run verification tests (all 4 tests)
+[ ] Test whale detail pages show mixed BUY/SELL
+[ ] Verify CEX addresses don't appear in whale lists
+[ ] Deploy to production
+
+================================================================================
+TECHNICAL NOTES
+================================================================================
+
+Key Concepts:
+1. whale_address = The actual trader (non-CEX party)
+2. counterparty_address = The CEX/DEX they traded with
+3. CEX → User = User is whale (BUY)
+4. User → CEX = User is whale (SELL)
+5. CEX → CEX = Skip (internal transfer)
+
+Filter Rules:
+- Always use: WHERE whale_address IS NOT NULL
+- Exclude CEX: WHERE whale_address NOT IN (SELECT address FROM addresses WHERE address_type IN ('CEX Wallet', 'exchange'))
+- Real trades only: WHERE counterparty_type IN ('CEX', 'DEX')
+- Directional only: WHERE classification IN ('BUY', 'SELL')
+
+Performance:
+- Indexes created on whale_address, counterparty_type, is_cex_transaction
+- Queries should be fast even with large datasets
+- Consider adding composite indexes if queries slow down
+
+================================================================================
+SUPPORT
+================================================================================
+
+If you encounter any issues:
+1. Check verification tests pass
+2. Ensure all whale_address values are populated (run migration if NULL)
+3. Verify addresses table has correct address_type values
+4. Check that counterparty_type is correctly classified
+
+Questions? Contact the backend team with this document reference.
+
+================================================================================
+END OF DOCUMENT
+================================================================================
+

@@ -154,6 +154,27 @@ async def get_whale_signals(
         
         transactions = result.data
         
+        # DEDUPLICATION: Remove duplicate transactions based on transaction_hash
+        # Keep the one with highest confidence/whale_score
+        unique_transactions = {}
+        for tx in transactions:
+            tx_hash = tx.get('transaction_hash')
+            if not tx_hash:
+                continue
+            
+            if tx_hash not in unique_transactions:
+                unique_transactions[tx_hash] = tx
+            else:
+                # Keep the one with higher confidence or whale score
+                existing = unique_transactions[tx_hash]
+                current_score = float(tx.get('confidence', 0)) + float(tx.get('whale_score', 0))
+                existing_score = float(existing.get('confidence', 0)) + float(existing.get('whale_score', 0))
+                
+                if current_score > existing_score:
+                    unique_transactions[tx_hash] = tx
+        
+        transactions = list(unique_transactions.values())
+        
         # Aggregate transactions by token symbol
         token_stats = {}
         for tx in transactions:
@@ -261,10 +282,28 @@ async def get_token_activity(symbol: str, limit: int = Query(50, le=200)):
         
         # Query for detailed token activity using Supabase client
         since_time = (datetime.utcnow() - timedelta(hours=24)).isoformat()
-        result = supabase.table('whale_transactions').select('*').eq('token_symbol', symbol).gte('timestamp', since_time).eq('blockchain', 'ethereum').order('timestamp', desc=True).limit(limit).execute()
+        result = supabase.table('whale_transactions').select('*').eq('token_symbol', symbol).gte('timestamp', since_time).eq('blockchain', 'ethereum').order('timestamp', desc=True).limit(limit * 2).execute()
+        
+        # DEDUPLICATION: Remove duplicate transactions based on transaction_hash
+        unique_txs = {}
+        for row in result.data:
+            tx_hash = row.get('transaction_hash')
+            if not tx_hash:
+                continue
+            
+            if tx_hash not in unique_txs:
+                unique_txs[tx_hash] = row
+            else:
+                # Keep the one with higher confidence
+                existing = unique_txs[tx_hash]
+                if float(row.get('confidence', 0)) > float(existing.get('confidence', 0)):
+                    unique_txs[tx_hash] = row
+        
+        # Convert to list and apply the original limit
+        deduped_data = list(unique_txs.values())[:limit]
         
         transactions = []
-        for row in result.data:
+        for row in deduped_data:
             transactions.append({
                 "transaction_hash": row['transaction_hash'],
                 "classification": row['classification'],
