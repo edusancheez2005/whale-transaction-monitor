@@ -7,6 +7,10 @@ import time
 # In dedup.py - update the TransactionDeduplicator class
 
 class TransactionDeduplicator:
+    # Stablecoin symbols to exclude — these are high-volume, low-signal transfers
+    # that flood the database and drown out actual whale activity.
+    EXCLUDED_STABLECOINS = {'USDT', 'USDC', 'DAI', 'BUSD', 'TUSD', 'USDP', 'FDUSD'}
+
     def __init__(self):
         self.transactions = {}
         self.chain_hashes = defaultdict(set)
@@ -16,6 +20,7 @@ class TransactionDeduplicator:
             'total_received': 0,
             'duplicates_caught': 0,
             'circular_flows_caught': 0,  # New counter for circular flows
+            'stablecoins_skipped': 0,
             'by_chain': defaultdict(lambda: {'total': 0, 'duplicates': 0, 'circular': 0}),
         }
 
@@ -51,6 +56,13 @@ class TransactionDeduplicator:
         self.stats['total_received'] += 1
         chain = event.get('blockchain', '').lower()
         self.stats['by_chain'][chain]['total'] += 1
+
+        # Skip pure stablecoin transfers — they are high-volume noise
+        symbol = (event.get('symbol') or '').upper()
+        classification = (event.get('classification') or '').upper()
+        if symbol in self.EXCLUDED_STABLECOINS and classification in ('', 'TRANSFER', 'UNKNOWN'):
+            self.stats['stablecoins_skipped'] += 1
+            return False
 
         unique_key = self.generate_key(event)
         
@@ -124,7 +136,7 @@ class TransactionDeduplicator:
         # In dedup.py - update the get_stats function
     def get_stats(self):
         """Get deduplication statistics with chain breakdown"""
-        total_dupes = self.stats['duplicates_caught'] + self.stats['circular_flows_caught']
+        total_dupes = self.stats['duplicates_caught'] + self.stats['circular_flows_caught'] + self.stats.get('stablecoins_skipped', 0)
         chain_stats = {}
         
         # Calculate per-chain deduplication rates
@@ -142,6 +154,7 @@ class TransactionDeduplicator:
             'total_received': self.stats['total_received'],
             'duplicates_caught': self.stats['duplicates_caught'],
             'circular_flows_caught': self.stats['circular_flows_caught'],
+            'stablecoins_skipped': self.stats.get('stablecoins_skipped', 0),
             'total_duplicates': total_dupes,
             'by_chain': chain_stats,
             'dedup_ratio': (total_dupes / max(1, self.stats['total_received'])) * 100

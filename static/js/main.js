@@ -433,6 +433,10 @@ function getBlockchainIcon(blockchain) {
         icon = '<i class="fas fa-circle blockchain-xrp me-1"></i>';
     } else if (chain.includes('bitcoin')) {
         icon = '<i class="fab fa-bitcoin blockchain-bitcoin me-1"></i>';
+    } else if (chain.includes('polygon') || chain.includes('matic')) {
+        icon = '<i class="fas fa-diamond me-1" style="color: #8247e5;"></i>';
+    } else if (chain.includes('tron') || chain.includes('trx')) {
+        icon = '<i class="fas fa-bolt me-1" style="color: #ef0027;"></i>';
     } else {
         icon = '<i class="fas fa-link me-1"></i>';
     }
@@ -477,6 +481,10 @@ function getBlockExplorerLink(blockchain, hash) {
         url = `https://xrpscan.com/tx/${hash}`;
     } else if (chain.includes('bitcoin')) {
         url = `https://blockstream.info/tx/${hash}`;
+    } else if (chain.includes('polygon') || chain.includes('matic')) {
+        url = `https://polygonscan.com/tx/${hash}`;
+    } else if (chain.includes('tron') || chain.includes('trx')) {
+        url = `https://tronscan.org/#/transaction/${hash}`;
     } else {
         return '';
     }
