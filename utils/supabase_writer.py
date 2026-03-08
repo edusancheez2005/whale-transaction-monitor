@@ -152,6 +152,9 @@ def store_transaction(event: Dict[str, Any], classification_data: Optional[Dict[
     if client is None:
         return False
 
+    # Stablecoins to exclude — high-volume noise that drowns out real whale activity
+    EXCLUDED_STABLECOINS = {'USDT', 'USDC', 'DAI', 'BUSD', 'TUSD', 'USDP', 'FDUSD'}
+
     try:
         row = _map_event_to_whale_row(event, classification_data)
 
@@ -161,6 +164,11 @@ def store_transaction(event: Dict[str, Any], classification_data: Optional[Dict[
 
         # Skip if no token symbol
         if not row['token_symbol']:
+            return False
+
+        # Skip pure stablecoin transfers — they flood the database
+        if row['token_symbol'] in EXCLUDED_STABLECOINS and row['classification'] == 'TRANSFER':
+            logger.debug(f"Skipped stablecoin transfer: {row['token_symbol']} ${row['usd_value']:,.0f}")
             return False
 
         result = client.table('whale_transactions').upsert(

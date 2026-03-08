@@ -1,12 +1,14 @@
 """
 Tron whale transaction monitor using Alchemy Tron HTTP API.
 
-Polls /wallet/getnowblock every 15 seconds.  When new blocks appear,
-fetches transaction info for each block and scans for large TRC-20 Transfer
-events (primarily USDT) as well as native TRX transfers above the USD
-threshold.
+Polls /wallet/getnowblock every 30 seconds.  When new blocks appear,
+fetches transaction info for each block and scans for large native TRX
+transfers above the USD threshold.
 
-CU budget: ~3,200 CU/hour.
+Stablecoin transfers (USDT/USDC) are excluded — they are high-volume noise
+that floods the database with meaningless transfers.
+
+CU budget: ~1,600 CU/hour (reduced from ~3,200 by skipping stablecoin parsing).
 """
 
 import time
@@ -20,7 +22,7 @@ from utils.alchemy_rpc import fetch_tron_now_block, fetch_tron_block_txinfo
 
 logger = logging.getLogger(__name__)
 
-POLL_INTERVAL = 15
+POLL_INTERVAL = 30  # Reduced from 15s to save Alchemy CU budget
 
 # Well-known Tron TRC-20 contracts
 TRON_USDT_CONTRACT = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t"
@@ -76,11 +78,11 @@ def _process_block_txinfo(block_num: int, tx_infos: List[dict]) -> int:
             symbol = "TRC20"
             decimals = 18
             if contract_addr.lower() == TRON_USDT_CONTRACT.lower() or "a614f803b6fd780986a42c78ec9c7f77e6ded13c" in contract_addr.lower():
-                symbol = "USDT"
-                decimals = 6
+                # Skip USDT — high-volume noise that floods the database
+                continue
             elif "cead2b" in contract_addr.lower():
-                symbol = "USDC"
-                decimals = 6
+                # Skip USDC — same reason as USDT
+                continue
 
             try:
                 raw_amount = int(data_hex, 16) if data_hex else 0
