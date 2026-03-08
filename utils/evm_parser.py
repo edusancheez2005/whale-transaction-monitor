@@ -2,6 +2,7 @@ import requests
 import logging
 import json
 import time
+import threading
 from typing import Dict, Any, Optional, List, Tuple
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 from config.settings import DEX_CONTRACT_INFO, STABLECOIN_SYMBOLS
@@ -10,6 +11,31 @@ from config.api_keys import ETHERSCAN_API_KEY, POLYGONSCAN_API_KEY, FALLBACK_API
 from web3 import Web3
 
 logger = logging.getLogger(__name__)
+
+# Global semaphore to limit concurrent Alchemy/RPC calls across all threads
+_rpc_semaphore = threading.Semaphore(3)
+
+# Cache Web3 instances per RPC URL to avoid repeated connection overhead
+_w3_cache: Dict[str, Web3] = {}
+_w3_cache_lock = threading.Lock()
+
+
+def _get_cached_w3(rpc_url: str) -> Web3:
+    """Return a cached Web3 instance for the given RPC URL."""
+    with _w3_cache_lock:
+        if rpc_url not in _w3_cache:
+            provider = Web3.HTTPProvider(
+                rpc_url,
+                request_kwargs={
+                    'timeout': 20,
+                    'headers': {
+                        'User-Agent': 'WhaleMonitor/1.0',
+                        'Content-Type': 'application/json'
+                    }
+                }
+            )
+            _w3_cache[rpc_url] = Web3(provider)
+        return _w3_cache[rpc_url]
 
 def _make_resilient_etherscan_request(url: str, params: Dict[str, Any], chain: str = "ethereum") -> Optional[Dict[str, Any]]:
     """
@@ -347,33 +373,19 @@ class EVMLogParser:
     def _fetch_receipt_from_provider(self, tx_hash: str, rpc_url: str) -> Optional[Dict[str, Any]]:
         """
         Fetch receipt from a single RPC provider with proper retry logic.
+        Uses cached Web3 instances and global semaphore to limit concurrency.
         """
-        max_retries = 3
+        max_retries = 2
         base_delay = 1.0
-        timeout = 20  # Reduced from 30 for faster failover
-        
+
         for attempt in range(max_retries):
             try:
-                # Create Web3 instance with professional configuration
-                provider = Web3.HTTPProvider(
-                    rpc_url, 
-                    request_kwargs={
-                        'timeout': timeout,
-                        'headers': {
-                            'User-Agent': 'WhaleMonitor/1.0',
-                            'Content-Type': 'application/json'
-                        }
-                    }
-                )
-                w3 = Web3(provider)
-                
-                # Test connection
-                if not w3.is_connected():
-                    logger.debug(f"❌ Connection failed to {rpc_url}")
-                    return None
-                
-                # Fetch receipt with timeout
-                receipt = w3.eth.get_transaction_receipt(tx_hash)
+                # Use cached Web3 instance (avoids repeated connection overhead)
+                w3 = _get_cached_w3(rpc_url)
+
+                # Acquire semaphore to limit concurrent RPC calls
+                with _rpc_semaphore:
+                    receipt = w3.eth.get_transaction_receipt(tx_hash)
                 
                 if receipt:
                     # Convert Web3 receipt to dictionary format

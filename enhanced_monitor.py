@@ -1161,9 +1161,9 @@ class TransactionStorage:
             classification = getattr(intelligence_result, 'classification', ClassificationType.TRANSFER)
             # Handle ClassificationType enum - get string value
             if hasattr(classification, 'value'):
-                classification_str = classification.value
+                classification_str = classification.value.upper()
             else:
-                classification_str = str(classification)
+                classification_str = str(classification).upper()
             
             confidence = getattr(intelligence_result, 'confidence', 0.0)
             whale_score = getattr(intelligence_result, 'final_whale_score', 0.0)
@@ -2438,7 +2438,7 @@ def start_multi_token_monitoring():
     
     try:
         # Conservative grouping for rate limiting
-        tokens_per_group = 20  # Increase throughput while respecting limits
+        tokens_per_group = 35  # Fewer groups = fewer concurrent Alchemy calls
         # Exclude OXT from monitoring as requested
         filtered_tokens = [t for t in TOP_100_ERC20_TOKENS if t.get('symbol') != 'OXT']
         token_groups = [
