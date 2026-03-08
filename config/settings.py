@@ -124,9 +124,6 @@ solana_last_processed_signature = defaultdict(str)
 bitcoin_buy_counts = defaultdict(int)
 bitcoin_sell_counts = defaultdict(int)
 
-# Tron counters (Alchemy block polling)
-tron_buy_counts = defaultdict(int)
-tron_sell_counts = defaultdict(int)
 
 # Transaction monitoring thresholds
 GLOBAL_USD_THRESHOLD = 10_000

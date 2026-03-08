@@ -13,7 +13,6 @@ from chains.xrp import start_xrp_thread
 from chains.solana import start_solana_thread
 from chains.polygon import print_new_polygon_transfers
 from chains.bitcoin_alchemy import poll_bitcoin_blocks
-from chains.tron_alchemy import poll_tron_blocks
 from chains.solana_api import print_new_solana_transfers
 from models.classes import initialize_prices
 from utils.dedup import get_stats as get_dedup_stats, deduplicator, deduped_transactions
@@ -31,8 +30,6 @@ from config.settings import (
     polygon_sell_counts,
     bitcoin_buy_counts,
     bitcoin_sell_counts,
-    tron_buy_counts,
-    tron_sell_counts,
     solana_api_buy_counts,
     solana_api_sell_counts,
 )
@@ -153,15 +150,6 @@ def get_stats():
             token_stats[symbol] = {'buys': 0, 'sells': 0}
         token_stats[symbol]['sells'] += count
 
-    # Process Tron transactions
-    for symbol, count in tron_buy_counts.items():
-        if symbol not in token_stats:
-            token_stats[symbol] = {'buys': 0, 'sells': 0}
-        token_stats[symbol]['buys'] += count
-    for symbol, count in tron_sell_counts.items():
-        if symbol not in token_stats:
-            token_stats[symbol] = {'buys': 0, 'sells': 0}
-        token_stats[symbol]['sells'] += count
 
     # Process Solana API transactions
     for symbol, count in solana_api_buy_counts.items():
@@ -260,10 +248,6 @@ def start_monitors():
     btc_thread.start()
     threads.append(btc_thread)
 
-    # Start Tron monitoring (Alchemy block polling)
-    tron_thread = threading.Thread(target=poll_tron_blocks, daemon=True, name="Tron-Alchemy")
-    tron_thread.start()
-    threads.append(tron_thread)
 
     return threads
 

@@ -253,7 +253,6 @@ def on_whale_open(ws):
             "solana",
             "ripple",
             "polygon",
-            "tron",
             "algorand",
             "bitcoin cash",
             "dogecoin",

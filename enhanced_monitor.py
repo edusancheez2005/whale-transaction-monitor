@@ -2727,19 +2727,6 @@ def start_monitoring_threads():
         except Exception as e:
             print(RED + f"❌ Error starting Bitcoin monitor: {e}" + END)
 
-        # Start Tron Alchemy monitor
-        try:
-            from chains.tron_alchemy import poll_tron_blocks
-            tron_thread = threading.Thread(
-                target=poll_tron_blocks,
-                daemon=True,
-                name="Tron-Alchemy"
-            )
-            tron_thread.start()
-            threads.append(tron_thread)
-            print(GREEN + "✅ Tron Alchemy monitor started" + END)
-        except Exception as e:
-            print(RED + f"❌ Error starting Tron monitor: {e}" + END)
 
         # Real-time DEX monitoring DISABLED (uses get_logs, burns CU)
         print(YELLOW + "ℹ️  Real-time DEX swap monitoring disabled (CU conservation)" + END)
