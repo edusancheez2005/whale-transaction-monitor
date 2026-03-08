@@ -78,7 +78,6 @@ _CHAIN_RPC_MAP = {
     'polygon': ALCHEMY_POLYGON_RPC,
     'solana': ALCHEMY_SOLANA_RPC,
     'bitcoin': ALCHEMY_BITCOIN_RPC,
-    'tron': ALCHEMY_TRON_RPC,
 }
 
 _CHAIN_FALLBACK_MAP = {
@@ -302,8 +301,6 @@ def fetch_receipt_if_needed(tx_hash: str, usd_value: float, blockchain: str) -> 
         return fetch_solana_transaction(tx_hash)
     elif blockchain == 'bitcoin':
         return fetch_bitcoin_transaction(tx_hash)
-    elif blockchain == 'tron':
-        return fetch_tron_transaction(tx_hash)
     return None
 
 
