@@ -28,9 +28,14 @@ RECEIPT_USD_THRESHOLD = 50_000
 
 
 class AlchemyRateLimiter:
-    """Thread-safe rate limiter for Alchemy free tier (500 CU/s, 20M CU/month budget)."""
+    """Thread-safe rate limiter for Alchemy free tier (500 CU/s, 20M CU/month budget).
 
-    def __init__(self, max_rps: int = 20, monthly_cu_budget: int = 20_000_000):
+    Also enforces a concurrency limit to avoid Alchemy's "exceeded concurrent
+    requests capacity" error on free-tier accounts.
+    """
+
+    def __init__(self, max_rps: int = 20, monthly_cu_budget: int = 20_000_000,
+                 max_concurrent: int = 3):
         self.max_rps = max_rps
         self.monthly_budget = monthly_cu_budget
         self.cu_used = 0
@@ -39,6 +44,7 @@ class AlchemyRateLimiter:
         self._requests_in_window = 0
         self._last_log_time = time.time()
         self._LOG_INTERVAL = 3600  # log CU usage once per hour
+        self._semaphore = threading.Semaphore(max_concurrent)
 
     def can_request(self, cu_cost: int = 25) -> bool:
         with self._lock:
@@ -95,25 +101,26 @@ def get_alchemy_rpc(blockchain: str) -> Optional[str]:
 
 
 def _rpc_call(rpc_url: str, method: str, params: list, timeout: int = 10, cu_cost: int = 25) -> Optional[Dict]:
-    """Execute a JSON-RPC call with rate limiting."""
+    """Execute a JSON-RPC call with rate limiting and concurrency control."""
     _rate_limiter.wait_if_needed(cu_cost)
-    try:
-        resp = requests.post(rpc_url, json={
-            'jsonrpc': '2.0',
-            'method': method,
-            'params': params,
-            'id': 1,
-        }, timeout=timeout)
-        if resp.status_code == 429:
+    with _rate_limiter._semaphore:
+        try:
+            resp = requests.post(rpc_url, json={
+                'jsonrpc': '2.0',
+                'method': method,
+                'params': params,
+                'id': 1,
+            }, timeout=timeout)
+            if resp.status_code == 429:
+                return None
+            data = resp.json()
+            if 'error' in data:
+                logger.warning(f"Alchemy RPC error ({method}): {data['error']}")
+                return None
+            return data.get('result')
+        except Exception as e:
+            logger.warning(f"Alchemy RPC call failed ({method}): {e}")
             return None
-        data = resp.json()
-        if 'error' in data:
-            logger.warning(f"Alchemy RPC error ({method}): {data['error']}")
-            return None
-        return data.get('result')
-    except Exception as e:
-        logger.warning(f"Alchemy RPC call failed ({method}): {e}")
-        return None
 
 
 def _http_call(url: str, payload: Optional[Dict] = None, timeout: int = 10, cu_cost: int = 20) -> Optional[Dict]:
