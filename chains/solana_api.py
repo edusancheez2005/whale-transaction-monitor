@@ -194,13 +194,13 @@ def print_new_solana_transfers():
     """
     from config.settings import shutdown_flag as _shutdown_flag
 
-    safe_print("✅ Solana API polling thread started (180s interval, top 5 tokens)")
+    safe_print("✅ Solana API polling thread started (60s interval, top 5 tokens)")
 
     if not any(solana_last_processed_signature.values()):
         safe_print("🔍 Initializing Solana token baselines...")
         initialize_baseline()
 
-    poll_interval = 180  # Reduced from 60s to save Alchemy CU budget
+    poll_interval = 60  # Restored to 60s — concurrency semaphore in alchemy_rpc.py handles CU budget
     backoff_multiplier = 1
 
     while not _shutdown_flag.is_set():
