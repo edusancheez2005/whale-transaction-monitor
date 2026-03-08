@@ -28,9 +28,9 @@ try:
 except ImportError:
     HELIUS_RPC_URL = f"https://rpc.helius.xyz/?api-key={HELIUS_API_KEY}"
 
-# Top tokens by volume/relevance (CU-efficient subset)
+# Top tokens by volume/relevance — limited to 5 to stay within Alchemy CU budget
 TOP_SOLANA_TOKENS = [
-    "SOL", "JTO", "WIF", "PYTH", "RENDER", "BONK", "RAY", "ORCA", "MSOL", "BSOL",
+    "SOL", "JTO", "WIF", "PYTH", "RENDER",
 ]
 
 parsed_cache = {}
@@ -94,7 +94,7 @@ def fetch_solana_token_transfers():
         last_sig = solana_last_processed_signature.get(mint)
         new_signatures = []
 
-        sig_infos = fetch_solana_signatures(mint_addr, limit=50)
+        sig_infos = fetch_solana_signatures(mint_addr, limit=20)
         if not isinstance(sig_infos, list) or not sig_infos:
             continue
 
@@ -194,13 +194,13 @@ def print_new_solana_transfers():
     """
     from config.settings import shutdown_flag as _shutdown_flag
 
-    safe_print("✅ Solana API polling thread started (60s interval, top 10 tokens)")
+    safe_print("✅ Solana API polling thread started (180s interval, top 5 tokens)")
 
     if not any(solana_last_processed_signature.values()):
         safe_print("🔍 Initializing Solana token baselines...")
         initialize_baseline()
 
-    poll_interval = 60
+    poll_interval = 180  # Reduced from 60s to save Alchemy CU budget
     backoff_multiplier = 1
 
     while not _shutdown_flag.is_set():

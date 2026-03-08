@@ -22,7 +22,7 @@ from utils.alchemy_rpc import fetch_asset_transfers, get_alchemy_rpc, _rpc_call
 
 logger = logging.getLogger(__name__)
 
-POLL_INTERVAL = 60
+POLL_INTERVAL = 120  # Reduced from 60s to save Alchemy CU budget
 
 _last_block_hex: str = "latest"
 
