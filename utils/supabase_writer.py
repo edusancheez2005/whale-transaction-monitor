@@ -73,11 +73,16 @@ def _map_event_to_whale_row(event: Dict[str, Any], classification_data: Optional
         whale_score = event.get('whale_score', 0.0)
         reasoning = event.get('reasoning', '')
 
-    # Normalize classification to uppercase
+    # Normalize classification to uppercase and map to BUY/SELL/TRANSFER
     classification = str(classification).upper()
     if classification.startswith('PROBABLE_'):
         classification = classification.replace('PROBABLE_', '')
-    if classification not in ('BUY', 'SELL', 'TRANSFER'):
+    # Map granular buy/sell variants to their base classification
+    if 'BUY' in classification:
+        classification = 'BUY'
+    elif 'SELL' in classification:
+        classification = 'SELL'
+    elif classification not in ('BUY', 'SELL', 'TRANSFER'):
         classification = 'TRANSFER'
 
     from_addr = event.get('from', event.get('from_address', ''))
