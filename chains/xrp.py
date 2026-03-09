@@ -115,7 +115,7 @@ def on_xrp_message(ws, message):
                      
             # Print transaction details
             current_time = time.strftime('%Y-%m-%d %H:%M:%S')
-            safe_print(f"\n[XRP | {processed_amount:,.2f} XRP | ${usd_value:,.2f} USD] {classification.upper()}")
+            safe_print(f"\n[XRP | {amount_xrp:,.2f} XRP | ${usd_value:,.2f} USD] {classification.upper()}")
             safe_print(f"Time: {current_time}")
             safe_print(f"TX Hash: {tx_hash[:16]}...")
             safe_print(f"From: {txn.get('Account', '')}")
