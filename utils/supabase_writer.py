@@ -171,9 +171,10 @@ def store_transaction(event: Dict[str, Any], classification_data: Optional[Dict[
         if not row['token_symbol']:
             return False
 
-        # Skip pure stablecoin transfers — they flood the database
-        if row['token_symbol'] in EXCLUDED_STABLECOINS and row['classification'] == 'TRANSFER':
-            logger.debug(f"Skipped stablecoin transfer: {row['token_symbol']} ${row['usd_value']:,.0f}")
+        # Skip ALL stablecoin transactions — they flood the database
+        # regardless of classification (BUY, SELL, or TRANSFER)
+        if row['token_symbol'] in EXCLUDED_STABLECOINS:
+            logger.debug(f"Skipped stablecoin: {row['token_symbol']} {row['classification']} ${row['usd_value']:,.0f}")
             return False
 
         result = client.table('whale_transactions').upsert(

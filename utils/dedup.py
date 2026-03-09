@@ -57,10 +57,12 @@ class TransactionDeduplicator:
         chain = event.get('blockchain', '').lower()
         self.stats['by_chain'][chain]['total'] += 1
 
-        # Skip pure stablecoin transfers — they are high-volume noise
+        # Skip ALL stablecoin transactions — they are high-volume noise
+        # that floods the database and drowns out real whale activity.
+        # Previously only blocked TRANSFERs, but BUY/SELL of stablecoins
+        # (e.g. USDT, USDC) is equally noisy and not useful for whale tracking.
         symbol = (event.get('symbol') or '').upper()
-        classification = (event.get('classification') or '').upper()
-        if symbol in self.EXCLUDED_STABLECOINS and classification in ('', 'TRANSFER', 'UNKNOWN'):
+        if symbol in self.EXCLUDED_STABLECOINS:
             self.stats['stablecoins_skipped'] += 1
             return False
 
