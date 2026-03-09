@@ -28,9 +28,14 @@ RECEIPT_USD_THRESHOLD = 50_000
 
 
 class AlchemyRateLimiter:
-    """Thread-safe rate limiter for Alchemy free tier (500 CU/s, 20M CU/month budget)."""
+    """Thread-safe rate limiter for Alchemy free tier (500 CU/s, 20M CU/month budget).
 
-    def __init__(self, max_rps: int = 20, monthly_cu_budget: int = 20_000_000):
+    Also enforces a concurrency limit to avoid Alchemy's "exceeded concurrent
+    requests capacity" error on free-tier accounts.
+    """
+
+    def __init__(self, max_rps: int = 20, monthly_cu_budget: int = 20_000_000,
+                 max_concurrent: int = 3):
         self.max_rps = max_rps
         self.monthly_budget = monthly_cu_budget
         self.cu_used = 0
@@ -39,6 +44,7 @@ class AlchemyRateLimiter:
         self._requests_in_window = 0
         self._last_log_time = time.time()
         self._LOG_INTERVAL = 3600  # log CU usage once per hour
+        self._semaphore = threading.Semaphore(max_concurrent)
 
     def can_request(self, cu_cost: int = 25) -> bool:
         with self._lock:
@@ -95,25 +101,26 @@ def get_alchemy_rpc(blockchain: str) -> Optional[str]:
 
 
 def _rpc_call(rpc_url: str, method: str, params: list, timeout: int = 10, cu_cost: int = 25) -> Optional[Dict]:
-    """Execute a JSON-RPC call with rate limiting."""
+    """Execute a JSON-RPC call with rate limiting and concurrency control."""
     _rate_limiter.wait_if_needed(cu_cost)
-    try:
-        resp = requests.post(rpc_url, json={
-            'jsonrpc': '2.0',
-            'method': method,
-            'params': params,
-            'id': 1,
-        }, timeout=timeout)
-        if resp.status_code == 429:
+    with _rate_limiter._semaphore:
+        try:
+            resp = requests.post(rpc_url, json={
+                'jsonrpc': '2.0',
+                'method': method,
+                'params': params,
+                'id': 1,
+            }, timeout=timeout)
+            if resp.status_code == 429:
+                return None
+            data = resp.json()
+            if 'error' in data:
+                logger.warning(f"Alchemy RPC error ({method}): {data['error']}")
+                return None
+            return data.get('result')
+        except Exception as e:
+            logger.warning(f"Alchemy RPC call failed ({method}): {e}")
             return None
-        data = resp.json()
-        if 'error' in data:
-            logger.warning(f"Alchemy RPC error ({method}): {data['error']}")
-            return None
-        return data.get('result')
-    except Exception as e:
-        logger.warning(f"Alchemy RPC call failed ({method}): {e}")
-        return None
 
 
 def _http_call(url: str, payload: Optional[Dict] = None, timeout: int = 10, cu_cost: int = 20) -> Optional[Dict]:
@@ -220,28 +227,106 @@ def fetch_solana_signatures(mint_address: str, limit: int = 100, before: Optiona
 # Bitcoin helpers
 # ---------------------------------------------------------------------------
 
+def _mempool_get(endpoint: str, timeout: int = 15) -> Optional[Any]:
+    """Fallback: fetch from mempool.space REST API (no API key needed).
+    Handles both JSON and plain-text responses (block height, block hash)."""
+    try:
+        resp = requests.get(f"https://mempool.space/api{endpoint}", timeout=timeout)
+        if resp.status_code == 200:
+            text = resp.text.strip()
+            # Try JSON first (for block detail endpoints)
+            try:
+                return resp.json()
+            except Exception:
+                pass
+            # Plain integer (block height)
+            if text.isdigit():
+                return int(text)
+            # Plain hex string (block hash)
+            if len(text) == 64 and all(c in '0123456789abcdef' for c in text):
+                return text
+            return text
+    except Exception as e:
+        logger.warning(f"mempool.space fallback failed ({endpoint}): {e}")
+    return None
+
+
 def fetch_bitcoin_blockcount() -> Optional[int]:
-    """Get current Bitcoin block height (10 CU)."""
+    """Get current Bitcoin block height. Tries Alchemy first, mempool.space fallback."""
     rpc_url = get_alchemy_rpc('bitcoin')
-    if not rpc_url:
-        return None
-    return _rpc_call(rpc_url, 'getblockcount', [], cu_cost=10)
+    if rpc_url:
+        result = _rpc_call(rpc_url, 'getblockcount', [], cu_cost=10)
+        if result is not None:
+            return result
+    # Fallback to mempool.space
+    height = _mempool_get("/blocks/tip/height")
+    if isinstance(height, int):
+        return height
+    return None
 
 
 def fetch_bitcoin_blockhash(height: int) -> Optional[str]:
-    """Get block hash for a given height (10 CU)."""
+    """Get block hash for a given height. Tries Alchemy first, mempool.space fallback."""
     rpc_url = get_alchemy_rpc('bitcoin')
-    if not rpc_url:
-        return None
-    return _rpc_call(rpc_url, 'getblockhash', [height], cu_cost=10)
+    if rpc_url:
+        result = _rpc_call(rpc_url, 'getblockhash', [height], cu_cost=10)
+        if result is not None:
+            return result
+    # Fallback to mempool.space
+    blockhash = _mempool_get(f"/block-height/{height}")
+    if isinstance(blockhash, str) and len(blockhash) == 64:
+        return blockhash
+    return None
 
 
 def fetch_bitcoin_block(blockhash: str, verbosity: int = 2) -> Optional[Dict]:
-    """Fetch full Bitcoin block with transactions (10 CU). verbosity=2 includes decoded txs."""
+    """Fetch full Bitcoin block with transactions. Tries Alchemy first, mempool.space fallback."""
     rpc_url = get_alchemy_rpc('bitcoin')
-    if not rpc_url:
+    if rpc_url:
+        result = _rpc_call(rpc_url, 'getblock', [blockhash, verbosity], cu_cost=10, timeout=30)
+        if result is not None:
+            return result
+    # Fallback to mempool.space — use batch /txs/ endpoint (25 txs per call)
+    block = _mempool_get(f"/block/{blockhash}", timeout=30)
+    if not block:
         return None
-    return _rpc_call(rpc_url, 'getblock', [blockhash, verbosity], cu_cost=10, timeout=30)
+    tx_count = block.get("tx_count", 0)
+    converted_txs = []
+    # Fetch transactions in batches of 25 (mempool.space /block/{hash}/txs/{start_index})
+    for start_idx in range(0, min(tx_count, 200), 25):
+        batch = _mempool_get(f"/block/{blockhash}/txs/{start_idx}", timeout=30)
+        if not isinstance(batch, list) or not batch:
+            break
+        for tx in batch:
+            vout = []
+            for out in tx.get("vout", []):
+                vout.append({
+                    "value": out.get("value", 0) / 1e8,
+                    "scriptPubKey": {
+                        "address": out.get("scriptpubkey_address", ""),
+                    }
+                })
+            vin = []
+            for inp in tx.get("vin", []):
+                prevout = inp.get("prevout", {})
+                vin.append({
+                    "prevout": {
+                        "scriptPubKey": {
+                            "address": prevout.get("scriptpubkey_address", ""),
+                        },
+                        "value": prevout.get("value", 0) / 1e8,
+                    }
+                })
+            converted_txs.append({
+                "txid": tx.get("txid", ""),
+                "vout": vout,
+                "vin": vin,
+            })
+    return {
+        "height": block.get("height", 0),
+        "time": block.get("timestamp", 0),
+        "tx": converted_txs,
+    }
 
 
 def fetch_bitcoin_transaction(tx_hash: str) -> Optional[Dict]:

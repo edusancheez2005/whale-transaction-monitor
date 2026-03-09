@@ -124,11 +124,15 @@ def get_stats():
             token_stats[symbol] = {'buys': 0, 'sells': 0}
         token_stats[symbol]['sells'] += count
     
-    # Process XRP transactions
-    if 'XRP' not in token_stats:
-        token_stats['XRP'] = {'buys': 0, 'sells': 0}
-    token_stats['XRP']['buys'] += xrp_buy_counts
-    token_stats['XRP']['sells'] += xrp_sell_counts
+    # Process XRP transactions (now uses defaultdict like other chains)
+    for symbol, count in xrp_buy_counts.items():
+        if symbol not in token_stats:
+            token_stats[symbol] = {'buys': 0, 'sells': 0}
+        token_stats[symbol]['buys'] += count
+    for symbol, count in xrp_sell_counts.items():
+        if symbol not in token_stats:
+            token_stats[symbol] = {'buys': 0, 'sells': 0}
+        token_stats[symbol]['sells'] += count
 
     # Process Polygon transactions
     for symbol, count in polygon_buy_counts.items():
@@ -238,13 +242,13 @@ def start_monitors():
     solana_api_thread.start()
     threads.append(solana_api_thread)
 
-    # Start Polygon monitoring (Alchemy alchemy_getAssetTransfers)
-    polygon_thread = threading.Thread(target=print_new_polygon_transfers, daemon=True, name="Polygon-Alchemy")
+    # Start Polygon monitoring (Alchemy primary, PolygonScan fallback)
+    polygon_thread = threading.Thread(target=print_new_polygon_transfers, daemon=True, name="Polygon")
     polygon_thread.start()
     threads.append(polygon_thread)
 
-    # Start Bitcoin monitoring (Alchemy block polling)
-    btc_thread = threading.Thread(target=poll_bitcoin_blocks, daemon=True, name="Bitcoin-Alchemy")
+    # Start Bitcoin monitoring (Alchemy primary, mempool.space fallback)
+    btc_thread = threading.Thread(target=poll_bitcoin_blocks, daemon=True, name="Bitcoin")
     btc_thread.start()
     threads.append(btc_thread)
 

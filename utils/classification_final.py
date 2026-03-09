@@ -5076,7 +5076,7 @@ def classify_xrp_transaction(tx_data: Dict[str, Any]) -> tuple:
             'hash': tx_data.get('hash', ''),
             'from_address': tx_data.get('Account', ''),
             'to_address': tx_data.get('Destination', ''),
-            'value_usd': float(tx_data.get('amount_usd', 0)),
+            'value_usd': float(tx_data.get('amount_usd', 0) or tx_data.get('usd_value', 0)),
             'token_symbol': 'XRP'
         }
         

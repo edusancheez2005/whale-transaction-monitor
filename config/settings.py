@@ -104,11 +104,12 @@ solana_sell_counts = defaultdict(int)
 solana_transfer_counts = defaultdict(int)
 solana_previous_balances = {}
 
-# XRP counters
-xrp_buy_counts = 0
-xrp_sell_counts = 0
-xrp_payment_count = 0
-xrp_total_amount = 0.0
+# XRP counters — use defaultdict(int) like all other chains
+# (plain ints break cross-module updates due to Python immutability)
+xrp_buy_counts = defaultdict(int)    # key: 'XRP'
+xrp_sell_counts = defaultdict(int)   # key: 'XRP'
+xrp_payment_count = [0]              # mutable container for cross-module access
+xrp_total_amount = [0.0]             # mutable container for cross-module access
 
 # Polygon counters
 polygon_buy_counts = defaultdict(int)

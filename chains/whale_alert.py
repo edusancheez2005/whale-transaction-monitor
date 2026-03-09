@@ -17,7 +17,6 @@ from config.settings import (
 from data.tokens import STABLE_COINS
 from utils.classification_final import transaction_classifier
 from utils.base_helpers import safe_print
-from config.settings import etherscan_buy_counts, etherscan_sell_counts
 from data.tokens import TOKEN_PRICES
 from utils.summary import has_been_classified, mark_as_classified, record_transfer
 from utils.dedup import get_dedup_stats, deduped_transactions, handle_event
@@ -27,11 +26,6 @@ total_transfers_fetched = 0
 filtered_by_threshold = 0
 stablecoin_skip_count = 0
 
-# ----------------------
-# WHALE ALERT WEBSOCKET FUNCTIONS
-# ----------------------
-
-# In whale_alert.py
 
 def on_whale_message(ws, message):
     try:
@@ -45,132 +39,136 @@ def on_whale_message(ws, message):
         tx_from = data.get("from", "unknown")
         tx_to = data.get("to", "unknown")
         tx_hash = data.get("transaction", {}).get("hash", "")
-        
+
         if not amounts:
             return
 
-        valid_transfers = []
+        # --- CLASSIFY FIRST, before handle_event ---
+        # Build a transaction object for the classification engine
+        primary_symbol = ""
+        primary_amount = 0
         total_usd_value = 0
 
+        # Pre-scan amounts to get primary token and total value
+        non_stable_amounts = []
         for amt in amounts:
             symbol = amt.get("symbol", "").upper()
-            amount = amt.get("amount", 0)
-            usd_value = amt.get("value_usd", 0)
-
+            amount = float(amt.get("amount", 0))
+            usd_value = float(amt.get("value_usd", 0))
             if symbol.lower() in STABLE_COINS:
                 continue
+            if amount > 0 and usd_value >= GLOBAL_USD_THRESHOLD:
+                non_stable_amounts.append({
+                    "symbol": symbol,
+                    "amount": amount,
+                    "usd_value": usd_value,
+                })
+                total_usd_value += usd_value
+                if not primary_symbol:
+                    primary_symbol = symbol
+                    primary_amount = amount
 
-            try:
-                amount = float(amount)
-                usd_value = float(usd_value)
-                
-                if amount > 0 and usd_value >= GLOBAL_USD_THRESHOLD:
-                    # Create standardized event for each token transfer
-                    event = {
-                        "blockchain": blockchain,
-                        "tx_hash": tx_hash,
-                        "from": tx_from,
-                        "to": tx_to,
-                        "symbol": symbol,
-                        "amount": amount,
-                        "usd_value": usd_value,
-                        "timestamp": data.get("timestamp", time.time()),
-                        "source": "whale_alert"
-                    }
-
-                    # Check for duplicates
-                    if handle_event(event):
-                        valid_transfers.append({
-                            "symbol": symbol,
-                            "amount": amount,
-                            "usd_value": usd_value
-                        })
-                        total_usd_value += usd_value
-
-            except (ValueError, TypeError) as e:
-                print(f"Error converting values: {e}")
-                continue
-
-        if not valid_transfers:
+        if not non_stable_amounts:
             return
 
-        # Get classification using ENHANCED WHALE INTELLIGENCE ENGINE
-        if valid_transfers:
-            # Create a transaction object for enhanced analysis
+        # Run classification BEFORE storing events
+        classification = "transfer"
+        confidence = 0.0
+        whale_score = 0
+        reasoning = "Basic whale alert classification"
+
+        try:
+            from utils.classification_final import WhaleIntelligenceEngine
+            whale_engine = WhaleIntelligenceEngine()
             enhanced_tx = {
                 'hash': tx_hash,
                 'from_address': tx_from,
                 'to_address': tx_to,
                 'blockchain': blockchain,
                 'value_usd': total_usd_value,
-                'symbol': valid_transfers[0]['symbol'],  # Primary token
-                'amount': valid_transfers[0]['amount'],
+                'symbol': primary_symbol,
+                'amount': primary_amount,
                 'timestamp': data.get("timestamp", time.time())
             }
-            
-            # Import whale intelligence engine
-            try:
-                from utils.classification_final import WhaleIntelligenceEngine
-                whale_engine = WhaleIntelligenceEngine()
-                
-                # Run full enhanced analysis
-                analysis_result = whale_engine.analyze_transaction_comprehensive(enhanced_tx)
-                
-                # Handle IntelligenceResult object vs dictionary
-                if hasattr(analysis_result, '__dict__'):
-                    # IntelligenceResult object
-                    classification = getattr(analysis_result, 'classification', 'TRANSFER')
-                    if hasattr(classification, 'value'):
-                        classification = classification.value  # Handle enum
-                    confidence = getattr(analysis_result, 'confidence', 0.0)
-                    whale_score = getattr(analysis_result, 'whale_score', 0)
-                    reasoning = getattr(analysis_result, 'reasoning', 'Enhanced whale alert classification')
-                else:
-                    # Dictionary (legacy format)
-                    classification = analysis_result.get('classification', 'TRANSFER')
-                    confidence = analysis_result.get('confidence', 0.0)
-                    whale_score = analysis_result.get('whale_score', 0)
-                    reasoning = analysis_result.get('master_classifier_reasoning', 'Basic whale alert classification')
-                
-                # Override with enhanced classification
-                if classification in ['BUY', 'SELL', 'TRANSFER']:
-                    classification = classification.lower()
-                
-            except Exception as e:
-                print(f"Enhanced classification failed, using basic: {e}")
-                # Fallback to basic classification
-                classification, confidence = transaction_classifier(
-                    tx_from=tx_from, 
-                    tx_to=tx_to,
-                    tx_hash=tx_hash,
-                    source="whale_alert"
-                )
-                whale_score = 0
-                reasoning = "Basic whale alert classification"
+            analysis_result = whale_engine.analyze_transaction_comprehensive(enhanced_tx)
 
-        # Normalize probable classifications (e.g. "probable_buy" becomes "buy")
+            if hasattr(analysis_result, '__dict__'):
+                classification = getattr(analysis_result, 'classification', 'TRANSFER')
+                if hasattr(classification, 'value'):
+                    classification = classification.value
+                confidence = getattr(analysis_result, 'confidence', 0.0)
+                whale_score = getattr(analysis_result, 'whale_score', 0)
+                reasoning = getattr(analysis_result, 'reasoning', 'Enhanced whale alert classification')
+            else:
+                classification = analysis_result.get('classification', 'TRANSFER')
+                confidence = analysis_result.get('confidence', 0.0)
+                whale_score = analysis_result.get('whale_score', 0)
+                reasoning = analysis_result.get('master_classifier_reasoning', 'Basic whale alert classification')
+
+            if classification in ['BUY', 'SELL', 'TRANSFER']:
+                classification = classification.lower()
+
+        except Exception as e:
+            print(f"Enhanced classification failed, using basic: {e}")
+            classification, confidence = transaction_classifier(
+                tx_from=tx_from,
+                tx_to=tx_to,
+                tx_hash=tx_hash,
+                source="whale_alert"
+            )
+            whale_score = 0
+            reasoning = "Basic whale alert classification"
+
+        # Normalize probable classifications
         if classification.startswith("probable_"):
             classification = classification.split("_")[-1]
 
-        # Add classification to the event
-        for i in range(len(valid_transfers)):
-            # Add classification to each event
-            valid_transfers[i]["classification"] = classification
+        # --- NOW store events with classification included ---
+        valid_transfers = []
+        for amt_info in non_stable_amounts:
+            symbol = amt_info["symbol"]
+            amount = amt_info["amount"]
+            usd_value = amt_info["usd_value"]
 
+            event = {
+                "blockchain": blockchain,
+                "tx_hash": tx_hash,
+                "from": tx_from,
+                "to": tx_to,
+                "symbol": symbol,
+                "amount": amount,
+                "usd_value": usd_value,
+                "timestamp": data.get("timestamp", time.time()),
+                "source": "whale_alert",
+                "classification": classification.upper(),  # Include classification!
+            }
+
+            if handle_event(event):
+                valid_transfers.append({
+                    "symbol": symbol,
+                    "amount": amount,
+                    "usd_value": usd_value,
+                    "classification": classification,
+                })
+
+        if not valid_transfers:
+            return
+
+        # Update buy/sell/trending counters
         if classification in ("buy", "sell", "transfer"):
             for transfer in valid_transfers:
                 symbol = transfer["symbol"]
                 whale_trending_counts[symbol] += 1
-                
+
                 if classification == "buy":
                     whale_buy_counts[symbol] += 1
                 elif classification == "sell":
                     whale_sell_counts[symbol] += 1
 
-            # Print alert with valid transfers only
+            # Print alert
             ts = data.get("timestamp", 0)
             human_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(ts))
-            
+
             print("\n" + "="*50)
             print("🐋 WHALE ALERT DETECTED:")
             print("="*50)
@@ -181,11 +179,11 @@ def on_whale_message(ws, message):
             print(f"From: {tx_from}")
             print(f"To:   {tx_to}")
             print(f"Classification: {classification.upper()} (confidence: {confidence})")
-            
+
             print("\nAmounts Transferred:")
             for transfer in valid_transfers:
                 print(f"  • {transfer['symbol']}: {transfer['amount']:,.2f} (~${transfer['usd_value']:,.2f} USD)")
-            
+
             print(f"\nTotal USD Value: ${total_usd_value:,.2f}")
             print("="*50 + "\n")
 
@@ -245,7 +243,7 @@ def on_whale_open(ws):
     print("Whale Alert WS connection established.")
     subscription_request = {
         "type": "subscribe_alerts",
-        "min_value_usd": 25000,  # LOWERED to $25K to catch small-cap gem whale activity
+        "min_value_usd": 25000,
         "tx_types": ["transfer", "mint", "burn"],
         "blockchain": [
             "ethereum",
@@ -260,10 +258,8 @@ def on_whale_open(ws):
         ]
     }
     ws.send(json.dumps(subscription_request))
-    print("🚀 Whale Alert subscription: SMALL-CAP GEM DETECTION MODE")
-    print("   → Min Value: $25K (catches early whale moves)")
-    print("   → Focus: Trending small caps & meme coins")
-    print(json.dumps(subscription_request, indent=2))
+    print("🚀 Whale Alert subscription active")
+    print(f"   → Min Value: $25K | Chains: {len(subscription_request['blockchain'])}")
 
 def connect_whale_websocket():
     logging.getLogger("websocket").setLevel(logging.WARNING)
