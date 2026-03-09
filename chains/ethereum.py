@@ -187,14 +187,26 @@ def fetch_erc20_transfers(contract_address, sort="desc", start_block: int = 0, e
 # In ethereum.py
 
 def print_new_erc20_transfers():
-    """Print new ERC-20 transfers with fixed transaction classification"""
+    """Continuously poll Etherscan for ERC-20 transfers (runs in its own thread)."""
+    from config.settings import shutdown_flag
+    safe_print("✅ Ethereum Etherscan monitor started (60s interval)")
+
+    while not shutdown_flag.is_set():
+        try:
+            _poll_erc20_transfers_once()
+        except Exception as e:
+            safe_print(f"Ethereum poll error: {e}")
+        shutdown_flag.wait(timeout=60)
+
+
+def _poll_erc20_transfers_once():
+    """Single polling cycle for ERC-20 transfers."""
     global last_processed_block
     current_time = time.strftime('%Y-%m-%d %H:%M:%S')
     safe_print(f"\n[{current_time}] 🔍 Checking ERC-20 transfers...")
-    
-    # 🔧 CRITICAL FIX: Initialize transactions_processed counter
+
     transactions_processed = 0
-    
+
     for symbol, info in TOKENS_TO_MONITOR.items():
         contract = info["contract"]
         decimals = info["decimals"]
@@ -260,42 +272,35 @@ def print_new_erc20_transfers():
 
                     # Process through the universal processor
                     from utils.classification_final import process_and_enrich_transaction
-                    
+
                     enriched_transaction = process_and_enrich_transaction(event)
 
-                    # 🚀 Storage handled by WhaleIntelligenceEngine (no additional batch needed)
+                    # Extract classification from enrichment result
+                    classification = 'TRANSFER'
+                    confidence = 0.0
                     if enriched_transaction:
-                        print(f"✅ ETHEREUM: {symbol} transaction processed by WhaleIntelligenceEngine")
+                        if isinstance(enriched_transaction, dict):
+                            classification = enriched_transaction.get('classification', 'TRANSFER')
+                            confidence = enriched_transaction.get('confidence', 0.0)
+                        elif hasattr(enriched_transaction, 'classification'):
+                            classification = enriched_transaction.classification.value if hasattr(enriched_transaction.classification, 'value') else str(enriched_transaction.classification)
+                            confidence = getattr(enriched_transaction, 'confidence', 0.0)
 
-                        # 🔧 CRITICAL FIX: Define all variables before use
+                    # Route through dedup pipeline so Flask dashboard shows ETH transactions
+                    event['classification'] = classification.upper()
+                    event['usd_value'] = estimated_usd
+                    handle_event(event)
+
+                    if enriched_transaction:
                         block_number = int(tx["blockNumber"])
                         timestamp = int(tx.get("timeStamp", "0"))
-                        formatted_time = datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M:%S") if timestamp else "Unknown"
-
-                        # Display the transaction
-                        print(f"\n[{symbol} | ${estimated_usd:,.2f} USD] Block {block_number} | Tx {tx_hash}")
-                        print(f"  Time: {formatted_time}")
-                        print(f"  From: {from_addr}")
-                        print(f"  To:   {to_addr}")
-                        print(f"  Amount: {token_amount:,.2f} {symbol} (~${estimated_usd:,.2f} USD)")
-
-                        # 🔧 CRITICAL FIX: Proper classification and confidence extraction
-                        whale_result = enriched_transaction
-                        if hasattr(whale_result, 'classification'):
-                            classification = whale_result.classification.value if hasattr(whale_result.classification, 'value') else str(whale_result.classification)
-                            confidence = getattr(whale_result, 'confidence', 0.0)
-                        else:
-                            classification = 'UNKNOWN'
-                            confidence = 0.0
-
-                        print(f"  Classification: {classification} (confidence: {confidence:.2f})")
 
                         transactions_processed += 1
 
-                        # Update counters and detailed prints only when we have an enriched result
-                        if classification == "buy":
+                        # Update counters
+                        if classification.upper() in ("BUY", "MODERATE_BUY", "BUY_MODERATE"):
                             etherscan_buy_counts[symbol] += 1
-                        elif classification == "sell":
+                        elif classification.upper() in ("SELL", "MODERATE_SELL", "SELL_MODERATE"):
                             etherscan_sell_counts[symbol] += 1
 
                         ts_val = int(tx.get("timeStamp", "0"))

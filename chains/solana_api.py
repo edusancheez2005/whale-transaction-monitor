@@ -228,9 +228,11 @@ def print_new_solana_transfers():
 
                     enriched_transaction = process_and_enrich_transaction(event)
 
+                    # Always route through dedup so transactions show on dashboard
+                    from utils.dedup import handle_event
                     if enriched_transaction:
                         event.update({
-                            'classification': enriched_transaction.get('classification', 'UNKNOWN'),
+                            'classification': enriched_transaction.get('classification', 'TRANSFER').upper(),
                             'confidence': enriched_transaction.get('confidence_score', 0),
                             'whale_signals': enriched_transaction.get('whale_signals', []),
                             'whale_score': enriched_transaction.get('whale_score', 0),
@@ -238,27 +240,33 @@ def print_new_solana_transfers():
                             'usd_value': estimated_usd,
                             'source': 'solana_api'
                         })
+                    else:
+                        # Enrichment failed — still show the transaction
+                        event.update({
+                            'classification': 'TRANSFER',
+                            'usd_value': estimated_usd,
+                            'source': 'solana_api'
+                        })
 
-                        from utils.dedup import handle_event
-                        handle_event(event)
+                    handle_event(event)
 
-                        classification = enriched_transaction.get('classification', 'UNKNOWN').lower()
+                    classification = event.get('classification', 'TRANSFER').upper()
 
-                        from config.settings import solana_api_buy_counts, solana_api_sell_counts
-                        if classification == "buy":
-                            solana_api_buy_counts[symbol] += 1
-                        elif classification == "sell":
-                            solana_api_sell_counts[symbol] += 1
+                    from config.settings import solana_api_buy_counts, solana_api_sell_counts
+                    if classification in ('BUY', 'MODERATE_BUY', 'BUY_MODERATE'):
+                        solana_api_buy_counts[symbol] += 1
+                    elif classification in ('SELL', 'MODERATE_SELL', 'SELL_MODERATE'):
+                        solana_api_sell_counts[symbol] += 1
 
-                        whale_indicator = " 🐋" if enriched_transaction.get('is_whale_transaction') else ""
-                        safe_print(f"\n[SOLANA - {symbol} | ${estimated_usd:,.2f} USD] Tx {tx_hash}{whale_indicator}")
-                        safe_print(f"  From: {from_addr}")
-                        safe_print(f"  To:   {to_addr}")
-                        safe_print(f"  Amount: {token_amount:,.6f} {symbol} (~${estimated_usd:,.2f} USD)")
-                        safe_print(f"  Classification: {classification.upper()} (confidence: {enriched_transaction.get('confidence_score', 0):.2f})")
+                    whale_indicator = " 🐋" if (enriched_transaction or {}).get('is_whale_transaction') else ""
+                    safe_print(f"\n[SOLANA - {symbol} | ${estimated_usd:,.2f} USD] Tx {tx_hash}{whale_indicator}")
+                    safe_print(f"  From: {from_addr}")
+                    safe_print(f"  To:   {to_addr}")
+                    safe_print(f"  Amount: {token_amount:,.6f} {symbol} (~${estimated_usd:,.2f} USD)")
+                    safe_print(f"  Classification: {classification}")
 
-                        if enriched_transaction.get('whale_classification'):
-                            safe_print(f"  Whale Analysis: {enriched_transaction['whale_classification']}")
+                    if enriched_transaction and enriched_transaction.get('whale_classification'):
+                        safe_print(f"  Whale Analysis: {enriched_transaction['whale_classification']}")
 
                         # Persist enriched transaction to Supabase
                         try:

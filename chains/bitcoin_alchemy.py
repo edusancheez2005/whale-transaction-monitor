@@ -87,6 +87,27 @@ def _process_block(block: dict) -> int:
                     "timestamp": block.get("time", time.time()),
                     "source": "bitcoin_alchemy",
                 }
+
+                # Classify via WhaleIntelligenceEngine (CEX/DEX detection)
+                try:
+                    from utils.classification_final import process_and_enrich_transaction
+                    enriched = process_and_enrich_transaction(event)
+                    if enriched and isinstance(enriched, dict):
+                        classification = enriched.get('classification', 'TRANSFER').upper()
+                    else:
+                        classification = 'TRANSFER'
+                except Exception:
+                    classification = 'TRANSFER'
+
+                event['classification'] = classification
+
+                # Update buy/sell counters
+                from config.settings import bitcoin_buy_counts, bitcoin_sell_counts
+                if classification in ('BUY', 'MODERATE_BUY', 'BUY_MODERATE'):
+                    bitcoin_buy_counts['BTC'] += 1
+                elif classification in ('SELL', 'MODERATE_SELL', 'SELL_MODERATE'):
+                    bitcoin_sell_counts['BTC'] += 1
+
                 handle_event(event)
             except Exception as e:
                 logger.warning(f"Bitcoin dedup/event error: {e}")

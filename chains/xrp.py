@@ -84,9 +84,9 @@ def on_xrp_message(ws, message):
                 record_transfer("XRP", amount_xrp, txn.get("Account", ""),
               txn.get("Destination", ""), tx_hash)
             
-            if classification == "buy":
+            if classification.upper() in ("BUY", "MODERATE_BUY", "VERIFIED_SWAP_BUY"):
                 xrp_buy_counts += 1
-            elif classification == "sell":
+            elif classification.upper() in ("SELL", "MODERATE_SELL", "VERIFIED_SWAP_SELL"):
                 xrp_sell_counts += 1
                      
             # Print transaction details

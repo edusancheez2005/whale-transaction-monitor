@@ -151,9 +151,26 @@ def print_new_polygon_transfers():
                         "timestamp": time.time(),
                         "source": "polygon_alchemy",
                     }
+
+                    # Classify via WhaleIntelligenceEngine
+                    try:
+                        from utils.classification_final import process_and_enrich_transaction
+                        enriched = process_and_enrich_transaction(event)
+                        if enriched and isinstance(enriched, dict):
+                            classification = enriched.get('classification', 'TRANSFER').upper()
+                        else:
+                            classification = 'TRANSFER'
+                    except Exception:
+                        classification = 'TRANSFER'
+
+                    event['classification'] = classification
                     handle_event(event)
 
                     from config.settings import polygon_buy_counts, polygon_sell_counts
+                    if classification in ('BUY', 'MODERATE_BUY', 'BUY_MODERATE'):
+                        polygon_buy_counts[symbol] += 1
+                    elif classification in ('SELL', 'MODERATE_SELL', 'SELL_MODERATE'):
+                        polygon_sell_counts[symbol] += 1
 
                 except Exception as e:
                     logger.warning(f"Polygon transfer processing error: {e}")
