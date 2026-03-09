@@ -238,13 +238,13 @@ def start_monitors():
     solana_api_thread.start()
     threads.append(solana_api_thread)
 
-    # Start Polygon monitoring (Alchemy alchemy_getAssetTransfers)
-    polygon_thread = threading.Thread(target=print_new_polygon_transfers, daemon=True, name="Polygon-Alchemy")
+    # Start Polygon monitoring (PolygonScan API)
+    polygon_thread = threading.Thread(target=print_new_polygon_transfers, daemon=True, name="Polygon")
     polygon_thread.start()
     threads.append(polygon_thread)
 
-    # Start Bitcoin monitoring (Alchemy block polling)
-    btc_thread = threading.Thread(target=poll_bitcoin_blocks, daemon=True, name="Bitcoin-Alchemy")
+    # Start Bitcoin monitoring (mempool.space block polling)
+    btc_thread = threading.Thread(target=poll_bitcoin_blocks, daemon=True, name="Bitcoin")
     btc_thread.start()
     threads.append(btc_thread)
 
