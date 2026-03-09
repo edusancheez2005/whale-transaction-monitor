@@ -1,16 +1,17 @@
 """
-Solana API poller using Alchemy as primary RPC with shared rate limiter.
+Solana API poller using Solscan Pro API v2 for token transfers, with
+Helius RPC fallback for transaction details.
 
-Polls getSignaturesForAddress for the top 10 Solana tokens every 60 seconds,
-then fetches full transaction data for qualifying transfers.  All calls are
-routed through the shared AlchemyRateLimiter to stay within the CU budget.
+Polls recent large token transfers for the top Solana tokens every 60 seconds.
+Uses Solscan Pro API to get actual token transfers (getSignaturesForAddress
+on mint addresses does NOT return transfers — only mint/burn ops).
 """
 
 import time
 import logging
 import requests
 
-from config.api_keys import HELIUS_API_KEY
+from config.api_keys import HELIUS_API_KEY, SOLSCAN_API_KEY
 from config.settings import (
     solana_last_processed_signature,
     print_lock,
@@ -28,10 +29,15 @@ try:
 except ImportError:
     HELIUS_RPC_URL = f"https://rpc.helius.xyz/?api-key={HELIUS_API_KEY}"
 
-# Top tokens by volume/relevance — limited to 5 to stay within Alchemy CU budget
+SOLSCAN_API_BASE = "https://pro-api.solscan.io/v2.0"
+
+# Top tokens by volume/relevance
 TOP_SOLANA_TOKENS = [
     "SOL", "JTO", "WIF", "PYTH", "RENDER",
 ]
+
+# Track last seen tx hash per token to avoid reprocessing
+_last_seen_tx = {}
 
 parsed_cache = {}
 PARSED_CACHE_MAX = 500
@@ -41,147 +47,144 @@ def _active_tokens():
     return {k: v for k, v in SOL_TOKENS_TO_MONITOR.items() if k in TOP_SOLANA_TOKENS}
 
 
+def _solscan_get(endpoint: str, params: dict = None) -> list:
+    """Fetch from Solscan Pro API v2 with auth header."""
+    headers = {"token": SOLSCAN_API_KEY} if SOLSCAN_API_KEY else {}
+    try:
+        resp = requests.get(
+            f"{SOLSCAN_API_BASE}{endpoint}",
+            params=params or {},
+            headers=headers,
+            timeout=15,
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            if data.get("success") and "data" in data:
+                return data["data"]
+            # Some endpoints return list directly
+            if isinstance(data, list):
+                return data
+        else:
+            logger.warning(f"Solscan API {resp.status_code}: {resp.text[:200]}")
+    except Exception as e:
+        logger.warning(f"Solscan API error ({endpoint}): {e}")
+    return []
+
+
+def _helius_token_transfers(mint_addr: str, limit: int = 20) -> list:
+    """Fallback: use Helius Enhanced Transactions API to get recent transfers."""
+    if not HELIUS_API_KEY:
+        return []
+    try:
+        url = f"https://api.helius.xyz/v0/token-events?api-key={HELIUS_API_KEY}"
+        params = {
+            "mint": mint_addr,
+            "type": "TRANSFER",
+            "limit": limit,
+        }
+        resp = requests.get(url, params=params, timeout=15)
+        if resp.status_code == 200:
+            return resp.json() if isinstance(resp.json(), list) else []
+    except Exception as e:
+        logger.warning(f"Helius token events error: {e}")
+    return []
+
+
 def initialize_baseline():
-    """Initialize last processed signatures for tokens to skip historical transfers.
-    Retries failed tokens up to 3 times with increasing delay."""
+    """Initialize last-seen transaction hashes for each token to skip historical data."""
     tokens = _active_tokens()
-    pending = list(tokens.keys())
-    max_attempts = 3
+    for symbol, info in tokens.items():
+        mint_addr = info["mint"]
+        transfers = _solscan_get("/token/transfer", {
+            "token": mint_addr,
+            "page_size": 1,
+            "sort_by": "block_time",
+            "sort_order": "desc",
+        })
+        if transfers and isinstance(transfers, list) and len(transfers) > 0:
+            first = transfers[0]
+            tx_hash = first.get("trans_id") or first.get("tx_hash") or first.get("signature", "")
+            _last_seen_tx[symbol] = tx_hash
+            safe_print(f"  Solana baseline {symbol}: {tx_hash[:16]}...")
+        else:
+            _last_seen_tx[symbol] = None
+        time.sleep(0.5)
 
-    for attempt in range(1, max_attempts + 1):
-        still_pending = []
-        for mint in pending:
-            info = tokens[mint]
-            mint_addr = info["mint"]
-            try:
-                sigs = fetch_solana_signatures(mint_addr, limit=1)
-                if isinstance(sigs, list) and len(sigs) > 0 and isinstance(sigs[0], dict):
-                    solana_last_processed_signature[mint] = sigs[0].get("signature")
-                    safe_print(f"Initialized baseline for {mint} with signature: {sigs[0].get('signature', '')[:16]}...")
-                elif sigs is None:
-                    still_pending.append(mint)
-                else:
-                    solana_last_processed_signature[mint] = None
-            except Exception as e:
-                safe_print(f"[Solana] Warning: Could not initialize {mint} (attempt {attempt}): {e}")
-                still_pending.append(mint)
-            time.sleep(1.0)
-
-        pending = still_pending
-        if not pending:
-            break
-        if attempt < max_attempts:
-            wait = 5 * attempt
-            safe_print(f"[Solana] Retrying {len(pending)} failed tokens in {wait}s ({', '.join(pending)})...")
-            time.sleep(wait)
-
-    for mint in pending:
-        safe_print(f"[Solana] {mint} baseline init failed after {max_attempts} attempts — will poll from latest")
-        solana_last_processed_signature[mint] = None
 
 def fetch_solana_token_transfers():
     """
-    Poll new SPL token transfer events for the top Solana tokens via the
-    shared Alchemy rate limiter.  Returns a list of normalized transfer dicts.
+    Poll new SPL token transfer events using Solscan Pro API.
+    Returns a list of normalized transfer dicts.
     """
     results = []
 
-    for mint, info in _active_tokens().items():
+    for symbol, info in _active_tokens().items():
         mint_addr = info["mint"]
-        symbol = mint
         decimals = info["decimals"]
 
-        last_sig = solana_last_processed_signature.get(mint)
-        new_signatures = []
+        # Fetch recent transfers from Solscan
+        transfers = _solscan_get("/token/transfer", {
+            "token": mint_addr,
+            "page_size": 20,
+            "sort_by": "block_time",
+            "sort_order": "desc",
+        })
 
-        sig_infos = fetch_solana_signatures(mint_addr, limit=20)
-        if not isinstance(sig_infos, list) or not sig_infos:
+        if not transfers:
+            # Fallback to Helius token events
+            helius_events = _helius_token_transfers(mint_addr, limit=20)
+            for evt in helius_events:
+                tx_hash = evt.get("signature", "")
+                if _last_seen_tx.get(symbol) and tx_hash == _last_seen_tx[symbol]:
+                    break
+                token_transfers = evt.get("tokenTransfers", [])
+                for tt in token_transfers:
+                    if tt.get("mint") == mint_addr:
+                        results.append({
+                            "blockchain": "solana",
+                            "from": tt.get("fromUserAccount", ""),
+                            "to": tt.get("toUserAccount", ""),
+                            "symbol": symbol,
+                            "amount": str(tt.get("tokenAmount", 0)),
+                            "tx_hash": tx_hash,
+                            "timestamp": evt.get("timestamp"),
+                            "decimals": decimals,
+                        })
+                if helius_events:
+                    _last_seen_tx[symbol] = helius_events[0].get("signature", "")
+            time.sleep(0.3)
             continue
 
-        for entry in sig_infos:
-            if not isinstance(entry, dict):
-                continue
-            sig = entry.get("signature")
-            if not sig:
-                continue
-            if last_sig and sig == last_sig:
+        new_transfers = []
+        last_seen = _last_seen_tx.get(symbol)
+        for t in transfers:
+            tx_hash = t.get("trans_id") or t.get("tx_hash") or t.get("signature", "")
+            if last_seen and tx_hash == last_seen:
                 break
-            new_signatures.append(sig)
+            new_transfers.append(t)
 
-        new_signatures.reverse()
+        if new_transfers:
+            # Update baseline to newest
+            first = new_transfers[0]
+            _last_seen_tx[symbol] = first.get("trans_id") or first.get("tx_hash") or first.get("signature", "")
 
-        if new_signatures:
-            solana_last_processed_signature[mint] = new_signatures[-1]
-        elif last_sig is None and sig_infos:
-            first = sig_infos[0] if isinstance(sig_infos[0], dict) else {}
-            solana_last_processed_signature[mint] = first.get("signature")
-            continue
-        else:
-            continue
+        for t in reversed(new_transfers):  # Process oldest first
+            tx_hash = t.get("trans_id") or t.get("tx_hash") or t.get("signature", "")
+            from_addr = t.get("from_address") or t.get("source", "")
+            to_addr = t.get("to_address") or t.get("destination", "")
+            raw_amount = t.get("amount") or t.get("token_amount") or "0"
+            block_time = t.get("block_time") or t.get("time")
 
-        for sig in new_signatures:
-            if sig in parsed_cache:
-                tx_data = parsed_cache[sig]
-            else:
-                tx_data = fetch_solana_transaction(sig)
-                if not tx_data:
-                    continue
-                parsed_cache[sig] = tx_data
-                if len(parsed_cache) > PARSED_CACHE_MAX:
-                    oldest_keys = list(parsed_cache.keys())[:len(parsed_cache) - PARSED_CACHE_MAX]
-                    for k in oldest_keys:
-                        del parsed_cache[k]
-
-            block_time = tx_data.get("blockTime")
-            if block_time is None:
-                for entry in sig_infos:
-                    if entry.get("signature") == sig:
-                        block_time = entry.get("blockTime")
-                        break
-
-            transfers_extracted = []
-            try:
-                transaction = tx_data.get("transaction", {})
-                message = transaction.get("message", {})
-                instructs = message.get("instructions", [])
-                meta = tx_data.get("meta", {})
-                inner_instructions = meta.get("innerInstructions", [])
-
-                def extract_transfers_from_instructions(instructions):
-                    for ix in instructions:
-                        program_id = ix.get("programId")
-                        if program_id and program_id.endswith("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"):
-                            parsed = ix.get("parsed")
-                            if parsed and parsed.get("type") == "transfer":
-                                info_data = parsed.get("info", {})
-                                if info_data.get("mint") == mint_addr:
-                                    transfers_extracted.append({
-                                        "source": info_data.get("source"),
-                                        "destination": info_data.get("destination"),
-                                        "amount": str(info_data.get("amount"))
-                                    })
-
-                extract_transfers_from_instructions(instructs)
-                for inner in inner_instructions:
-                    if inner.get("instructions"):
-                        extract_transfers_from_instructions(inner["instructions"])
-            except Exception as e:
-                safe_print(f"[Solana] Error parsing transaction {sig}: {e}")
-                transfers_extracted = []
-
-            for t in transfers_extracted:
-                event = {
-                    "blockchain": "solana",
-                    "from": t.get("source"),
-                    "to": t.get("destination"),
-                    "symbol": symbol,
-                    "amount": t.get("amount", "0"),
-                    "tx_hash": sig,
-                    "timestamp": int(block_time) if block_time else None,
-                    "decimals": decimals,
-                    "raw_tx": tx_data,
-                }
-                results.append(event)
+            results.append({
+                "blockchain": "solana",
+                "from": from_addr,
+                "to": to_addr,
+                "symbol": symbol,
+                "amount": str(raw_amount),
+                "tx_hash": tx_hash,
+                "timestamp": int(block_time) if block_time else None,
+                "decimals": decimals,
+            })
 
         time.sleep(0.3)
 
@@ -194,13 +197,13 @@ def print_new_solana_transfers():
     """
     from config.settings import shutdown_flag as _shutdown_flag
 
-    safe_print("✅ Solana API polling thread started (60s interval, top 5 tokens)")
+    safe_print("✅ Solana API polling thread started (60s interval, top 5 tokens via Solscan)")
 
-    if not any(solana_last_processed_signature.values()):
-        safe_print("🔍 Initializing Solana token baselines...")
+    if not _last_seen_tx:
+        safe_print("   Initializing Solana token baselines...")
         initialize_baseline()
 
-    poll_interval = 60  # Restored to 60s — concurrency semaphore in alchemy_rpc.py handles CU budget
+    poll_interval = 60
     backoff_multiplier = 1
 
     while not _shutdown_flag.is_set():
@@ -211,9 +214,21 @@ def print_new_solana_transfers():
             for event in transfers:
                 try:
                     symbol = event["symbol"]
-                    raw_amount = int(event["amount"])
                     decimals = event["decimals"]
-                    token_amount = raw_amount / (10 ** decimals)
+                    raw_amount = event["amount"]
+
+                    # Handle both raw integer and already-decimal amounts
+                    try:
+                        amount_val = float(raw_amount)
+                    except (ValueError, TypeError):
+                        amount_val = 0
+
+                    # If amount looks like raw (very large), apply decimals
+                    if amount_val > 10 ** decimals:
+                        token_amount = amount_val / (10 ** decimals)
+                    else:
+                        token_amount = amount_val
+
                     price = TOKEN_PRICES.get(symbol, 0)
                     estimated_usd = token_amount * price
 
@@ -314,4 +329,4 @@ def test_helius_connection():
             return False
     except Exception as e:
         safe_print(f"❌ Error connecting to Helius: {e}")
-        return False 
+        return False

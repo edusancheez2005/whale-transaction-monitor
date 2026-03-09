@@ -228,11 +228,24 @@ def fetch_solana_signatures(mint_address: str, limit: int = 100, before: Optiona
 # ---------------------------------------------------------------------------
 
 def _mempool_get(endpoint: str, timeout: int = 15) -> Optional[Any]:
-    """Fallback: fetch from mempool.space REST API (no API key needed)."""
+    """Fallback: fetch from mempool.space REST API (no API key needed).
+    Handles both JSON and plain-text responses (block height, block hash)."""
     try:
         resp = requests.get(f"https://mempool.space/api{endpoint}", timeout=timeout)
         if resp.status_code == 200:
-            return resp.json()
+            text = resp.text.strip()
+            # Try JSON first (for block detail endpoints)
+            try:
+                return resp.json()
+            except Exception:
+                pass
+            # Plain integer (block height)
+            if text.isdigit():
+                return int(text)
+            # Plain hex string (block hash)
+            if len(text) == 64 and all(c in '0123456789abcdef' for c in text):
+                return text
+            return text
     except Exception as e:
         logger.warning(f"mempool.space fallback failed ({endpoint}): {e}")
     return None

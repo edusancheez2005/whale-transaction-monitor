@@ -59,42 +59,50 @@ def on_xrp_message(ws, message):
                 filtered_by_threshold += 1
                 return
                 
-            # Pass usd_value so classifier knows the transaction size
-            txn['amount_usd'] = usd_value
-
-            classification, processed_amount = classify_xrp_transaction(txn)
-
             # Skip already classified transactions
-            if classification == "already_classified":
+            if has_been_classified("XRP", tx_hash):
                 return
 
             # Update counters
             xrp_payment_count += 1
-            xrp_total_amount += float(processed_amount)
+            xrp_total_amount += amount_xrp
+
+            from_addr = txn.get("Account", "")
+            to_addr = txn.get("Destination", "")
+
+            # Classify using known XRP exchange addresses
+            from_is_exchange = from_addr in xrp_exchange_addresses
+            to_is_exchange = to_addr in xrp_exchange_addresses
+
+            if from_is_exchange and not to_is_exchange:
+                # Withdrawal from exchange → BUY (someone bought and is withdrawing)
+                classification = "BUY"
+            elif to_is_exchange and not from_is_exchange:
+                # Deposit to exchange → SELL (someone is depositing to sell)
+                classification = "SELL"
+            elif from_is_exchange and to_is_exchange:
+                # Exchange to exchange → TRANSFER
+                classification = "TRANSFER"
+            else:
+                # Wallet to wallet — check DestinationTag (exchange deposits use tags)
+                if "DestinationTag" in txn:
+                    classification = "SELL"  # DestinationTag usually means exchange deposit
+                else:
+                    classification = "TRANSFER"
+
+            mark_as_classified("XRP", tx_hash)
 
             # Create event for deduplication
             event = {
                 "blockchain": "xrp",
                 "tx_hash": tx_hash,
-                "from": txn.get("Account", ""),
-                "to": txn.get("Destination", ""),
+                "from": from_addr,
+                "to": to_addr,
                 "amount": amount_xrp,
                 "usd_value": usd_value,
-                "symbol": "XRP"
+                "symbol": "XRP",
+                "classification": classification,
             }
-
-            # Enrich via WhaleIntelligenceEngine for better BUY/SELL detection
-            try:
-                from utils.classification_final import process_and_enrich_transaction
-                enriched = process_and_enrich_transaction(event)
-                if enriched and isinstance(enriched, dict):
-                    classification = enriched.get('classification', classification).upper()
-                else:
-                    classification = classification.upper()
-            except Exception:
-                classification = classification.upper()
-
-            event['classification'] = classification
 
             if handle_event(event):
                 record_transfer("XRP", amount_xrp, txn.get("Account", ""),
