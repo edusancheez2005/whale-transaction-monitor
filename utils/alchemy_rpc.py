@@ -252,7 +252,13 @@ def _mempool_get(endpoint: str, timeout: int = 15) -> Optional[Any]:
 
 
 def fetch_bitcoin_blockcount() -> Optional[int]:
-    """Get current Bitcoin block height via mempool.space (free, no API key)."""
+    """Get current Bitcoin block height. Tries Alchemy first, mempool.space fallback."""
+    rpc_url = get_alchemy_rpc('bitcoin')
+    if rpc_url:
+        result = _rpc_call(rpc_url, 'getblockcount', [], cu_cost=10)
+        if result is not None:
+            return result
+    # Fallback to mempool.space
     height = _mempool_get("/blocks/tip/height")
     if isinstance(height, int):
         return height
@@ -260,7 +266,13 @@ def fetch_bitcoin_blockcount() -> Optional[int]:
 
 
 def fetch_bitcoin_blockhash(height: int) -> Optional[str]:
-    """Get block hash for a given height via mempool.space."""
+    """Get block hash for a given height. Tries Alchemy first, mempool.space fallback."""
+    rpc_url = get_alchemy_rpc('bitcoin')
+    if rpc_url:
+        result = _rpc_call(rpc_url, 'getblockhash', [height], cu_cost=10)
+        if result is not None:
+            return result
+    # Fallback to mempool.space
     blockhash = _mempool_get(f"/block-height/{height}")
     if isinstance(blockhash, str) and len(blockhash) == 64:
         return blockhash
@@ -268,7 +280,13 @@ def fetch_bitcoin_blockhash(height: int) -> Optional[str]:
 
 
 def fetch_bitcoin_block(blockhash: str, verbosity: int = 2) -> Optional[Dict]:
-    """Fetch full Bitcoin block with transactions via mempool.space."""
+    """Fetch full Bitcoin block with transactions. Tries Alchemy first, mempool.space fallback."""
+    rpc_url = get_alchemy_rpc('bitcoin')
+    if rpc_url:
+        result = _rpc_call(rpc_url, 'getblock', [blockhash, verbosity], cu_cost=10, timeout=30)
+        if result is not None:
+            return result
+    # Fallback to mempool.space — use batch /txs/ endpoint (25 txs per call)
     block = _mempool_get(f"/block/{blockhash}", timeout=30)
     if not block:
         return None

@@ -4,12 +4,9 @@ import threading
 import websocket
 import traceback
 from typing import Dict, Optional
+import config.settings as _settings
 from config.settings import (
     GLOBAL_USD_THRESHOLD,
-    xrp_buy_counts,
-    xrp_sell_counts,
-    xrp_payment_count,
-    xrp_total_amount,
     shutdown_flag,
     print_lock
 )
@@ -27,22 +24,21 @@ connection_attempts = 0
 
 def on_xrp_message(ws, message):
     """Process incoming XRP websocket messages with enhanced classification and deduplication"""
-    global xrp_payment_count, xrp_total_amount, xrp_buy_counts, xrp_sell_counts
     global total_transfers_fetched, filtered_by_threshold
-    
+
     try:
         data = json.loads(message)
         txn = data.get("transaction")
         if txn and txn.get("TransactionType") == "Payment":
             total_transfers_fetched += 1
-            
+
             # Get transaction hash for deduplication
             tx_hash = txn.get("hash", "")
-            
+
             # Skip already classified transactions
             if has_been_classified("XRP", tx_hash):
                 return
-                
+
             amount = txn.get("Amount")
             if isinstance(amount, str):
                 try:
@@ -51,21 +47,21 @@ def on_xrp_message(ws, message):
                     amount_xrp = 0
             else:
                 amount_xrp = 0
-                
+
             # Only process significant transactions
             xrp_price = TOKEN_PRICES.get("XRP", 0.5)
             usd_value = amount_xrp * xrp_price
             if usd_value < GLOBAL_USD_THRESHOLD:
                 filtered_by_threshold += 1
                 return
-                
+
             # Skip already classified transactions
             if has_been_classified("XRP", tx_hash):
                 return
 
-            # Update counters
-            xrp_payment_count += 1
-            xrp_total_amount += amount_xrp
+            # Update counters (use mutable containers for cross-module access)
+            _settings.xrp_payment_count[0] += 1
+            _settings.xrp_total_amount[0] += amount_xrp
 
             from_addr = txn.get("Account", "")
             to_addr = txn.get("Destination", "")
@@ -106,13 +102,14 @@ def on_xrp_message(ws, message):
 
             if handle_event(event):
                 record_transfer("XRP", amount_xrp, txn.get("Account", ""),
-              txn.get("Destination", ""), tx_hash)
+                    txn.get("Destination", ""), tx_hash)
 
+            # Update buy/sell counters (dict-style, same as all other chains)
             if classification in ("BUY", "MODERATE_BUY", "VERIFIED_SWAP_BUY"):
-                xrp_buy_counts += 1
+                _settings.xrp_buy_counts['XRP'] += 1
             elif classification in ("SELL", "MODERATE_SELL", "VERIFIED_SWAP_SELL"):
-                xrp_sell_counts += 1
-                     
+                _settings.xrp_sell_counts['XRP'] += 1
+
             # Print transaction details
             current_time = time.strftime('%Y-%m-%d %H:%M:%S')
             safe_print(f"\n[XRP | {amount_xrp:,.2f} XRP | ${usd_value:,.2f} USD] {classification.upper()}")
@@ -123,7 +120,7 @@ def on_xrp_message(ws, message):
             safe_print(f"Classification: {classification}")
             if "DestinationTag" in txn:
                 safe_print(f"Destination Tag: {txn['DestinationTag']}")
-            
+
     except Exception as e:
         safe_print(f"Error processing XRP message: {e}")
         traceback.print_exc()
@@ -149,7 +146,6 @@ def on_xrp_open(ws):
 def on_xrp_error(ws, error):
     """Handle XRP websocket errors"""
     safe_print(f"[XRP WS Error] {error}")
-    # Don't close the connection on most errors, let the websocket library handle reconnection
 
 def on_xrp_close(ws, close_status_code, close_msg):
     """Handle XRP websocket connection closing with exponential backoff"""
@@ -178,16 +174,15 @@ def on_xrp_close(ws, close_status_code, close_msg):
 def connect_xrp_websocket():
     """Create and configure XRP websocket connection"""
     try:
-        # Try multiple XRP websocket servers if needed
         xrp_servers = [
             "wss://s1.ripple.com/",
             "wss://s2.ripple.com/",
             "wss://xrplcluster.com/"
         ]
-        
-        server = xrp_servers[0]  # Start with the first server
-        
-        websocket.enableTrace(False)  # Set to True for debugging
+
+        server = xrp_servers[0]
+
+        websocket.enableTrace(False)
         ws_app = websocket.WebSocketApp(
             server,
             on_open=on_xrp_open,
@@ -195,14 +190,13 @@ def connect_xrp_websocket():
             on_error=on_xrp_error,
             on_close=on_xrp_close
         )
-        
-        # Run the websocket connection in its own thread
+
         wst = threading.Thread(
             target=lambda: ws_app.run_forever(
                 ping_interval=30,
                 ping_timeout=10,
                 ping_payload="ping",
-                sslopt={"cert_reqs": 0}  # Disable certificate verification if needed
+                sslopt={"cert_reqs": 0}
             ),
             daemon=True
         )
@@ -218,7 +212,7 @@ def start_xrp_thread():
     try:
         thread = connect_xrp_websocket()
         if thread:
-            thread.name = "XRP"  # Name the thread for monitoring
+            thread.name = "XRP"
             return thread
         else:
             safe_print("⚠️ Failed to start XRP monitoring.")
@@ -227,28 +221,3 @@ def start_xrp_thread():
         safe_print(f"Error starting XRP thread: {e}")
         traceback.print_exc()
         return None
-
-
-def analyze_address_pattern(addr):
-    """
-    Analyze XRP address patterns to identify likely exchange addresses
-    """
-    # Exchange addresses often have specific patterns
-    if not addr.startswith('r'):
-        return "unknown"
-        
-    # Count uppercase letters (exchanges often use more uppercase)
-    uppercase_ratio = sum(1 for c in addr[1:] if c.isupper()) / len(addr[1:])
-    
-    # Check address length (exchange addresses often have specific lengths)
-    addr_len = len(addr)
-    
-    if addr_len >= 25 and addr_len <= 35:
-        if uppercase_ratio > 0.4:
-            return "likely_exchange"
-    
-    # Look for patterns common in user addresses
-    if addr_len > 30 and uppercase_ratio < 0.3:
-        return "likely_user"
-        
-    return "unknown"
