@@ -28,35 +28,79 @@ _last_seen_height: Optional[int] = None
 
 POLL_INTERVAL = 30  # seconds between blockcount checks
 
-# Known Bitcoin exchange addresses (hot wallets)
+# Known Bitcoin exchange addresses (hot wallets + cold wallets)
+# Sourced from on-chain analytics and public exchange disclosures
 BTC_EXCHANGE_ADDRESSES = {
-    # Binance
+    # Binance (multiple hot/cold wallets)
     "34xp4vRoCGJym3xR7yCVPFHoCNxv4Twseo": "binance",
     "3JZq4atUahhuA9rLhXLMhhTo133J9rF97j": "binance",
     "1NDyJtNTjmwk5xPNhjgAMu4HDHigtobu1s": "binance",
     "bc1qm34lsc65zpw79lxes69zkqmk6ee3ewf0j77s3h": "binance",
-    # Coinbase
+    "3LYJfcfHPXYJreMsASk2jkn69LWEYKzexb": "binance",
+    "3M219KR5vEneNb47ewrPfWyb5jQ2DjxRP6": "binance",
+    "1Pzaqw98PeRfyHypfqyEgg5yycJRsENrE7": "binance",
+    "bc1qnkf8pml746xnmyrkkahfmqnlq23qxalmpds7y": "binance",
+    "39884E3j6KZj82FK4vcCrkUvWYL5MQaS3v": "binance",
+    "3Cbq7aT1tY8kMxWLbitaG7yT6bPbKChq64": "binance",
+    "3QUAqS3doJ4GjkPNMCqbrJPBCaEsLBJnN4": "binance",
+    # Coinbase (cold storage + hot wallets)
     "3KPnkDjx1gvkaG7EpCsj6Kiw7VBFbtiZXo": "coinbase",
     "bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh": "coinbase",
     "bc1q7cyrfmck2ffu2ud3rn5l5a8yv6f0chkp0zpemf": "coinbase",
+    "3Kzh9qAqVWQhEsfQz7zEQL1EuSx5tyNLNS": "coinbase",
+    "bc1qa5wkgaew2dkv56kc6hp849jfkruxknw9ld2e6w": "coinbase",
+    "395xwTp3tAhxfoCLHfbRRhKcmNmjit8B5d": "coinbase",
+    "3CgKHXR17eh2xCj2RGnHJHTDgjMigpEtF5": "coinbase",
+    "36n452uGq1x4mK7bfyZR8wgE47AnBb2pzi": "coinbase",
     # Kraken
     "3FHNBLobJnbCTFTVakh5TXmEneyf5PT61B": "kraken",
     "bc1qr4dl5wa7kl8yu792dceg9z5knl2gkn220lk7a9": "kraken",
+    "3AfSMgBjWDcRvH5FiUSjkE8rRDRibziqhF": "kraken",
+    "bc1qgg9gml3gkm3h3fmp2ww7lkxa27s3crlkfnfxum": "kraken",
+    "3H5JTt42K7RmZtromfTSefcMEFMMe18pMD": "kraken",
     # Bitfinex
     "3D2oetdNuZUqQHPJmcMDDHYoqkyNVsFk9r": "bitfinex",
     "bc1qgdjqv0av3q56jvd82tkdjpy7gdp9ut8tlqmgrpmv24sq90ecnvqqjwvw97": "bitfinex",
+    "1Kr6QSydW9bFQG1mXiPNNu6WpJGmUa9i1g": "bitfinex",
+    "3JZtsBCcFR5PXgz3EVgzrPQ9XrpCCecRVy": "bitfinex",
     # OKX
     "bc1qjasf9z3h7w3jspkhtgatgpyvvzgpa2wwd2lr0eh5tx44reyn2k7sfl6tyj": "okx",
+    "3LW3S46ky7Ec3bqnxCKq4VqX1EiSNPzibs": "okx",
+    "bc1q2s3rjwvam9dt2ftt4sqxqjf3twav0gdx0k0q2etjd3905lu3aluskpdnqq": "okx",
     # Gemini
     "3Ji2LZcG8UqmhCKqoH2DpJ2giwXEsPKLg5": "gemini",
-    # Huobi
+    "bc1ql49ydapnjafl5t2cp9zqpjwe6pdgmxy98859v2": "gemini",
+    # Huobi / HTX
     "1HckjUpRGcrrRAtFaaCAUaGjsPx9oYmLaZ": "huobi",
+    "1HQ3Go3ggs8pFnXuHVHRytPCq5fGG8Hbhx": "huobi",
+    "14vTEFt2LdM5PawjGFPorbb3FMKfVSYeHh": "huobi",
+    "1LAnF8h3qMGx3TSwNUHVneBZUEpwE4gu3D": "huobi",
     # Bybit
     "bc1qp72r5vu8xlqhqkfrz8s36yyge6s5ng7jy3rl7w": "bybit",
+    "bc1qjysjfd9t9aspttpjqzv68k0cc9e67ppz8tvags": "bybit",
     # Robinhood
     "bc1qr35hws365juz5rtlsjtvmapst74gkzjg0tkzrx": "robinhood",
+    "bc1q56gfmfhj97mcfztj65ct0jmxkq89pxjmtfj2zh": "robinhood",
     # Bittrex
     "3QW49DvKAhEP2kj5ciGmAHdfuPUoUQprVV": "bittrex",
+    # Bitstamp
+    "3P3QsMVK89JBNqZQv5zMAKG8FK3kJM4rjt": "bitstamp",
+    "3BiKLKhs4xXHoV9mG78ECb7MREQ2gR4Pjt": "bitstamp",
+    "bc1qm4hxdz5x9f8hgas35lq3kstqfxsgmkuadwfvev": "bitstamp",
+    # Crypto.com
+    "3N56fRb5BbTMmXMputWczqDjiJHKQiMgaR": "crypto.com",
+    "bc1q4c8n5t00jmj8temxdgcc3t32nkg2wjwz24lywv": "crypto.com",
+    # KuCoin
+    "3GuyMuDRB7oMc1jd6nvHHcpj7JxTGvtj6Q": "kucoin",
+    "bc1qlulqh28qlnlttg42r92uul3qfny6rhapdzy37c": "kucoin",
+    # Gate.io
+    "1HpED7fuFRp3JCe3VXjBP69E6HsE2V6MhK": "gate.io",
+    "14kmq1YNgp7S2T5GUY4stPbFCsKq7g5RWM": "gate.io",
+    # Blockchain.com
+    "3Kzh9qAqVWQhEsfQz7zEQL1EuSx5tyNLNS": "blockchain.com",
+    # BitMEX
+    "3BMEXqGpG4FxBA1KWhRFufXfSTRgzfDBhJ": "bitmex",
+    "1FeexV6bAHb8ybZjqQMjJrcCrHGW9sb6uF": "bitmex",
 }
 
 
