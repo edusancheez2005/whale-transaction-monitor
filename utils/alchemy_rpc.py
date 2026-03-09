@@ -227,28 +227,97 @@ def fetch_solana_signatures(mint_address: str, limit: int = 100, before: Optiona
 # Bitcoin helpers
 # ---------------------------------------------------------------------------
 
+def _mempool_get(endpoint: str, timeout: int = 15) -> Optional[Any]:
+    """Fallback: fetch from mempool.space REST API (no API key needed)."""
+    try:
+        resp = requests.get(f"https://mempool.space/api{endpoint}", timeout=timeout)
+        if resp.status_code == 200:
+            return resp.json()
+    except Exception as e:
+        logger.warning(f"mempool.space fallback failed ({endpoint}): {e}")
+    return None
+
+
 def fetch_bitcoin_blockcount() -> Optional[int]:
-    """Get current Bitcoin block height (10 CU)."""
+    """Get current Bitcoin block height. Tries Alchemy first, mempool.space fallback."""
     rpc_url = get_alchemy_rpc('bitcoin')
-    if not rpc_url:
-        return None
-    return _rpc_call(rpc_url, 'getblockcount', [], cu_cost=10)
+    if rpc_url:
+        result = _rpc_call(rpc_url, 'getblockcount', [], cu_cost=10)
+        if result is not None:
+            return result
+    # Fallback to mempool.space
+    height = _mempool_get("/blocks/tip/height")
+    if isinstance(height, int):
+        return height
+    return None
 
 
 def fetch_bitcoin_blockhash(height: int) -> Optional[str]:
-    """Get block hash for a given height (10 CU)."""
+    """Get block hash for a given height. Tries Alchemy first, mempool.space fallback."""
     rpc_url = get_alchemy_rpc('bitcoin')
-    if not rpc_url:
-        return None
-    return _rpc_call(rpc_url, 'getblockhash', [height], cu_cost=10)
+    if rpc_url:
+        result = _rpc_call(rpc_url, 'getblockhash', [height], cu_cost=10)
+        if result is not None:
+            return result
+    # Fallback to mempool.space
+    blockhash = _mempool_get(f"/block-height/{height}")
+    if isinstance(blockhash, str) and len(blockhash) == 64:
+        return blockhash
+    return None
 
 
 def fetch_bitcoin_block(blockhash: str, verbosity: int = 2) -> Optional[Dict]:
-    """Fetch full Bitcoin block with transactions (10 CU). verbosity=2 includes decoded txs."""
+    """Fetch full Bitcoin block with transactions. Tries Alchemy first, mempool.space fallback."""
     rpc_url = get_alchemy_rpc('bitcoin')
-    if not rpc_url:
+    if rpc_url:
+        result = _rpc_call(rpc_url, 'getblock', [blockhash, verbosity], cu_cost=10, timeout=30)
+        if result is not None:
+            return result
+    # Fallback to mempool.space — returns block with txs in a different format
+    block = _mempool_get(f"/block/{blockhash}", timeout=30)
+    if not block:
         return None
-    return _rpc_call(rpc_url, 'getblock', [blockhash, verbosity], cu_cost=10, timeout=30)
+    # Fetch transactions for this block
+    txids = _mempool_get(f"/block/{blockhash}/txids", timeout=30)
+    if not txids:
+        return None
+    # Convert mempool.space format to match Bitcoin RPC format
+    # Fetch individual large transactions (mempool.space gives txids, need to fetch each)
+    converted_txs = []
+    for txid in txids[:50]:  # Limit to first 50 txs to avoid rate limits
+        tx = _mempool_get(f"/tx/{txid}", timeout=10)
+        if not tx:
+            continue
+        # Convert mempool.space tx format to Bitcoin RPC verbosity=2 format
+        vout = []
+        for out in tx.get("vout", []):
+            vout.append({
+                "value": out.get("value", 0) / 1e8,  # satoshis to BTC
+                "scriptPubKey": {
+                    "address": out.get("scriptpubkey_address", ""),
+                }
+            })
+        vin = []
+        for inp in tx.get("vin", []):
+            prevout = inp.get("prevout", {})
+            vin.append({
+                "prevout": {
+                    "scriptPubKey": {
+                        "address": prevout.get("scriptpubkey_address", ""),
+                    },
+                    "value": prevout.get("value", 0) / 1e8,
+                }
+            })
+        converted_txs.append({
+            "txid": tx.get("txid", txid),
+            "vout": vout,
+            "vin": vin,
+        })
+    return {
+        "height": block.get("height", 0),
+        "time": block.get("timestamp", 0),
+        "tx": converted_txs,
+    }
 
 
 def fetch_bitcoin_transaction(tx_hash: str) -> Optional[Dict]:

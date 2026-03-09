@@ -105,11 +105,7 @@ def on_solana_message(ws, message):
                     "source": "solana"
                 }
 
-                # Check if it's a duplicate before processing
-                if not handle_event(event):
-                    continue
-
-                # Only proceed with classification and counting if it's not a duplicate
+                # Classify BEFORE dedup so classification is present in stored event
                 classification, confidence = enhanced_solana_classification(
                     owner=owner,
                     prev_owner=prev_owner,
@@ -119,8 +115,12 @@ def on_solana_message(ws, message):
                     source="solana"
                 )
 
-                # Add classification to the event
+                # Add classification to the event before dedup
                 event["classification"] = classification
+
+                # Check if it's a duplicate before processing
+                if not handle_event(event):
+                    continue
                 
                 # Only count transactions with sufficient confidence
                 if confidence >= 2:  # Increased confidence threshold

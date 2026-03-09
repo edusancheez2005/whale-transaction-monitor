@@ -200,7 +200,7 @@ POLYGON_TOKENS_TO_MONITOR = {
 
 SOL_TOKENS_TO_MONITOR = {
     # Major Solana Tokens
-    "SOL": {"mint": "So11111111111111111111111111111111111111112", "decimals": 9, "min_threshold": 5_000_000},
+    "SOL": {"mint": "So11111111111111111111111111111111111111112", "decimals": 9, "min_threshold": 25_000},
     "BONK": {"mint": "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263", "decimals": 5, "min_threshold": 1_500},
     "RAY": {"mint": "4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R", "decimals": 6, "min_threshold": 2_500},
     "SAMO": {"mint": "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU", "decimals": 9, "min_threshold": 1_500},

@@ -59,34 +59,50 @@ def on_xrp_message(ws, message):
                 filtered_by_threshold += 1
                 return
                 
+            # Pass usd_value so classifier knows the transaction size
+            txn['amount_usd'] = usd_value
+
             classification, processed_amount = classify_xrp_transaction(txn)
-            
+
             # Skip already classified transactions
             if classification == "already_classified":
                 return
-                
+
             # Update counters
             xrp_payment_count += 1
             xrp_total_amount += float(processed_amount)
-            
-            # Create event for deduplication 
+
+            # Create event for deduplication
             event = {
                 "blockchain": "xrp",
                 "tx_hash": tx_hash,
-                "classification": classification,
                 "from": txn.get("Account", ""),
                 "to": txn.get("Destination", ""),
                 "amount": amount_xrp,
                 "usd_value": usd_value,
                 "symbol": "XRP"
             }
+
+            # Enrich via WhaleIntelligenceEngine for better BUY/SELL detection
+            try:
+                from utils.classification_final import process_and_enrich_transaction
+                enriched = process_and_enrich_transaction(event)
+                if enriched and isinstance(enriched, dict):
+                    classification = enriched.get('classification', classification).upper()
+                else:
+                    classification = classification.upper()
+            except Exception:
+                classification = classification.upper()
+
+            event['classification'] = classification
+
             if handle_event(event):
                 record_transfer("XRP", amount_xrp, txn.get("Account", ""),
               txn.get("Destination", ""), tx_hash)
-            
-            if classification.upper() in ("BUY", "MODERATE_BUY", "VERIFIED_SWAP_BUY"):
+
+            if classification in ("BUY", "MODERATE_BUY", "VERIFIED_SWAP_BUY"):
                 xrp_buy_counts += 1
-            elif classification.upper() in ("SELL", "MODERATE_SELL", "VERIFIED_SWAP_SELL"):
+            elif classification in ("SELL", "MODERATE_SELL", "VERIFIED_SWAP_SELL"):
                 xrp_sell_counts += 1
                      
             # Print transaction details
