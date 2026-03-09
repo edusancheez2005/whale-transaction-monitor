@@ -193,3 +193,45 @@ def store_transaction(event: Dict[str, Any], classification_data: Optional[Dict[
     except Exception as e:
         logger.error(f"Failed to store transaction {event.get('tx_hash', '?')}: {e}")
         return False
+
+
+def store_alchemy_transaction(event: Dict[str, Any], classification_data: Optional[Dict[str, Any]] = None) -> bool:
+    """
+    Persist a Bitcoin/Solana Alchemy transaction to the separate alchemy_transactions table.
+
+    Same schema as whale_transactions but kept in a dedicated table so the
+    original whale_transactions pipeline stays untouched.
+    """
+    client = _get_client()
+    if client is None:
+        return False
+
+    EXCLUDED_STABLECOINS = {'USDT', 'USDC', 'DAI', 'BUSD', 'TUSD', 'USDP', 'FDUSD'}
+
+    try:
+        row = _map_event_to_whale_row(event, classification_data)
+
+        if not row['transaction_hash']:
+            return False
+        if not row['token_symbol']:
+            return False
+        if row['token_symbol'] in EXCLUDED_STABLECOINS:
+            logger.debug(f"Skipped stablecoin: {row['token_symbol']} {row['classification']} ${row['usd_value']:,.0f}")
+            return False
+
+        result = client.table('alchemy_transactions').upsert(
+            row,
+            on_conflict='transaction_hash'
+        ).execute()
+
+        if result.data:
+            logger.info(
+                f"Alchemy stored: {row['blockchain']} {row['token_symbol']} "
+                f"${row['usd_value']:,.0f} {row['classification']}"
+            )
+            return True
+        return False
+
+    except Exception as e:
+        logger.error(f"Failed to store alchemy transaction {event.get('tx_hash', '?')}: {e}")
+        return False

@@ -150,7 +150,6 @@ def _process_block(block: dict) -> int:
             safe_print(f"  To   : {to_addr}")
 
             try:
-                from utils.dedup import handle_event
                 event = {
                     "blockchain": "bitcoin",
                     "tx_hash": tx_hash,
@@ -177,14 +176,25 @@ def _process_block(block: dict) -> int:
 
                 # Update buy/sell counters
                 from config.settings import bitcoin_buy_counts, bitcoin_sell_counts
-                if classification in ('BUY', 'MODERATE_BUY', 'BUY_MODERATE'):
+                if classification == 'BUY':
                     bitcoin_buy_counts['BTC'] += 1
-                elif classification in ('SELL', 'MODERATE_SELL', 'SELL_MODERATE'):
+                elif classification == 'SELL':
                     bitcoin_sell_counts['BTC'] += 1
 
+                # Also route through dedup for in-memory dashboard
+                from utils.dedup import handle_event
                 handle_event(event)
+
+                # Persist to dedicated alchemy_transactions table
+                from utils.supabase_writer import store_alchemy_transaction
+                store_alchemy_transaction(event, {
+                    'classification': classification,
+                    'confidence': 0.8 if classification != 'TRANSFER' else 0.5,
+                    'whale_score': 0,
+                    'reasoning': f"BTC {'exchange withdrawal' if classification == 'BUY' else 'exchange deposit' if classification == 'SELL' else 'transfer'}",
+                })
             except Exception as e:
-                logger.warning(f"Bitcoin dedup/event error: {e}")
+                logger.warning(f"Bitcoin event error: {e}")
 
     return found
 
