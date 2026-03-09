@@ -286,46 +286,42 @@ def fetch_bitcoin_block(blockhash: str, verbosity: int = 2) -> Optional[Dict]:
         result = _rpc_call(rpc_url, 'getblock', [blockhash, verbosity], cu_cost=10, timeout=30)
         if result is not None:
             return result
-    # Fallback to mempool.space — returns block with txs in a different format
+    # Fallback to mempool.space — use batch /txs/ endpoint (25 txs per call)
     block = _mempool_get(f"/block/{blockhash}", timeout=30)
     if not block:
         return None
-    # Fetch transactions for this block
-    txids = _mempool_get(f"/block/{blockhash}/txids", timeout=30)
-    if not txids:
-        return None
-    # Convert mempool.space format to match Bitcoin RPC format
-    # Fetch individual large transactions (mempool.space gives txids, need to fetch each)
+    tx_count = block.get("tx_count", 0)
     converted_txs = []
-    for txid in txids[:50]:  # Limit to first 50 txs to avoid rate limits
-        tx = _mempool_get(f"/tx/{txid}", timeout=10)
-        if not tx:
-            continue
-        # Convert mempool.space tx format to Bitcoin RPC verbosity=2 format
-        vout = []
-        for out in tx.get("vout", []):
-            vout.append({
-                "value": out.get("value", 0) / 1e8,  # satoshis to BTC
-                "scriptPubKey": {
-                    "address": out.get("scriptpubkey_address", ""),
-                }
-            })
-        vin = []
-        for inp in tx.get("vin", []):
-            prevout = inp.get("prevout", {})
-            vin.append({
-                "prevout": {
+    # Fetch transactions in batches of 25 (mempool.space /block/{hash}/txs/{start_index})
+    for start_idx in range(0, min(tx_count, 200), 25):
+        batch = _mempool_get(f"/block/{blockhash}/txs/{start_idx}", timeout=30)
+        if not isinstance(batch, list) or not batch:
+            break
+        for tx in batch:
+            vout = []
+            for out in tx.get("vout", []):
+                vout.append({
+                    "value": out.get("value", 0) / 1e8,
                     "scriptPubKey": {
-                        "address": prevout.get("scriptpubkey_address", ""),
-                    },
-                    "value": prevout.get("value", 0) / 1e8,
-                }
+                        "address": out.get("scriptpubkey_address", ""),
+                    }
+                })
+            vin = []
+            for inp in tx.get("vin", []):
+                prevout = inp.get("prevout", {})
+                vin.append({
+                    "prevout": {
+                        "scriptPubKey": {
+                            "address": prevout.get("scriptpubkey_address", ""),
+                        },
+                        "value": prevout.get("value", 0) / 1e8,
+                    }
+                })
+            converted_txs.append({
+                "txid": tx.get("txid", ""),
+                "vout": vout,
+                "vin": vin,
             })
-        converted_txs.append({
-            "txid": tx.get("txid", txid),
-            "vout": vout,
-            "vin": vin,
-        })
     return {
         "height": block.get("height", 0),
         "time": block.get("timestamp", 0),

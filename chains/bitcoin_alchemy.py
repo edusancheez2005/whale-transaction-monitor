@@ -28,6 +28,37 @@ _last_seen_height: Optional[int] = None
 
 POLL_INTERVAL = 30  # seconds between blockcount checks
 
+# Known Bitcoin exchange addresses (hot wallets)
+BTC_EXCHANGE_ADDRESSES = {
+    # Binance
+    "34xp4vRoCGJym3xR7yCVPFHoCNxv4Twseo": "binance",
+    "3JZq4atUahhuA9rLhXLMhhTo133J9rF97j": "binance",
+    "1NDyJtNTjmwk5xPNhjgAMu4HDHigtobu1s": "binance",
+    "bc1qm34lsc65zpw79lxes69zkqmk6ee3ewf0j77s3h": "binance",
+    # Coinbase
+    "3KPnkDjx1gvkaG7EpCsj6Kiw7VBFbtiZXo": "coinbase",
+    "bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh": "coinbase",
+    "bc1q7cyrfmck2ffu2ud3rn5l5a8yv6f0chkp0zpemf": "coinbase",
+    # Kraken
+    "3FHNBLobJnbCTFTVakh5TXmEneyf5PT61B": "kraken",
+    "bc1qr4dl5wa7kl8yu792dceg9z5knl2gkn220lk7a9": "kraken",
+    # Bitfinex
+    "3D2oetdNuZUqQHPJmcMDDHYoqkyNVsFk9r": "bitfinex",
+    "bc1qgdjqv0av3q56jvd82tkdjpy7gdp9ut8tlqmgrpmv24sq90ecnvqqjwvw97": "bitfinex",
+    # OKX
+    "bc1qjasf9z3h7w3jspkhtgatgpyvvzgpa2wwd2lr0eh5tx44reyn2k7sfl6tyj": "okx",
+    # Gemini
+    "3Ji2LZcG8UqmhCKqoH2DpJ2giwXEsPKLg5": "gemini",
+    # Huobi
+    "1HckjUpRGcrrRAtFaaCAUaGjsPx9oYmLaZ": "huobi",
+    # Bybit
+    "bc1qp72r5vu8xlqhqkfrz8s36yyge6s5ng7jy3rl7w": "bybit",
+    # Robinhood
+    "bc1qr35hws365juz5rtlsjtvmapst74gkzjg0tkzrx": "robinhood",
+    # Bittrex
+    "3QW49DvKAhEP2kj5ciGmAHdfuPUoUQprVV": "bittrex",
+}
+
 
 def _btc_price() -> float:
     return TOKEN_PRICES.get("WBTC", TOKEN_PRICES.get("BTC", 65_000))
@@ -88,15 +119,14 @@ def _process_block(block: dict) -> int:
                     "source": "bitcoin_alchemy",
                 }
 
-                # Classify via WhaleIntelligenceEngine (CEX/DEX detection)
-                try:
-                    from utils.classification_final import process_and_enrich_transaction
-                    enriched = process_and_enrich_transaction(event)
-                    if enriched and isinstance(enriched, dict):
-                        classification = enriched.get('classification', 'TRANSFER').upper()
-                    else:
-                        classification = 'TRANSFER'
-                except Exception:
+                # Classify using known BTC exchange addresses
+                from_is_exchange = from_addr in BTC_EXCHANGE_ADDRESSES
+                to_is_exchange = to_addr in BTC_EXCHANGE_ADDRESSES
+                if from_is_exchange and not to_is_exchange:
+                    classification = 'BUY'   # Withdrawal from exchange
+                elif to_is_exchange and not from_is_exchange:
+                    classification = 'SELL'  # Deposit to exchange
+                else:
                     classification = 'TRANSFER'
 
                 event['classification'] = classification
