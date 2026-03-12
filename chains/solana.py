@@ -1,10 +1,20 @@
+"""
+Solana SPL token whale transaction monitor.
+
+Primary: Alchemy Solana WebSocket (programSubscribe for SPL token changes).
+Fallback: Helius WebSocket if Alchemy WS is unavailable.
+
+Subscribes to the Token Program and processes real-time balance changes.
+"""
+
 import json
 import time
 import threading
 import traceback
 import websocket
 from typing import Dict, Optional
-from config.api_keys import HELIUS_API_KEY
+
+from config.api_keys import HELIUS_API_KEY, ALCHEMY_API_KEY
 from config.settings import (
     GLOBAL_USD_THRESHOLD,
     solana_previous_balances,
@@ -20,21 +30,29 @@ from utils.summary import record_transfer
 from utils.summary import has_been_classified, mark_as_classified
 from utils.dedup import deduplicator, get_dedup_stats, deduped_transactions, handle_event
 
-
-
-
 total_transfers_fetched = 0
 filtered_by_threshold = 0
 
-# In solana.py - update the on_solana_message function
 
-# In solana.py - Update the on_solana_message function
+def _get_alchemy_solana_ws_url() -> Optional[str]:
+    """Build Alchemy Solana WebSocket URL."""
+    if ALCHEMY_API_KEY and ALCHEMY_API_KEY != "YourApiKeyToken" and len(ALCHEMY_API_KEY) > 5:
+        return f"wss://solana-mainnet.g.alchemy.com/v2/{ALCHEMY_API_KEY}"
+    return None
+
+
+def _get_helius_ws_url() -> Optional[str]:
+    """Build Helius WebSocket URL (fallback)."""
+    if HELIUS_API_KEY and len(HELIUS_API_KEY) > 10:
+        return f"wss://mainnet.helius-rpc.com/?api-key={HELIUS_API_KEY}"
+    return None
+
 
 def on_solana_message(ws, message):
     try:
         global total_transfers_fetched
         total_transfers_fetched += 1
-        
+
         data = json.loads(message)
         if "params" not in data:
             return
@@ -57,23 +75,21 @@ def on_solana_message(ws, message):
         owner = info.get("owner")
         tx_hash = data["params"].get("result", {}).get("signature", "")
 
-        # Skip transactions without a hash or with empty addresses
         if not tx_hash or not owner or not mint:
             return
-            
+
         # Get previous state
         prev_owner = None
         prev_amount = 0
-        
+
         if mint in solana_previous_balances:
             prev_owner = solana_previous_balances[mint].get("owner")
-            
+
         if owner in solana_previous_balances:
             prev_amount = solana_previous_balances.get(owner, {}).get(mint, 0)
-            
+
         amount_change = current_amount - prev_amount
-        
-        # Skip negligible changes (can be noise)
+
         if abs(amount_change) < 0.0001:
             return
 
@@ -84,28 +100,25 @@ def on_solana_message(ws, message):
                 usd_value = abs(amount_change) * price
                 min_threshold = token_info.get("min_threshold", GLOBAL_USD_THRESHOLD)
 
-                # Skip low-value transactions
                 if usd_value < min_threshold:
                     continue
 
-                # Create standardized event with unique transaction identifier
-                # Use a combination of tx_hash, owner, and amount for better uniqueness
                 unique_id = f"{tx_hash}_{owner}_{amount_change:.6f}"
-                
+
                 event = {
                     "blockchain": "solana",
-                    "tx_hash": unique_id,  # Use enhanced ID to avoid duplicates
-                    "original_hash": tx_hash,  # Keep original hash for reference
+                    "tx_hash": unique_id,
+                    "original_hash": tx_hash,
                     "from": prev_owner or "unknown",
                     "to": owner,
                     "amount": abs(amount_change),
                     "symbol": symbol,
                     "usd_value": usd_value,
                     "timestamp": time.time(),
-                    "source": "solana"
+                    "source": "solana_alchemy"
                 }
 
-                # Classify BEFORE dedup so classification is present in stored event
+                # Classify BEFORE dedup
                 classification, confidence = enhanced_solana_classification(
                     owner=owner,
                     prev_owner=prev_owner,
@@ -115,21 +128,17 @@ def on_solana_message(ws, message):
                     source="solana"
                 )
 
-                # Add classification to the event before dedup
                 event["classification"] = classification
 
-                # Check if it's a duplicate before processing
                 if not handle_event(event):
                     continue
-                
-                # Only count transactions with sufficient confidence
-                if confidence >= 2:  # Increased confidence threshold
+
+                if confidence >= 2:
                     if classification == "buy":
                         solana_buy_counts[symbol] += 1
                     elif classification == "sell":
                         solana_sell_counts[symbol] += 1
 
-                    # Print transaction details
                     current_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())
                     safe_print(f"\n[{symbol} | ${usd_value:,.2f} USD] Solana {classification.upper()}")
                     safe_print(f"  Time: {current_time}")
@@ -143,7 +152,7 @@ def on_solana_message(ws, message):
                         from utils.supabase_writer import store_transaction
                         classification_data = {
                             'classification': classification.upper(),
-                            'confidence': float(confidence) / 10.0,  # Normalize to 0-1
+                            'confidence': float(confidence) / 10.0,
                             'whale_score': 0.0,
                             'reasoning': f'Solana WS classification: {classification}',
                         }
@@ -164,14 +173,22 @@ def on_solana_message(ws, message):
 
 
 def connect_solana_websocket(retry_count=0, max_retries=5):
-    if not HELIUS_API_KEY or len(HELIUS_API_KEY) < 10:
-        safe_print("⚠️  Solana WS: HELIUS_API_KEY missing or invalid.")
+    """Connect to Solana WebSocket — tries Alchemy first, Helius fallback."""
+    # Try Alchemy first
+    ws_url = _get_alchemy_solana_ws_url()
+    provider_name = "Alchemy"
+
+    if not ws_url:
+        # Fallback to Helius
+        ws_url = _get_helius_ws_url()
+        provider_name = "Helius"
+
+    if not ws_url:
+        safe_print("⚠️  Solana WS: No API key available (Alchemy or Helius).")
         return None
 
-    ws_url = f"wss://mainnet.helius-rpc.com/?api-key={HELIUS_API_KEY}"
-
     def on_open(ws):
-        safe_print("✅ Solana WebSocket connected – subscribing to SPL token transfers...")
+        safe_print(f"✅ Solana WebSocket connected via {provider_name} – subscribing to SPL token transfers...")
         subscribe_msg = {
             "jsonrpc": "2.0",
             "id": 1,
@@ -187,7 +204,7 @@ def connect_solana_websocket(retry_count=0, max_retries=5):
         ws.send(json.dumps(subscribe_msg))
 
     def on_error(ws, error):
-        error_msg = f"Solana WS error: {type(error).__name__}: {str(error)[:200]}"
+        error_msg = f"Solana WS error ({provider_name}): {type(error).__name__}: {str(error)[:200]}"
         safe_print(error_msg)
         log_error(error_msg)
 
@@ -197,7 +214,7 @@ def connect_solana_websocket(retry_count=0, max_retries=5):
             retry_count += 1
             if retry_count <= max_retries:
                 wait_time = min(30, 2 ** retry_count)
-                safe_print(f"Solana WS closed (code: {close_status_code}). Reconnecting in {wait_time}s ({retry_count}/{max_retries})...")
+                safe_print(f"Solana WS closed ({provider_name}, code: {close_status_code}). Reconnecting in {wait_time}s ({retry_count}/{max_retries})...")
                 time.sleep(wait_time)
                 connect_solana_websocket(retry_count, max_retries)
             else:

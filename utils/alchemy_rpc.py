@@ -141,6 +141,39 @@ def _http_call(url: str, payload: Optional[Dict] = None, timeout: int = 10, cu_c
 # EVM helpers (Ethereum / Polygon)
 # ---------------------------------------------------------------------------
 
+def fetch_eth_block_number(blockchain: str = 'ethereum') -> Optional[int]:
+    """Get the latest block number via Alchemy eth_blockNumber (10 CU)."""
+    rpc_url = get_alchemy_rpc(blockchain)
+    if not rpc_url:
+        return None
+    result = _rpc_call(rpc_url, 'eth_blockNumber', [], cu_cost=10)
+    if result:
+        try:
+            return int(result, 16)
+        except (ValueError, TypeError):
+            return None
+    return None
+
+
+def fetch_solana_token_accounts(mint_address: str, program_id: str = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA") -> Optional[List]:
+    """Fetch token accounts by mint via Alchemy Solana RPC (getTokenLargestAccounts, 40 CU)."""
+    rpc_url = get_alchemy_rpc('solana')
+    if not rpc_url:
+        return None
+    return _rpc_call(rpc_url, 'getTokenLargestAccounts', [mint_address], cu_cost=40)
+
+
+def fetch_solana_slot() -> Optional[int]:
+    """Get the current Solana slot number via Alchemy (10 CU)."""
+    rpc_url = get_alchemy_rpc('solana')
+    if not rpc_url:
+        fallback = _CHAIN_FALLBACK_MAP.get('solana')
+        if fallback:
+            return _rpc_call(fallback, 'getSlot', [{"commitment": "confirmed"}], cu_cost=0)
+        return None
+    return _rpc_call(rpc_url, 'getSlot', [{"commitment": "confirmed"}], cu_cost=10)
+
+
 def fetch_evm_receipt(tx_hash: str, blockchain: str = 'ethereum') -> Optional[Dict]:
     """Fetch full EVM transaction receipt from Alchemy (Ethereum/Polygon)."""
     rpc_url = get_alchemy_rpc(blockchain)
