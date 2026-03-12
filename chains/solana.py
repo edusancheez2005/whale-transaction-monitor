@@ -82,7 +82,7 @@ def on_solana_message(ws, message):
             if token_info["mint"] == mint:
                 price = TOKEN_PRICES.get(symbol, 0)
                 usd_value = abs(amount_change) * price
-                min_threshold = token_info.get("min_threshold", GLOBAL_USD_THRESHOLD)
+                min_threshold = 1_000  # $1K threshold for Solana WS
 
                 # Skip low-value transactions
                 if usd_value < min_threshold:
@@ -164,11 +164,12 @@ def on_solana_message(ws, message):
 
 
 def connect_solana_websocket(retry_count=0, max_retries=5):
-    if not HELIUS_API_KEY or len(HELIUS_API_KEY) < 10:
-        safe_print("⚠️  Solana WS: HELIUS_API_KEY missing or invalid.")
+    from config.api_keys import ALCHEMY_API_KEY
+    if not ALCHEMY_API_KEY or len(ALCHEMY_API_KEY) < 10:
+        safe_print("Solana WS: ALCHEMY_API_KEY missing or invalid.")
         return None
 
-    ws_url = f"wss://mainnet.helius-rpc.com/?api-key={HELIUS_API_KEY}"
+    ws_url = f"wss://solana-mainnet.g.alchemy.com/v2/{ALCHEMY_API_KEY}"
 
     def on_open(ws):
         safe_print("✅ Solana WebSocket connected – subscribing to SPL token transfers...")

@@ -129,6 +129,19 @@ bitcoin_sell_counts = defaultdict(int)
 # Transaction monitoring thresholds
 GLOBAL_USD_THRESHOLD = 10_000
 
+# Per-chain thresholds
+CHAIN_USD_THRESHOLDS = {
+    'ethereum': 50_000,
+    'bitcoin': 200_000,
+    'polygon': 10_000,
+    'solana': 1_000,
+    'xrp': 50_000,
+}
+
+def get_chain_threshold(blockchain: str) -> float:
+    """Get the USD threshold for a specific blockchain."""
+    return CHAIN_USD_THRESHOLDS.get(blockchain.lower(), GLOBAL_USD_THRESHOLD)
+
 # Network settings
 SOLANA_RPC_URL = "https://api.mainnet-beta.solana.com"
 SOLANA_COMMITMENT = "confirmed"

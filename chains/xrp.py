@@ -66,27 +66,53 @@ def on_xrp_message(ws, message):
             from_addr = txn.get("Account", "")
             to_addr = txn.get("Destination", "")
 
-            # Classify using known XRP exchange addresses
+            # Filter Ripple Labs treasury/escrow mega-transfers (>$1B)
+            RIPPLE_TREASURY = {
+                'rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh',  # Genesis
+                'rPT1Sjq2YGrBMTttX4GZHjKu9dyfzbpAYe',  # Escrow release
+                'r3kmLJN5D28dHuH8vZNUZpMC43pEHpaocV',  # Ripple OPS
+                'rHWcuuZoFvDS6gNbmHSdpb7u1hZzxvCoMt',  # Ripple distribution
+                'rwSJF4TNLjyfbVCBh3YsBXUUfeMD8AG5g7',  # Ripple
+            }
+            if from_addr in RIPPLE_TREASURY or to_addr in RIPPLE_TREASURY:
+                if usd_value > 1_000_000_000:  # >$1B likely escrow movement
+                    return  # Skip Ripple treasury mega-transfers
+
+            # Multi-signal XRP classification
             from_is_exchange = from_addr in xrp_exchange_addresses
             to_is_exchange = to_addr in xrp_exchange_addresses
+            has_dest_tag = "DestinationTag" in txn
+            tx_type = txn.get("TransactionType", "Payment")
 
-            if from_is_exchange and not to_is_exchange:
-                # Withdrawal from exchange → BUY (someone bought and is withdrawing)
-                classification = "BUY"
+            # OfferCreate = DEX trade on the XRP Ledger (actual buy/sell signal)
+            if tx_type == "OfferCreate":
+                # TakerPays = what the offer creator wants to receive
+                # If they pay XRP to get another token, it's a SELL of XRP
+                # If they pay another token to get XRP, it's a BUY of XRP
+                taker_pays = txn.get("TakerPays", {})
+                taker_gets = txn.get("TakerGets", {})
+                if isinstance(taker_pays, str):  # XRP is represented as string (drops)
+                    classification = "SELL"  # Paying XRP
+                elif isinstance(taker_gets, str):
+                    classification = "BUY"   # Receiving XRP
+                else:
+                    classification = "TRANSFER"  # Token-for-token
+            elif from_is_exchange and not to_is_exchange:
+                classification = "BUY"  # Withdrawal from exchange
             elif to_is_exchange and not from_is_exchange:
-                # Deposit to exchange → SELL (someone is depositing to sell)
-                classification = "SELL"
+                classification = "SELL"  # Deposit to exchange
             elif from_is_exchange and to_is_exchange:
-                # Exchange to exchange → TRANSFER
+                classification = "TRANSFER"  # Exchange internal
+            elif has_dest_tag and not from_is_exchange:
+                # DestinationTag strongly signals exchange deposit (SELL)
+                classification = "SELL"
+            elif not has_dest_tag and usd_value > 500_000:
+                # Very large XRP without DestinationTag = likely OTC/treasury
                 classification = "TRANSFER"
             else:
-                # Wallet to wallet — check DestinationTag (exchange deposits use tags)
-                if "DestinationTag" in txn:
-                    classification = "SELL"  # DestinationTag usually means exchange deposit
-                else:
-                    classification = "TRANSFER"
+                classification = "TRANSFER"
 
-            mark_as_classified("XRP", tx_hash)
+            mark_as_classified("XRP", tx_hash, classification)
 
             # Create event for deduplication
             event = {
@@ -98,6 +124,7 @@ def on_xrp_message(ws, message):
                 "usd_value": usd_value,
                 "symbol": "XRP",
                 "classification": classification,
+                "timestamp": time.time(),
             }
 
             if handle_event(event):

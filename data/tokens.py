@@ -101,7 +101,6 @@ TOP_100_ERC20_TOKENS = [
     {"symbol": "ALPHA", "address": "0xa1faa113cbe53436df28ff0aee54275c13b40975", "tier": "small_cap", "decimals": 18},
     {"symbol": "BADGER", "address": "0x3472a5a71965499acd81997a54bba8d852c6e53d", "tier": "small_cap", "decimals": 18},
     {"symbol": "UMA", "address": "0x04fa0d235c4abf4bcf4787af4cf447de572ef828", "tier": "small_cap", "decimals": 18},
-    {"symbol": "OXT", "address": "0x4575f41308ec1483f3d399aa9a2826d74da13deb", "tier": "small_cap", "decimals": 8},
     {"symbol": "MLN", "address": "0xec67005c4e498ec7f55e092bd1d35cbc47c91892", "tier": "small_cap", "decimals": 18},
     {"symbol": "KNC", "address": "0xdefa4e8a7bcba345f687a2f1456f5edd9ce97202", "tier": "small_cap", "decimals": 18},
     {"symbol": "ALCX", "address": "0xdbdb4d16eda451d0503b854cf79d55697f90c8df", "tier": "small_cap", "decimals": 18},
@@ -196,6 +195,13 @@ POLYGON_TOKENS_TO_MONITOR = {
     "GHST": {"contract": "0x385Eeac5cB85A38A9a07A70c73e0a3271CfB54A7", "decimals": 18, "min_threshold": 500},
     "QUICK": {"contract": "0xB5C064F955D8e7F38fE0460C556a72987494eE17", "decimals": 18, "min_threshold": 500},
     "DQUICK": {"contract": "0x958d208Cdf087843e9AD98d23823d32E17d723A1", "decimals": 18, "min_threshold": 500},
+    # Additional high-volume Polygon tokens
+    "WBTC": {"contract": "0x1BFD67037B42Cf73acF2047067bd4F2C47D9BfD6", "decimals": 8, "min_threshold": 500},
+    "GRT": {"contract": "0x5fe2B58c013d7601147DcdD68C143A77499f5531", "decimals": 18, "min_threshold": 500},
+    "LDO": {"contract": "0xC3C7d422809852031b44ab29EEC9F1EfF2A58756", "decimals": 18, "min_threshold": 500},
+    "MKR": {"contract": "0x6f7C932e7684666C9fd1d44527765433e01fF61d", "decimals": 18, "min_threshold": 500},
+    "stMATIC": {"contract": "0x3A58a54C066FdC0f2D55FC9C89F0415C92eBf3C4", "decimals": 18, "min_threshold": 500},
+    "MaticX": {"contract": "0xfa68FB4628DFF1028CFEc22b4162FCcd0d45efb6", "decimals": 18, "min_threshold": 500},
 }
 
 SOL_TOKENS_TO_MONITOR = {
@@ -295,7 +301,6 @@ TOKEN_PRICES = {
     "ALPHA": 0.15,         # Alpha Finance
     "BADGER": 3.8,         # Badger DAO
     "UMA": 2.4,            # UMA Protocol
-    "OXT": 0.08,           # Orchid
     "MLN": 25.0,           # Melon Protocol
     "KNC": 0.75,           # Kyber Network
     "ALCX": 22.0,          # Alchemix
@@ -367,7 +372,9 @@ TOKEN_PRICES = {
     "WMATIC": 1.0,
     "GHST": 1.2,
     "QUICK": 0.05,
-    "DQUICK": 0.1
+    "DQUICK": 0.1,
+    "stMATIC": 1.05,
+    "MaticX": 1.03,
 }
 
 # Update TOKEN_PRICES with current approximate values
@@ -394,7 +401,8 @@ TOKEN_PRICES.update({
     "UXDY": 1.0,
     "USDR": 1.0,
     "SHDW": 0.05,
-    "COPE": 0.12
+    "COPE": 0.12,
+    "JUP": 0.80,  # Jupiter governance token
 })
 
 # Native chain tokens (for Bitcoin/Tron monitors)

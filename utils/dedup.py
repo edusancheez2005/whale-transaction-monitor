@@ -32,20 +32,20 @@ class TransactionDeduplicator:
         
         # For Solana, add more components to make the key unique
         if chain == 'solana':
-            # Include more data points for Solana
             from_addr = event.get('from', '')
             to_addr = event.get('to', '')
             amount = str(event.get('amount', '0'))
-            # Create a more unique composite key
             return (chain, tx_hash, from_addr, to_addr, amount)
+        elif chain == 'bitcoin':
+            # Bitcoin has multiple outputs per tx_hash — key by output address + amount
+            to_addr = event.get('to', '')
+            amount = str(event.get('amount', '0'))
+            return (chain, tx_hash, to_addr, amount)
         elif chain in ['ethereum', 'bsc', 'polygon']:
-            # For EVM chains, use hash and log index
             return (chain, tx_hash, event.get('log_index', 0))
         elif chain == 'xrp':
-            # For XRP, use hash and sequence
             return (chain, tx_hash, event.get('sequence', 0))
         else:
-            # Default case
             return (chain, tx_hash, event.get('log_index', 0))
 
     def handle_event(self, event: Dict[str, Any]) -> bool:
@@ -57,12 +57,11 @@ class TransactionDeduplicator:
         chain = event.get('blockchain', '').lower()
         self.stats['by_chain'][chain]['total'] += 1
 
-        # Skip ALL stablecoin transactions — they are high-volume noise
-        # that floods the database and drowns out real whale activity.
-        # Previously only blocked TRANSFERs, but BUY/SELL of stablecoins
-        # (e.g. USDT, USDC) is equally noisy and not useful for whale tracking.
+        # Skip stablecoins on most chains (high-volume noise)
+        # BUT allow them on Polygon where USDC/USDT are the primary large-value tokens
         symbol = (event.get('symbol') or '').upper()
-        if symbol in self.EXCLUDED_STABLECOINS:
+        chain = event.get('blockchain', '').lower()
+        if symbol in self.EXCLUDED_STABLECOINS and chain not in ('polygon', 'solana'):
             self.stats['stablecoins_skipped'] += 1
             return False
 
@@ -80,29 +79,25 @@ class TransactionDeduplicator:
                 
             return False
         
-        # Check for circular flows (A->B->C->A) within short time windows
+        # Check for circular flows (A->B->A) within short time windows
+        # Only flag TRUE circular flows (same from/to reversed), not chains
         from_addr = event.get('from', '')
         to_addr = event.get('to', '')
         amount = event.get('amount', 0)
         symbol = event.get('symbol', '')
         
-        # Look for matching amount in reverse direction within last hour
         current_time = time.time()
-        for key, tx in list(self.transactions.items()):  # Use list() to avoid iteration issues
+        for key, tx in list(self.transactions.items()):
             tx_time = tx.get('timestamp', 0)
-            if current_time - tx_time > 3600:  # Skip transactions older than 1 hour
+            if current_time - tx_time > 3600:
                 continue
                 
-            # Check if this is part of a circular flow
-            # 1. Same symbol
-            # 2. Similar amount (within 1%)
-            # 3. Either:
-            #    a. Reverse direction (from becomes to, to becomes from)
-            #    b. Same to address as current from address (chain of transfers)
-            if (tx.get('symbol') == symbol and
+            # Must be same blockchain + same symbol + similar amount
+            # Only flag if from/to are truly reversed (A->B then B->A)
+            if (tx.get('blockchain', '').lower() == chain and
+                tx.get('symbol') == symbol and
                 abs(tx.get('amount', 0) - amount) / max(0.01, amount) < 0.01 and
-                ((tx.get('from') == to_addr and tx.get('to') == from_addr) or  # Reverse
-                 (tx.get('to') == from_addr))):  # Chain of transfers
+                tx.get('from') == to_addr and tx.get('to') == from_addr):
                 
                 self.stats['circular_flows_caught'] += 1
                 self.stats['by_chain'][chain]['circular'] += 1
@@ -121,15 +116,17 @@ class TransactionDeduplicator:
             except Exception:
                 pass  # Don't let push errors break the pipeline
 
-        # Persist to Supabase (non-blocking)
+        # Persist to Supabase (non-blocking, rate-limited thread pool)
         try:
             from utils.supabase_writer import store_transaction
             import threading
-            threading.Thread(
-                target=store_transaction,
-                args=(event,),
-                daemon=True
-            ).start()
+            # Cap concurrent Supabase writes to avoid connection floods
+            if threading.active_count() < 20:
+                threading.Thread(
+                    target=store_transaction,
+                    args=(event,),
+                    daemon=True
+                ).start()
         except Exception:
             pass  # Don't let Supabase errors break the pipeline
 

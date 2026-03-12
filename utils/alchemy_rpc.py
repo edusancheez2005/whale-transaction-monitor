@@ -28,14 +28,15 @@ RECEIPT_USD_THRESHOLD = 50_000
 
 
 class AlchemyRateLimiter:
-    """Thread-safe rate limiter for Alchemy free tier (500 CU/s, 20M CU/month budget).
-
-    Also enforces a concurrency limit to avoid Alchemy's "exceeded concurrent
-    requests capacity" error on free-tier accounts.
+    """Thread-safe rate limiter for Alchemy Pay As You Go plan.
+    
+    Plan specs: 10,000 CU/s throughput, $0.45/M CUs, 300 req/s.
+    With 10K CU/s we can safely do 20+ concurrent requests.
+    We set concurrency to 15 to leave headroom and avoid burst spikes.
     """
 
-    def __init__(self, max_rps: int = 20, monthly_cu_budget: int = 20_000_000,
-                 max_concurrent: int = 3):
+    def __init__(self, max_rps: int = 200, monthly_cu_budget: int = 500_000_000,
+                 max_concurrent: int = 15):
         self.max_rps = max_rps
         self.monthly_budget = monthly_cu_budget
         self.cu_used = 0
@@ -84,6 +85,7 @@ _CHAIN_RPC_MAP = {
     'polygon': ALCHEMY_POLYGON_RPC,
     'solana': ALCHEMY_SOLANA_RPC,
     'bitcoin': ALCHEMY_BITCOIN_RPC,
+    'tron': ALCHEMY_TRON_RPC,
 }
 
 _CHAIN_FALLBACK_MAP = {
@@ -100,41 +102,64 @@ def get_alchemy_rpc(blockchain: str) -> Optional[str]:
     return _CHAIN_RPC_MAP.get(blockchain)
 
 
-def _rpc_call(rpc_url: str, method: str, params: list, timeout: int = 10, cu_cost: int = 25) -> Optional[Dict]:
-    """Execute a JSON-RPC call with rate limiting and concurrency control."""
-    _rate_limiter.wait_if_needed(cu_cost)
-    with _rate_limiter._semaphore:
+def _rpc_call(rpc_url: str, method: str, params: list, timeout: int = 10, cu_cost: int = 25, _retries: int = 3) -> Optional[Dict]:
+    """Execute a JSON-RPC call with rate limiting, concurrency control, and 429 retry."""
+    for attempt in range(1, _retries + 1):
+        _rate_limiter.wait_if_needed(cu_cost)
+        with _rate_limiter._semaphore:
+            try:
+                resp = requests.post(rpc_url, json={
+                    'jsonrpc': '2.0',
+                    'method': method,
+                    'params': params,
+                    'id': 1,
+                }, timeout=timeout)
+                if resp.status_code == 429:
+                    wait = min(2 ** attempt, 8)
+                    logger.warning(f"Alchemy 429 rate-limited ({method}), retrying in {wait}s (attempt {attempt}/{_retries})")
+                    time.sleep(wait)
+                    continue
+                data = resp.json()
+                if 'error' in data:
+                    err = data['error']
+                    # Retry on capacity errors
+                    if isinstance(err, dict) and 'capacity' in str(err.get('message', '')).lower():
+                        wait = min(2 ** attempt, 8)
+                        logger.warning(f"Alchemy capacity error ({method}), retrying in {wait}s")
+                        time.sleep(wait)
+                        continue
+                    logger.warning(f"Alchemy RPC error ({method}): {err}")
+                    return None
+                return data.get('result')
+            except Exception as e:
+                logger.warning(f"Alchemy RPC call failed ({method}): {e}")
+                if attempt < _retries:
+                    time.sleep(min(2 ** attempt, 8))
+                    continue
+                return None
+    return None
+
+
+def _http_call(url: str, payload: Optional[Dict] = None, timeout: int = 10, cu_cost: int = 20, _retries: int = 3) -> Optional[Dict]:
+    """Execute an HTTP REST call (for Tron HTTP endpoints) with rate limiting and 429 retry."""
+    for attempt in range(1, _retries + 1):
+        _rate_limiter.wait_if_needed(cu_cost)
         try:
-            resp = requests.post(rpc_url, json={
-                'jsonrpc': '2.0',
-                'method': method,
-                'params': params,
-                'id': 1,
-            }, timeout=timeout)
+            body = payload if payload is not None else {}
+            resp = requests.post(url, json=body, timeout=timeout)
             if resp.status_code == 429:
-                return None
-            data = resp.json()
-            if 'error' in data:
-                logger.warning(f"Alchemy RPC error ({method}): {data['error']}")
-                return None
-            return data.get('result')
+                wait = min(2 ** attempt, 8)
+                logger.warning(f"Alchemy HTTP 429 ({url.split('/')[-1]}), retrying in {wait}s")
+                time.sleep(wait)
+                continue
+            return resp.json()
         except Exception as e:
-            logger.warning(f"Alchemy RPC call failed ({method}): {e}")
+            logger.warning(f"Alchemy HTTP call failed ({url.split('/')[-1]}): {e}")
+            if attempt < _retries:
+                time.sleep(min(2 ** attempt, 8))
+                continue
             return None
-
-
-def _http_call(url: str, payload: Optional[Dict] = None, timeout: int = 10, cu_cost: int = 20) -> Optional[Dict]:
-    """Execute an HTTP REST call (for Tron HTTP endpoints) with rate limiting."""
-    _rate_limiter.wait_if_needed(cu_cost)
-    try:
-        body = payload if payload is not None else {}
-        resp = requests.post(url, json=body, timeout=timeout)
-        if resp.status_code == 429:
-            return None
-        return resp.json()
-    except Exception as e:
-        logger.warning(f"Alchemy HTTP call failed ({url.split('/')[-1]}): {e}")
-        return None
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -162,8 +187,9 @@ def fetch_evm_transaction(tx_hash: str, blockchain: str = 'ethereum') -> Optiona
 
 def fetch_asset_transfers(blockchain: str, from_block: str, to_block: str,
                           contract_addresses: Optional[List[str]] = None,
-                          category: Optional[List[str]] = None) -> Optional[List[Dict]]:
-    """Call alchemy_getAssetTransfers for token transfer discovery (120 CU)."""
+                          category: Optional[List[str]] = None,
+                          max_pages: int = 1) -> Optional[List[Dict]]:
+    """Call alchemy_getAssetTransfers with optional pagination (120 CU per page)."""
     rpc_url = get_alchemy_rpc(blockchain)
     if not rpc_url:
         return None
@@ -178,10 +204,21 @@ def fetch_asset_transfers(blockchain: str, from_block: str, to_block: str,
     }
     if contract_addresses:
         params["contractAddresses"] = contract_addresses
-    result = _rpc_call(rpc_url, 'alchemy_getAssetTransfers', [params], cu_cost=120, timeout=15)
-    if result and 'transfers' in result:
-        return result['transfers']
-    return None
+    
+    all_transfers = []
+    for page in range(max_pages):
+        result = _rpc_call(rpc_url, 'alchemy_getAssetTransfers', [params], cu_cost=120, timeout=20)
+        if result and 'transfers' in result:
+            all_transfers.extend(result['transfers'])
+            page_key = result.get('pageKey')
+            if page_key and page < max_pages - 1:
+                params['pageKey'] = page_key
+            else:
+                break
+        else:
+            break
+    
+    return all_transfers if all_transfers else None
 
 
 # ---------------------------------------------------------------------------

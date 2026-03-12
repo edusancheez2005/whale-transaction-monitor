@@ -162,7 +162,7 @@ def poll_tron_blocks():
     """Main loop — called as a thread target from enhanced_monitor.py."""
     global _last_seen_block
 
-    safe_print("✅ Tron Alchemy monitor started (polling every 15s)")
+    safe_print("✅ Tron Alchemy monitor started (polling every 30s)")
 
     now_block = fetch_tron_now_block()
     if now_block and "block_header" in now_block:

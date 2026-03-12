@@ -215,7 +215,10 @@ def _poll_erc20_transfers_once():
         if price == 0:
             safe_print(f"Skipping {symbol} - no price data")
             continue
-            
+
+        # Rate-limit between tokens to avoid Etherscan 429s (3 keys × 5 req/s = 15 req/s max)
+        time.sleep(0.3)
+
         # Rolling start block per token symbol to avoid reprocessing
         start_block = last_processed_block.get(symbol, 0)
         transfers = fetch_erc20_transfers(contract, sort="desc", start_block=start_block)

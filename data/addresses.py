@@ -1002,12 +1002,11 @@ DEFI_LENDING_ADDRESSES = {
 # XRP EXCHANGE ADDRESSES  
 # =============================================================================
 xrp_exchange_addresses = {
-    # Binance addresses
+    # Binance
     "rLNaPoKeeBjZe2qs6x52yVPZpZ8td4dc6w": "binance",
     "rEb8TK3gBgk5auZkwc6sHnwrGVJH8DuaLh": "binance_hot",
     "rJb5KsHsDHF1YS5B5DU6QCkH5NsPaKQTcy": "binance_cold",
-    
-    # Other major exchanges
+    # Major exchanges
     "rEy8TFcrAPvhpKrwyrscNYyqBGUkE9hKaJ": "huobi",
     "rLW9gnQo7BQhU6igk5keqYnH3TVrCxGRzm": "bittrex",
     "rG6FZ31hDHN1K5Dkbma3PSB5uVCuVVRzfn": "bitso",
@@ -1017,6 +1016,22 @@ xrp_exchange_addresses = {
     "rHVLgqh1xS7PBWmhgAHMG9P1mnTRB269D8": "kraken_2",
     "rUobSiUpHCX1WEMRaZ8C1HTqpEqwQHC5Ns": "upbit",
     "r9x5KeWFx3mWHyPqB2NZAUPh1S7rcXK6CP": "gateio",
+    # Added exchanges
+    "rLHzPsX6oXkzU2qL12kHCH8G8cnZv1rBJh": "bitkub",
+    "rBKz5MC2iXdoS3XgnNSYmF69K1Yo4NS3Ws": "bitbank",
+    "rDbWJ9C7uExThZYAwV8m6LsZ5YSX3sa6US": "bybit",
+    "r3bStftDyFRKBIARiGLHETzz8BLJMDiTqS": "crypto.com",
+    "rKxKhXZpSfkFRAMaNxXDhB3WvJPsMPsxGW": "okx",
+    "rfkE1aSy9G8Upk4JssnwBxhEv5p4mn2KTy": "mexc",
+    "rMxWzrqkkbQM571r7fa3gCDFnBFUSSTxjo": "kucoin",
+    "r4FJFo9xKJCMHYDWQev93B6GB5xDCcf3ne": "gemini",
+    "rBWpYJhMRoeTsUEFYbGpKi3wQ1hsCNPxRS": "robinhood",
+    "rPsmHDMkheWkBMeZPFnLCBHoHbymHFrYRz": "bithumb",
+    "rSZaLHhdbUd7En6Q4xQ7FxZF4vAxYPkib": "coinone",
+    "rn4EV7eAHTrnNCPdo4WXm4YhTCemWHd1cN": "phemex",
+    "rMQ98K56yXJbDGv49ZSmW51sLn94Xe1mu1": "bitfinex",
+    "rPVMhWBsfF9iMXYj3aAzJVkPDTFNSyWdKy": "htx",
+    "rPQRaBLJ5c1PQiPU7JMUAXNKRfoLRQFHUo": "poloniex",
 }
 
 # Unified protocol addresses combining all known DeFi protocols

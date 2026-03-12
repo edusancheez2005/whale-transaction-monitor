@@ -128,7 +128,8 @@ def _process_alchemy_transfer(tx: dict, contract_map: dict) -> dict | None:
             return None
 
     usd_value = float(value) * price
-    if usd_value < GLOBAL_USD_THRESHOLD:
+    polygon_threshold = 5_000  # $5K threshold for Polygon ERC-20
+    if usd_value < polygon_threshold:
         return None
 
     return {
@@ -152,7 +153,8 @@ def _process_polygonscan_transfer(tx: dict, symbol: str, decimals: int, price: f
         token_amount = raw_value / (10 ** decimals)
         usd_value = token_amount * price
 
-        if usd_value < GLOBAL_USD_THRESHOLD:
+        polygon_threshold = 1_000  # Lower threshold for Polygon
+        if usd_value < polygon_threshold:
             return None
 
         return {
@@ -172,27 +174,82 @@ def _process_polygonscan_transfer(tx: dict, symbol: str, decimals: int, price: f
 
 
 def _classify_and_store(event: dict):
-    """Classify a Polygon event and route through the dedup/storage pipeline."""
+    """Classify a Polygon event with chain-specific logic and store via dedup pipeline."""
     from utils.dedup import handle_event
 
-    # Classify via WhaleIntelligenceEngine
-    try:
-        from utils.classification_final import process_and_enrich_transaction
-        enriched = process_and_enrich_transaction(event)
-        if enriched and isinstance(enriched, dict):
-            classification = enriched.get('classification', 'TRANSFER').upper()
-        else:
-            classification = 'TRANSFER'
-    except Exception:
-        classification = 'TRANSFER'
+    # Polygon-specific DEX/CEX address matching
+    POLYGON_DEX_ADDRESSES = {
+        '0xa5e0829caced82f9edc736e8167366c1e5104d41',  # QuickSwap Router
+        '0xe592427a0aece92de3edee1f18e0157c05861564',  # Uniswap V3 Router
+        '0x1b02da8cb0d097eb8d57a175b88c7d8b47997506',  # SushiSwap Router
+        '0xdef1c0ded9bec7f1a1670819833240f027b25eff',  # 0x Exchange Proxy
+        '0x3a1d87f206d12415f5b0a33e786967680aab4f6d',  # Balancer Vault (Polygon)
+        '0xba12222222228d8ba445958a75a0704d566bf2c8',  # Balancer V2 Vault
+        '0x1111111254fb6c44bac0bed2854e76f90643097d',  # 1inch V4 Router
+        '0x1111111254eeb25477b68fb85ed929f73a960582',  # 1inch V5 Router
+        '0xdef171fe48cf0115b1d80b88dc8eab59176fee57',  # Paraswap V5
+        '0x6131b5fae19ea4f9d964eac0408e4408b66337b5',  # Kyber Network Router
+        '0xf5b509bb0909a69b1c207e495f687a596c168e12',  # QuickSwap V3
+    }
+    POLYGON_CEX_ADDRESSES = {
+        '0x28c6c06298d514db089934071355e5743bf21d60',  # Binance Hot Wallet
+        '0x21a31ee1afc51d94c2efccaa2092ad1028285549',  # Binance 2
+        '0x1ab4973a48dc892cd9971ece8e01dcc7688f8f23',  # Binance 3
+        '0xe7804c37c13166ff0b37f5ae0bb07a3aebb6e245',  # Binance 48 (from PolygonScan)
+        '0xf977814e90da44bfa03b6295a0616a897441acec',  # Binance 8
+        '0x72a53cdbbcc1b9efa39c834a540550e23463aacb',  # Crypto.com
+        '0x6cc5f688a315f3dc28a7781717a9a798a59fda7b',  # OKX
+        '0x4c569c1e53db4636e0f700ba68bc2efb5882c2e0',  # Upbit (verified PolygonScan - 429M POL)\n        '0x2933782b20aded1b2e989c4dc54ee6d7242f1b57',  # KuCoin (verified PolygonScan)
+        '0x3727cfcb9aa21b8f12e6c2c59a68e494484c4bb8',  # Bitbank 2 (verified PolygonScan)
+        '0x76ec5a0d62678fbd3',                          # BtcTurk 13
+        '0xa9d1e08c7793af67e9d92fe308d5697fb81d3e43',  # Coinbase
+        '0x71660c4005ba85c37ccec55d0c4493e66fe775d3',  # Coinbase 2
+        '0x2910543af39aba0cd09dbb2d50200b3e800a63d2',  # Kraken
+        '0xf89d7b9c864f589bbf53a82105107622b35eaa40',  # Bybit
+    }
+    POLYGON_DEFI = {
+        '0x794a61358d6845594f94dc1db02a252b5b4814ad',  # Aave V3 Pool
+        '0x8dff5e27ea6b7ac08ebfdf9eb090f32ee9a30fcf',  # Aave V2 Pool
+        '0x1a13f4ca1d028320a707d99520abfefca3998b7f',  # Aave V2 amUSDC
+    }
+
+    from_addr = event.get('from', '').lower()
+    to_addr = event.get('to', '').lower()
+    classification = 'TRANSFER'
+
+    # Chain-specific classification
+    from_is_cex = from_addr in POLYGON_CEX_ADDRESSES
+    to_is_cex = to_addr in POLYGON_CEX_ADDRESSES
+    from_is_dex = from_addr in POLYGON_DEX_ADDRESSES
+    to_is_dex = to_addr in POLYGON_DEX_ADDRESSES
+    from_is_defi = from_addr in POLYGON_DEFI
+    to_is_defi = to_addr in POLYGON_DEFI
+
+    if from_is_cex and not to_is_cex:
+        classification = 'BUY'    # Withdrawal from exchange
+    elif to_is_cex and not from_is_cex:
+        classification = 'SELL'   # Deposit to exchange
+    elif from_is_dex or to_is_dex:
+        classification = 'BUY' if from_is_dex else 'SELL'
+    elif from_is_defi or to_is_defi:
+        classification = 'TRANSFER'  # DeFi interaction
+    else:
+        # Fall back to WhaleIntelligenceEngine for unknown addresses
+        try:
+            from utils.classification_final import process_and_enrich_transaction
+            enriched = process_and_enrich_transaction(event)
+            if enriched and isinstance(enriched, dict):
+                classification = enriched.get('classification', 'TRANSFER').upper()
+        except Exception:
+            pass
 
     event['classification'] = classification
     handle_event(event)
 
     from config.settings import polygon_buy_counts, polygon_sell_counts
-    if classification in ('BUY', 'MODERATE_BUY', 'BUY_MODERATE'):
+    if 'BUY' in classification:
         polygon_buy_counts[event['symbol']] += 1
-    elif classification in ('SELL', 'MODERATE_SELL', 'SELL_MODERATE'):
+    elif 'SELL' in classification:
         polygon_sell_counts[event['symbol']] += 1
 
     current_time = time.strftime('%Y-%m-%d %H:%M:%S')
@@ -202,9 +259,6 @@ def _classify_and_store(event: dict):
     )
     safe_print(f"  Time : {current_time}")
     safe_print(f"  TX   : {event['tx_hash'][:24]}...")
-    safe_print(f"  From : {event['from']}")
-    safe_print(f"  To   : {event['to']}")
-    safe_print(f"  Amount: {event['amount']:,.4f} {event['symbol']}")
     safe_print(f"  Classification: {classification}")
 
 
@@ -237,7 +291,7 @@ def print_new_polygon_transfers():
         try:
             tip = _get_polygon_block_number()
             if tip is None:
-                safe_print("⚠️  Polygon: block fetch failed, retrying...")
+                safe_print("Polygon: block fetch failed, retrying...")
                 shutdown_flag.wait(timeout=POLL_INTERVAL)
                 continue
 
@@ -250,9 +304,14 @@ def print_new_polygon_transfers():
                 shutdown_flag.wait(timeout=POLL_INTERVAL)
                 continue
 
-            from_hex = hex(last_block + 1)
+            # Polygon produces ~30 blocks per 60s poll interval (2s block time)
+            # Cap to avoid scanning too many blocks at once
+            scan_from = max(last_block + 1, tip - 60)
+            from_hex = hex(scan_from)
             to_hex = hex(tip)
-            blocks_scanned = tip - last_block
+            blocks_scanned = tip - scan_from + 1
+
+            safe_print(f"  Polygon: scanning blocks {scan_from}-{tip} ({blocks_scanned} blocks)")
 
             # Try Alchemy first (single call for all tokens)
             transfers = _alchemy_fetch_transfers(from_hex, to_hex, contract_addresses)
@@ -267,8 +326,44 @@ def print_new_polygon_transfers():
                         _classify_and_store(event)
                         processed += 1
                 if processed > 0:
-                    safe_print(f"  Polygon: {processed} whale tx in {blocks_scanned} blocks (Alchemy)")
-            else:
+                    safe_print(f"  Polygon: {processed} ERC-20 whale tx in {blocks_scanned} blocks")
+
+            # Also scan native MATIC transfers (external category)
+            try:
+                from utils.alchemy_rpc import fetch_asset_transfers as _fetch_at
+                matic_transfers = _fetch_at('polygon', from_hex, to_hex, category=['external'])
+                if matic_transfers:
+                    matic_price = TOKEN_PRICES.get('MATIC', TOKEN_PRICES.get('WMATIC', 1.0))
+                    matic_processed = 0
+                    for tx in matic_transfers:
+                        val = float(tx.get('value', 0) or 0)
+                        usd_value = val * matic_price
+                        if usd_value < 5_000:  # $5K threshold for native MATIC
+                            continue
+                        tx_hash = tx.get('hash', '')
+                        if tx_hash in seen_hashes:
+                            continue
+                        seen_hashes.add(tx_hash)
+                        event = {
+                            "blockchain": "polygon",
+                            "tx_hash": tx_hash,
+                            "from": tx.get("from", ""),
+                            "to": tx.get("to", ""),
+                            "symbol": "MATIC",
+                            "amount": val,
+                            "usd_value": usd_value,
+                            "timestamp": time.time(),
+                            "source": "polygon_alchemy_native",
+                            "block_num": tx.get("blockNum", ""),
+                        }
+                        _classify_and_store(event)
+                        matic_processed += 1
+                    if matic_processed > 0:
+                        safe_print(f"  Polygon: {matic_processed} native MATIC whale tx in {blocks_scanned} blocks")
+            except Exception as e:
+                logger.warning(f"Polygon native MATIC scan error: {e}")
+
+            if transfers is None:
                 # Fallback: PolygonScan per-token
                 safe_print(f"  Polygon: Alchemy unavailable, using PolygonScan fallback")
                 processed = 0

@@ -27,6 +27,11 @@ from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
 from colorama import Fore, Style
 
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+if hasattr(sys.stderr, 'reconfigure'):
+    sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+
 # Production logging imports
 from config.logging_config import production_logger, get_transaction_logger
 from utils.classification_final import WhaleIntelligenceEngine, ClassificationType, normalize_blockchain
@@ -47,10 +52,12 @@ from config.settings import (
     xrp_sell_counts
 )
 from chains.ethereum import print_new_erc20_transfers, test_etherscan_connection
+from chains.ethereum_ws import start_ethereum_ws_thread
 from chains.whale_alert import start_whale_thread
 from chains.xrp import start_xrp_thread 
 from chains.solana import start_solana_thread
 from chains.polygon import print_new_polygon_transfers, test_polygonscan_connection
+from chains.polygon_ws import start_polygon_ws_thread
 from chains.solana_api import print_new_solana_transfers, test_helius_connection
 from models.classes import initialize_prices
 from utils.dedup import get_stats, deduped_transactions
@@ -771,11 +778,16 @@ LAST_BLOCK_WEB3_BY_CHAIN: dict[str, int] = {}
 LAST_BLOCK_WEB3_SWAP_BY_CHAIN: dict[str, int] = {}
 
 def run_web3_transfer_monitor(chain: str) -> None:
-    """Web3 log monitor for ERC-20 Transfer events with rolling block cursors."""
+    """Web3 log monitor for ERC-20 Transfer events with rolling block cursors.
+    
+    Routes ALL RPC calls through the shared AlchemyRateLimiter to prevent
+    concurrent-request errors on free-tier Alchemy accounts.
+    """
     try:
         from data.tokens import TOP_100_ERC20_TOKENS, TOKEN_PRICES
         import config.api_keys as api_keys
         from utils.enhanced_classification import process_with_enhanced_intelligence
+        from utils.alchemy_rpc import get_rate_limiter
     except Exception as e:
         print(RED + f"Web3 monitor init failed: {e}" + END)
         return
@@ -789,6 +801,8 @@ def run_web3_transfer_monitor(chain: str) -> None:
         print(YELLOW + f"Unsupported chain for Web3 monitor: {chain}" + END)
         return
 
+    rate_limiter = get_rate_limiter()
+
     # Detailed Web3 connection with error logging
     try:
         print(f"🔗 Attempting Web3 connection to {chain}: {rpc_url[:50]}...")
@@ -798,7 +812,6 @@ def run_web3_transfer_monitor(chain: str) -> None:
         if not w3.is_connected():
             print(RED + f"❌ Web3 connection test failed for {chain}" + END)
             try:
-                # Try to get more details about why it failed
                 block = w3.eth.get_block('latest')
                 print(f"✅ Actually connected! Latest block: {block['number']}")
             except Exception as test_error:
@@ -806,17 +819,6 @@ def run_web3_transfer_monitor(chain: str) -> None:
                 print(RED + f"❌ Web3 connection error for {chain}:" + END)
                 print(RED + f"   Error type: {type(test_error).__name__}" + END)
                 print(RED + f"   Error message: {error_msg}" + END)
-                
-                # Check for specific error types
-                if "429" in error_msg or "rate limit" in error_msg.lower():
-                    print(YELLOW + "   🚨 RATE LIMIT DETECTED - Too many API requests" + END)
-                elif "timeout" in error_msg.lower():
-                    print(YELLOW + "   ⏱️  TIMEOUT - RPC endpoint not responding" + END)
-                elif "unauthorized" in error_msg.lower() or "403" in error_msg:
-                    print(YELLOW + "   🔒 UNAUTHORIZED - Check your API key" + END)
-                elif "connection" in error_msg.lower():
-                    print(YELLOW + "   🌐 CONNECTION ERROR - Network issue" + END)
-                
                 return
         else:
             print(GREEN + f"✅ Web3 connected successfully to {chain}" + END)
@@ -834,9 +836,12 @@ def run_web3_transfer_monitor(chain: str) -> None:
 
     while not shutdown_flag.is_set() and monitoring_enabled:
         try:
-            latest = w3.eth.block_number
+            # Acquire semaphore before ANY RPC call to respect concurrency limits
+            rate_limiter.wait_if_needed(cu_cost=10)
+            with rate_limiter._semaphore:
+                latest = w3.eth.block_number
+
             if last_block is None:
-                # Start a few blocks behind to catch up
                 last_block = max(0, latest - 12)
 
             from_block = last_block + 1
@@ -848,7 +853,6 @@ def run_web3_transfer_monitor(chain: str) -> None:
             # Batch query: gather logs for tracked token contracts in this window
             addresses = [t['address'] for t in TOP_100_ERC20_TOKENS]
             logs: list = []
-            # Some providers require splitting by address; iterate small subsets
             batch_size = 15
             for i in range(0, len(addresses), batch_size):
                 addr_batch = [Web3.to_checksum_address(a) for a in addresses[i:i + batch_size]]
@@ -858,12 +862,14 @@ def run_web3_transfer_monitor(chain: str) -> None:
                         'toBlock': hex(to_block),
                         'topics': [ERC20_TRANSFER_TOPIC],
                     }
-                    # web3.py doesn't support multiple addresses in a single call for some providers; loop
                     for addr in addr_batch:
                         params = dict(filter_params)
                         params['address'] = addr
                         try:
-                            part = w3.eth.get_logs(params)
+                            # Rate-limit and concurrency-control each RPC call
+                            rate_limiter.wait_if_needed(cu_cost=20)
+                            with rate_limiter._semaphore:
+                                part = w3.eth.get_logs(params)
                             if part:
                                 logs.extend(part)
                         except Exception:
@@ -1296,8 +1302,17 @@ class TransactionStorage:
                 counterparty_address=whale_perspective['counterparty_address']
             )
             
-            # Upsert into whale_transactions table to avoid duplicate key errors
-            result = self.supabase.table('whale_transactions').upsert(
+            # Route to per-blockchain table (same schema as whale_transactions)
+            _CHAIN_TABLE = {
+                'ethereum': 'ethereum_transactions',
+                'bitcoin': 'bitcoin_transactions',
+                'solana': 'solana_transactions',
+                'polygon': 'polygon_transactions',
+                'tron': 'tron_transactions',
+                'xrp': 'xrp_transactions',
+            }
+            target_table = _CHAIN_TABLE.get(blockchain, 'ethereum_transactions')
+            result = self.supabase.table(target_table).upsert(
                 whale_data,
                 on_conflict='transaction_hash'
             ).execute()
@@ -2411,15 +2426,8 @@ def monitor_transactions():
 
 # 🚀 PROFESSIONAL MULTI-TOKEN MONITORING SYSTEM
 def get_threshold_for_tier(tier: str) -> int:
-    """Get USD threshold based on market cap tier"""
-    tier_thresholds = {
-        'large': 50_000,    # $50K+ for major coins
-        'medium': 15_000,   # $15K+ for mid-cap tokens  
-        'small': 5_000,     # $5K+ for small-cap tokens
-        'micro': 1_000,     # $1K+ for micro-cap tokens
-        'emerging': 500     # $500+ for emerging tokens
-    }
-    return tier_thresholds.get(tier, 1_000)  # Default to $1K
+    """Get USD threshold based on market cap tier - all set to $50K for Ethereum"""
+    return 50_000  # Ethereum: $50K+ transactions only
 
 def start_multi_token_monitoring():
     """
@@ -2432,53 +2440,158 @@ def start_multi_token_monitoring():
     - Real-time BUY/SELL detection
     """
     import threading
-    import time
     
-    print(f"{BLUE}🚀 STARTUP: Starting enhanced multi-token monitoring...{END}")
+    print(f"{BLUE}Starting Ethereum Alchemy ERC-20 monitor (single-call)...{END}")
     
-    try:
-        # Conservative grouping for rate limiting
-        tokens_per_group = 35  # Fewer groups = fewer concurrent Alchemy calls
-        # Exclude OXT from monitoring as requested
-        filtered_tokens = [t for t in TOP_100_ERC20_TOKENS if t.get('symbol') != 'OXT']
-        token_groups = [
-            filtered_tokens[i:i + tokens_per_group]
-            for i in range(0, len(filtered_tokens), tokens_per_group)
-        ]
-        
-        # 🚀 FULL MONITORING: Monitor ALL 109 tokens (limit removed)
-        # token_groups = token_groups[:4]  # REMOVED: No longer limiting to 60 tokens
-        
-        print(f"{BLUE}🔧 STARTUP: Configured {sum(len(group) for group in token_groups)} tokens in {len(token_groups)} groups{END}")
-        
-        threads = []
-        
-        for group_idx, token_group in enumerate(token_groups):
-            try:
-                thread = threading.Thread(
-                    target=monitor_token_group,
-                    args=(token_group, group_idx),
-                    daemon=True,
-                    name=f"TokenGroup-{group_idx}"
+    thread = threading.Thread(
+        target=_ethereum_alchemy_poll_loop,
+        daemon=True,
+        name="Ethereum-Alchemy"
+    )
+    thread.start()
+    print(f"{GREEN}Ethereum Alchemy monitor started{END}")
+    return [thread]
+
+
+def _ethereum_alchemy_poll_loop():
+    """Poll Ethereum ERC-20 transfers via Alchemy getAssetTransfers with contract filters."""
+    from utils.alchemy_rpc import fetch_asset_transfers, get_alchemy_rpc, _rpc_call
+    from utils.dedup import handle_event as _handle_event
+    from data.tokens import TOKEN_PRICES
+    
+    # Build symbol lookup and contract address lists from TOP_100_ERC20_TOKENS
+    addr_to_meta = {}
+    all_contracts = []
+    for t in TOP_100_ERC20_TOKENS:
+        addr = t['address'].lower()
+        addr_to_meta[addr] = {
+            'symbol': t['symbol'],
+            'decimals': t.get('decimals', 18),
+        }
+        all_contracts.append(t['address'])
+    
+    # Split contracts into batches of 50 (Alchemy limit per call)
+    contract_batches = [all_contracts[i:i+50] for i in range(0, len(all_contracts), 50)]
+    
+    rpc_url = get_alchemy_rpc('ethereum')
+    if not rpc_url:
+        print(f"{RED}Ethereum Alchemy RPC not configured{END}")
+        return
+    
+    last_block = None
+    poll_interval = 15  # 15s poll — 10K CU/s budget allows aggressive polling
+    
+    print(f"  Ethereum: tracking {len(all_contracts)} ERC-20 tokens in {len(contract_batches)} batches")
+    
+    while not shutdown_flag.is_set() and monitoring_enabled:
+        try:
+            block_hex = _rpc_call(rpc_url, 'eth_blockNumber', [], cu_cost=10)
+            if not block_hex:
+                shutdown_flag.wait(timeout=poll_interval)
+                continue
+            
+            current_block = int(block_hex, 16)
+            
+            if last_block is None:
+                last_block = current_block
+                print(f"  Ethereum tip: block {current_block}")
+                shutdown_flag.wait(timeout=poll_interval)
+                continue
+            
+            if current_block <= last_block:
+                shutdown_flag.wait(timeout=poll_interval)
+                continue
+            
+            scan_from = max(last_block + 1, current_block - 100)
+            from_hex = hex(scan_from)
+            to_hex = hex(current_block)
+            blocks = current_block - scan_from + 1
+            
+            # Fetch transfers for EACH batch of 50 contracts with pagination
+            all_transfers = []
+            for batch in contract_batches:
+                transfers = fetch_asset_transfers(
+                    'ethereum', from_hex, to_hex,
+                    contract_addresses=batch,
+                    category=['erc20'],
+                    max_pages=5,  # Up to 5000 results per batch with 10K CU/s budget
                 )
-                
-                thread.start()
-                threads.append(thread)
-                
-                print(f"{GREEN}✅ Started monitoring group {group_idx}: {len(token_group)} tokens{END}")
-                
-                # Staggered startup
-                if group_idx < len(token_groups) - 1:
-                    time.sleep(2)
-                    
-            except Exception as e:
-                print(f"{RED}❌ Failed to start group {group_idx}: {e}{END}")
+                if transfers:
+                    all_transfers.extend(transfers)
+            
+            processed = 0
+            if all_transfers:
+                for tx in all_transfers:
+                    try:
+                        raw_contract = tx.get('rawContract', {})
+                        contract_addr = raw_contract.get('address', '').lower()
+                        meta = addr_to_meta.get(contract_addr)
+                        
+                        # Try asset name matching if contract not in list
+                        if not meta:
+                            asset = tx.get('asset', '')
+                            if asset and TOKEN_PRICES.get(asset, 0) > 0:
+                                meta = {'symbol': asset, 'decimals': 18}
+                        if not meta:
+                            continue
+                        
+                        symbol = meta['symbol']
+                        price = TOKEN_PRICES.get(symbol, 0)
+                        if price == 0:
+                            continue
+                        
+                        val = tx.get('value')
+                        if val is None:
+                            raw_hex = raw_contract.get('value', '0x0')
+                            try:
+                                val = int(raw_hex, 16) / (10 ** meta['decimals'])
+                            except (ValueError, TypeError):
+                                continue
+                        
+                        estimated_usd = float(val) * price
+                        if estimated_usd < 40_000:
+                            continue
+                        
+                        tx_hash = tx.get('hash', '')
+                        event = {
+                            'blockchain': 'ethereum',
+                            'tx_hash': tx_hash,
+                            'from': tx.get('from', ''),
+                            'to': tx.get('to', ''),
+                            'symbol': symbol,
+                            'amount': float(val),
+                            'estimated_usd': estimated_usd,
+                            'usd_value': estimated_usd,
+                            'timestamp': int(time.time()),
+                            'source': 'ethereum_alchemy',
+                            'block_number': tx.get('blockNum', ''),
+                        }
+                        
+                        try:
+                            from utils.classification_final import process_and_enrich_transaction
+                            enriched = process_and_enrich_transaction(event)
+                            if enriched and isinstance(enriched, dict):
+                                event['classification'] = enriched.get('classification', 'TRANSFER').upper()
+                            else:
+                                event['classification'] = 'TRANSFER'
+                        except Exception:
+                            event['classification'] = 'TRANSFER'
+                        
+                        _handle_event(event)
+                        processed += 1
+                        
+                    except Exception:
+                        continue
+            
+            if processed > 0:
+                print(f"{GREEN}Ethereum: {processed} whale txs in {blocks} blocks (Alchemy){END}")
+            
+            last_block = current_block
+            
+        except Exception as e:
+            print(f"{RED}Ethereum Alchemy poll error: {e}{END}")
         
-        print(f"{GREEN}🎉 Multi-token monitoring started: {sum(len(group) for group in token_groups)} tokens across {len(threads)} groups{END}")
-        return threads
-        
-    except Exception as e:
-        print(f"{RED}❌ Critical error starting multi-token monitoring: {e}{END}")
+        shutdown_flag.wait(timeout=poll_interval)
 
 
 def monitor_token_group(tokens: list, group_id: int):
@@ -2537,7 +2650,37 @@ def monitor_token_group(tokens: list, group_id: int):
                                 'chain': 'ethereum'
                             }
                             
-                            # Process through whale intelligence
+                            # Build event for dedup → Supabase pipeline
+                            event = {
+                                'blockchain': 'ethereum',
+                                'tx_hash': tx_hash,
+                                'from': tx.get('from', ''),
+                                'to': tx.get('to', ''),
+                                'symbol': symbol,
+                                'amount': tx.get('token_amount', 0),
+                                'estimated_usd': tx.get('estimated_usd', 0),
+                                'usd_value': tx.get('estimated_usd', 0),
+                                'timestamp': int(tx.get('timeStamp', 0)),
+                                'source': 'etherscan_multi',
+                                'block_number': int(tx.get('blockNumber', 0)),
+                            }
+
+                            # Classify
+                            try:
+                                from utils.classification_final import process_and_enrich_transaction
+                                enriched = process_and_enrich_transaction(event)
+                                if enriched and isinstance(enriched, dict):
+                                    event['classification'] = enriched.get('classification', 'TRANSFER').upper()
+                                else:
+                                    event['classification'] = 'TRANSFER'
+                            except Exception:
+                                event['classification'] = 'TRANSFER'
+
+                            # Route through dedup → per-chain Supabase table
+                            from utils.dedup import handle_event as _handle_event
+                            _handle_event(event)
+
+                            # Also display
                             try:
                                 display_transaction(enhanced_tx)
                                 processed_count += 1
@@ -2574,58 +2717,74 @@ def monitor_token_group(tokens: list, group_id: int):
 
 def fetch_token_transactions(symbol: str, contract_address: str, threshold_usd: float) -> list:
     """
-    🔍 FETCH TOKEN TRANSACTIONS
-    
-    Fetch recent transactions for a specific ERC-20 token with:
-    - Etherscan API integration
-    - USD value filtering
-    - Error handling and retries
+    Fetch recent ERC-20 token transfers via Alchemy getAssetTransfers.
+    Returns list of qualifying transactions above the USD threshold.
+    Pure Alchemy - no Etherscan dependency.
     """
     try:
-        from chains.ethereum import fetch_erc20_transfers
+        from utils.alchemy_rpc import fetch_asset_transfers, get_alchemy_rpc, _rpc_call
         from data.tokens import TOKEN_PRICES
         
-        # Get token price for USD calculation
         price = TOKEN_PRICES.get(symbol, 0)
         if price == 0:
-            print(f"{RED}⚠️ No price data for {symbol} - skipping{END}")
             return []
         
-        # Fetch transfers using existing ethereum chain function
-        transfers = fetch_erc20_transfers(contract_address, sort="desc")
+        # Get latest Ethereum block
+        rpc_url = get_alchemy_rpc('ethereum')
+        if not rpc_url:
+            return []
+        block_hex = _rpc_call(rpc_url, 'eth_blockNumber', [], cu_cost=10)
+        if not block_hex:
+            return []
+        block = int(block_hex, 16)
+        
+        # Scan last 50 blocks (~10 minutes of Ethereum)
+        from_hex = hex(max(0, block - 50))
+        to_hex = hex(block)
+        
+        transfers = fetch_asset_transfers(
+            blockchain='ethereum',
+            from_block=from_hex,
+            to_block=to_hex,
+            contract_addresses=[contract_address],
+            category=['erc20'],
+        )
         if not transfers:
             return []
         
-        # Filter by USD threshold
-        qualified_transactions = []
-        for tx in transfers[:20]:  # Check last 20 transactions
+        qualified = []
+        for tx in transfers[:50]:
             try:
-                # Calculate USD value
-                token_info = next((t for t in TOP_100_ERC20_TOKENS if t['symbol'] == symbol), None)
-                if not token_info:
-                    continue
-                    
-                decimals = token_info.get('decimals', 18)
-                raw_value = int(tx.get("value", 0))
-                token_amount = raw_value / (10 ** decimals)
-                estimated_usd = token_amount * price
+                val = tx.get('value', 0)
+                if val is None:
+                    raw_contract = tx.get('rawContract', {})
+                    raw_hex = raw_contract.get('value', '0x0')
+                    token_info = next((t for t in TOP_100_ERC20_TOKENS if t['symbol'] == symbol), None)
+                    decimals = token_info.get('decimals', 18) if token_info else 18
+                    try:
+                        val = int(raw_hex, 16) / (10 ** decimals)
+                    except (ValueError, TypeError):
+                        continue
                 
+                estimated_usd = float(val) * price
                 if estimated_usd >= threshold_usd:
-                    # Add USD value to transaction with multiple field names for compatibility
-                    tx['estimated_usd'] = estimated_usd
-                    tx['value_usd'] = estimated_usd  # For compatibility
-                    tx['usd_value'] = estimated_usd  # For compatibility
-                    tx['token_amount'] = token_amount
-                    qualified_transactions.append(tx)
-                    
-            except Exception as e:
-                print(f"{RED}❌ Error processing {symbol} transaction: {e}{END}")
+                    qualified.append({
+                        'hash': tx.get('hash', ''),
+                        'from': tx.get('from', ''),
+                        'to': tx.get('to', ''),
+                        'estimated_usd': estimated_usd,
+                        'value_usd': estimated_usd,
+                        'usd_value': estimated_usd,
+                        'token_amount': float(val),
+                        'blockNumber': tx.get('blockNum', ''),
+                        'timeStamp': str(int(time.time())),
+                    })
+            except Exception:
                 continue
         
-        return qualified_transactions
-        
+        return qualified
     except Exception as e:
-        print(f"{RED}❌ Error fetching {symbol} transactions: {e}{END}")
+        print(f"{RED}Error fetching {symbol} via Alchemy: {e}{END}")
         return []
 
 def start_monitoring_threads():
@@ -2642,17 +2801,21 @@ def start_monitoring_threads():
         print(YELLOW + "   → 1inch monitors: DISABLED" + END)
         print(YELLOW + "   → Alchemy receipt fetching for $50k+ txs: ACTIVE" + END)
 
-        # Etherscan PRIMARY: start multi-token polling as the main data source
-        print(BLUE + "🚀 Starting Etherscan multi-token polling (primary data source)..." + END)
+        # Ethereum: Real-time WebSocket (replaces HTTPS polling)
+        print(BLUE + "Starting Ethereum real-time WebSocket monitor..." + END)
         try:
-            multi_token_threads = start_multi_token_monitoring()
-            if multi_token_threads:
-                threads.extend(multi_token_threads)
-                print(GREEN + f"✅ Etherscan multi-token monitor started ({len(multi_token_threads)} groups)" + END)
+            eth_ws_thread = start_ethereum_ws_thread()
+            if eth_ws_thread:
+                threads.append(eth_ws_thread)
+                print(GREEN + "Ethereum WebSocket monitor started (real-time ERC-20 transfers)" + END)
             else:
-                print(YELLOW + "⚠️ Etherscan multi-token monitor could not be started" + END)
+                # Fallback to HTTPS polling if WS fails
+                print(YELLOW + "Ethereum WS failed, falling back to HTTPS polling" + END)
+                multi_token_threads = start_multi_token_monitoring()
+                if multi_token_threads:
+                    threads.extend(multi_token_threads)
         except Exception as e:
-            print(RED + f"❌ Error starting Etherscan monitor: {e}" + END)
+            print(RED + f"Error starting Ethereum monitor: {e}" + END)
         
         # Try to start Whale Alert monitor
         try:
@@ -2676,18 +2839,24 @@ def start_monitoring_threads():
         except Exception as e:
             print(RED + f"❌ Error starting XRP monitor: {e}" + END)
         
-        # Start Polygon Alchemy monitor (replaced deprecated Polygonscan V1)
+        # Polygon: Real-time WebSocket (replaces HTTPS polling)
         try:
-            polygon_thread = threading.Thread(
-                target=print_new_polygon_transfers,
-                daemon=True,
-                name="Polygon-Alchemy"
-            )
-            polygon_thread.start()
-            threads.append(polygon_thread)
-            print(GREEN + "✅ Polygon Alchemy monitor started" + END)
+            poly_ws_thread = start_polygon_ws_thread()
+            if poly_ws_thread:
+                threads.append(poly_ws_thread)
+                print(GREEN + "Polygon WebSocket monitor started (real-time ERC-20 transfers)" + END)
+            else:
+                # Fallback to HTTPS polling
+                polygon_thread = threading.Thread(
+                    target=print_new_polygon_transfers,
+                    daemon=True,
+                    name="Polygon-Alchemy"
+                )
+                polygon_thread.start()
+                threads.append(polygon_thread)
+                print(YELLOW + "Polygon WS failed, using HTTPS polling fallback" + END)
         except Exception as e:
-            print(RED + f"❌ Error starting Polygon monitor: {e}" + END)
+            print(RED + f"Error starting Polygon monitor: {e}" + END)
         
         # Try to start Solana monitor
         try:
@@ -2726,7 +2895,6 @@ def start_monitoring_threads():
             print(GREEN + "✅ Bitcoin Alchemy monitor started" + END)
         except Exception as e:
             print(RED + f"❌ Error starting Bitcoin monitor: {e}" + END)
-
 
         # Real-time DEX monitoring DISABLED (uses get_logs, burns CU)
         print(YELLOW + "ℹ️  Real-time DEX swap monitoring disabled (CU conservation)" + END)

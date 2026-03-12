@@ -28,19 +28,19 @@ DUNE_QUERIES = {
 }
 
 def initialize_prices():
-    """Initialize token prices from CoinGecko with correct coin IDs"""
+    """Initialize token prices from CoinGecko Pro API (batch fetch) and update TOKEN_PRICES globally."""
     coingecko = CoinGeckoAPI()
-    updated_prices = {}
     
-    # Mapping of your token symbols to CoinGecko IDs
+    # Comprehensive mapping: symbol → CoinGecko ID for ALL monitored tokens
     token_map = {
-        # Ethereum tokens
+        # Ethereum ERC-20 tokens
         "WETH": "weth",
+        "WBTC": "wrapped-bitcoin",
         "LINK": "chainlink",
         "UNI": "uniswap",
         "AAVE": "aave",
         "COMP": "compound-governance-token",
-        "SNX": "synthetix-network-token",
+        "SNX": "havven",
         "MKR": "maker",
         "YFI": "yearn-finance",
         "SUSHI": "sushi",
@@ -48,7 +48,6 @@ def initialize_prices():
         "BAL": "balancer",
         "BNT": "bancor",
         "REN": "republic-protocol",
-        "OMG": "omg",
         "ZRX": "0x",
         "BAT": "basic-attention-token",
         "GRT": "the-graph",
@@ -57,75 +56,112 @@ def initialize_prices():
         "MATIC": "matic-network",
         "PEPE": "pepe",
         "SHIB": "shiba-inu",
+        "FLOKI": "floki",
         "APE": "apecoin",
+        "SAND": "the-sandbox",
+        "MANA": "decentraland",
+        "GALA": "gala",
+        "CHZ": "chiliz",
+        "ENJ": "enjincoin",
+        "FET": "fetch-ai",
+        "OCEAN": "ocean-protocol",
         "DYDX": "dydx",
         "OP": "optimism",
         "ARB": "arbitrum",
         "FRAX": "frax",
         "LUSD": "liquity-usd",
-        "FEI": "fei-usd",
         "CVX": "convex-finance",
         "FXS": "frax-share",
         "LDO": "lido-dao",
         "RPL": "rocket-pool",
         "INJ": "injective-protocol",
+        "CRO": "crypto-com-chain",
+        "QNT": "quant-network",
+        "ENS": "ethereum-name-service",
+        "RNDR": "render-token",
+        "BLUR": "blur",
+        "SSV": "ssv-network",
+        "IMX": "immutable-x",
+        "AXS": "axie-infinity",
+        "ILV": "illuvium",
+        "LPT": "livepeer",
+        "NMR": "numeraire",
+        "DOGE": "dogecoin",
         
         # Solana tokens
         "SOL": "solana",
         "BONK": "bonk",
         "RAY": "raydium",
-        "SAMO": "samoyedcoin",
-        "DUST": "dust-protocol",
         "ORCA": "orca",
         "MSOL": "msol",
-        "SRM": "serum",
-        "MNGO": "mango-markets",
-        "ATLAS": "star-atlas",
         "JTO": "jito-governance-token",
         "PYTH": "pyth-network",
-        "BSOL": "basis-solana",
-        "WIF": "wif",
+        "WIF": "dogwifcoin",
         "RENDER": "render-token",
-        "MEAN": "meanfi",
-        "UXDY": "uxd-stablecoin",
-        "USDR": "real-usd",
-        "SHDW": "genesysgo-shadow",
-        "COPE": "cope"
+
+        # Native chain tokens
+        "BTC": "bitcoin",
+        "TRX": "tron",
+        "XRP": "ripple",
+
+        # Polygon tokens
+        "WMATIC": "wmatic",
+        "GHST": "aavegotchi",
+        "QUICK": "quickswap",
     }
     
-    print("Initializing token prices from CoinGecko...")
+    print("Initializing token prices from CoinGecko Pro API (batch)...")
     
-    # Add delay between requests to respect rate limits
-    for symbol, coin_id in token_map.items():
-        try:
-            price = coingecko.get_price(coin_id)
-            if price:
-                updated_prices[symbol] = price
-                print(f"Retrieved {symbol} price: ${price}")
-            else:
-                # Fallback to existing price
-                if symbol in TOKEN_PRICES:
-                    updated_prices[symbol] = TOKEN_PRICES[symbol]
-                    print(f"Using fallback price for {symbol}: ${TOKEN_PRICES[symbol]}")
-            time.sleep(1)  # Rate limiting delay
-        except Exception as e:
-            print(f"Error getting price for {symbol}: {e}")
-            if symbol in TOKEN_PRICES:
-                updated_prices[symbol] = TOKEN_PRICES[symbol]
+    # Batch fetch all prices in 1-2 API calls instead of 60+ individual ones
+    coin_ids = list(token_map.values())
+    fetched_prices = coingecko.get_prices_batch(coin_ids)
     
-    return updated_prices
+    # Reverse map: CoinGecko ID → symbol(s)
+    id_to_symbols = {}
+    for symbol, cid in token_map.items():
+        id_to_symbols.setdefault(cid, []).append(symbol)
+    
+    updated = 0
+    for cid, price in fetched_prices.items():
+        for symbol in id_to_symbols.get(cid, []):
+            TOKEN_PRICES[symbol] = price
+            updated += 1
+    
+    # Stablecoins — always $1.00
+    for stable in ("USDT", "USDC", "DAI", "BUSD", "TUSD", "USDP", "GUSD", "FRAX", "LUSD", "USDD"):
+        TOKEN_PRICES[stable] = 1.00
+    
+    # Paired tokens that track their base
+    if "SOL" in TOKEN_PRICES:
+        TOKEN_PRICES.setdefault("MSOL", TOKEN_PRICES["SOL"] * 1.05)
+        TOKEN_PRICES.setdefault("BSOL", TOKEN_PRICES["SOL"] * 1.03)
+    if "MATIC" in TOKEN_PRICES:
+        TOKEN_PRICES.setdefault("WMATIC", TOKEN_PRICES["MATIC"])
+    
+    print(f"Token prices initialized: {updated} tokens updated from CoinGecko, "
+          f"{len(TOKEN_PRICES)} total prices available")
+    
+    # Log a few key prices for verification
+    for key_token in ("WETH", "WBTC", "BTC", "SOL", "LINK"):
+        if key_token in TOKEN_PRICES:
+            print(f"   {key_token}: ${TOKEN_PRICES[key_token]:,.2f}")
 
 
 # In models/classes.py, update CoinGeckoAPI class
 
 class CoinGeckoAPI:
     def __init__(self):
-        self.base_url = "https://api.coingecko.com/api/v3"
-        self.api_key = "CG-KQUtZkRECi63h68Sv3YrEbsS"  # Your API key
+        from config.api_keys import COINGECKO_API_KEY
+        # Pro plan uses pro-api subdomain
+        self.api_key = COINGECKO_API_KEY
+        if self.api_key and self.api_key.startswith("CG-"):
+            self.base_url = "https://pro-api.coingecko.com/api/v3"
+        else:
+            self.base_url = "https://api.coingecko.com/api/v3"
         self.price_cache = {}
         self.cache_duration = 300  # 5 minutes
         self.last_request_time = 0
-        self.min_request_interval = 1.5  # Rate limit protection
+        self.min_request_interval = 0.5  # Paid plan: 500 req/min
 
     def _rate_limit(self):
         """Ensure we don't exceed rate limits"""
@@ -136,36 +172,57 @@ class CoinGeckoAPI:
         self.last_request_time = time.time()
 
     def get_price(self, coin_id: str) -> Optional[float]:
-        """Get current price for a coin with caching"""
-        # Check cache first
+        """Get current price for a single coin with caching"""
         if coin_id in self.price_cache:
             cache_time, price = self.price_cache[coin_id]
             if datetime.now() - cache_time < timedelta(seconds=self.cache_duration):
                 return price
+        prices = self.get_prices_batch([coin_id])
+        return prices.get(coin_id)
 
-        self._rate_limit()
-        try:
-            headers = {"x-cg-api-key": self.api_key}
-            response = requests.get(
-                f"{self.base_url}/simple/price",
-                params={
-                    "ids": coin_id,
-                    "vs_currencies": "usd"
-                },
-                headers=headers,
-                timeout=10
-            )
-            
-            if response.status_code == 200:
-                data = response.json()
-                if coin_id in data and "usd" in data[coin_id]:
-                    price = data[coin_id]["usd"]
-                    self.price_cache[coin_id] = (datetime.now(), price)
-                    return price
-            return None
-        except Exception as e:
-            print(f"CoinGecko API error for {coin_id}: {e}")
-            return None
+    def get_prices_batch(self, coin_ids: list) -> Dict[str, float]:
+        """Fetch prices for up to 250 coins in a single API call."""
+        results = {}
+        # Return cached values where available, collect uncached
+        uncached = []
+        for cid in coin_ids:
+            if cid in self.price_cache:
+                cache_time, price = self.price_cache[cid]
+                if datetime.now() - cache_time < timedelta(seconds=self.cache_duration):
+                    results[cid] = price
+                    continue
+            uncached.append(cid)
+
+        if not uncached:
+            return results
+
+        # CoinGecko supports up to 250 ids per call
+        for i in range(0, len(uncached), 250):
+            batch = uncached[i:i + 250]
+            self._rate_limit()
+            try:
+                headers = {"x-cg-pro-api-key": self.api_key} if self.api_key else {}
+                response = requests.get(
+                    f"{self.base_url}/simple/price",
+                    params={
+                        "ids": ",".join(batch),
+                        "vs_currencies": "usd"
+                    },
+                    headers=headers,
+                    timeout=15
+                )
+                if response.status_code == 200:
+                    data = response.json()
+                    for cid in batch:
+                        if cid in data and "usd" in data[cid]:
+                            price = data[cid]["usd"]
+                            self.price_cache[cid] = (datetime.now(), price)
+                            results[cid] = price
+                else:
+                    print(f"CoinGecko batch error: HTTP {response.status_code}")
+            except Exception as e:
+                print(f"CoinGecko batch API error: {e}")
+        return results
 
 class DefiLlamaData:
     def __init__(self):

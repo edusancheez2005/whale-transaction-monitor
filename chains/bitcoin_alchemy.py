@@ -101,6 +101,30 @@ BTC_EXCHANGE_ADDRESSES = {
     # BitMEX
     "3BMEXqGpG4FxBA1KWhRFufXfSTRgzfDBhJ": "bitmex",
     "1FeexV6bAHb8ybZjqQMjJrcCrHGW9sb6uF": "bitmex",
+    "bc1qchctnvmdva5z9vrpxkkxck64v7nmzdtyxsrq64": "bitmex",
+    # Additional from BitInfoCharts verified
+    "3MgEAFWu1HKSnZ5ZsC8qf61ZW18xrP5pgd": "okx",
+    "3FM9vDYsN2iuMPKWjAcqgyahdwdrUxhbJ3": "okx",
+    "1DcT5Wij5tfb3oVViF8mA8p4WrG98ahZPT": "okx",
+    "1CY7fykRLWXeSbKB885Kr4KjQxmDdvW923": "okx",
+    "3LQUu4v9z6KNch71j7kbj8GPeAGUo1FW6a": "binance",
+    "34HpHYiyQwg69gFmCq2BGHjF1DZnZnBeBP": "binance",
+    "1PJiGp2yDLvUgqeBsuZVCBADArNsk6XEiw": "binance",
+    "bc1qx9t2l3pyny2spqpqlye8svce70nppwtaxwdrp4": "binance_pool",
+    "1Q8QR5k32hexiMQnRgkJ6fmmjn5fMWhdv9": "binance_pool",
+    "bc1ql49ydapnjafl5t2cp9zqpjwe6pdgmxy98859v2": "robinhood",
+    "bc1q4j7fcl8zx5yl56j00nkqez9zf3f6ggqchwzzcs5hjxwqhsgxvavq3qfgpr": "coincheck",
+    "bc1qhk0ghcywv0mlmcmz408sdaxudxuk9tvng9xx8g": "unknown_exchange",
+    "162bzZT2hJfv5Gm3ZmWfWfHJjCtMD6rHhw": "gate.io",
+    "bc1qr4dl5wa7kl8yu792dceg9z5knl2gkn220lk7a9": "crypto.com",
+    "bc1qx2x5cqhymfcnjtg902ky6u5t5htmt7fvqztdsm028hkrvxcl4t2sjtpd9l": "bitbank",
+    "3GPAWK5aUB5Ve9akvTzZgp69USjgbhFbay": "unknown_exchange",
+    "bc1qlt5nm3kflne7rht4alsnzdzad878ld5rcu4na0": "unknown_exchange",
+    # Mining pools (classify as TRANSFER, not BUY/SELL)
+    "1KFHE7w8BhaENAswwryaoccDb6qcT6DbYY": "f2pool",
+    "bc1qjl8uwezzlech723lpnyuza0h2cdkvxvh54v3dn": "foundry_usa",
+    "12dRugNcdxK39288NjcDV4GX7rMsKCGn6B": "antpool",
+    "3HqH1qGAqNWPpbrvyGjnRxNEjcUKD4e6ea": "viabtc",
 }
 
 
@@ -111,16 +135,23 @@ def _btc_price() -> float:
 def _process_block(block: dict) -> int:
     """Parse a decoded Bitcoin block for large-value outputs.  Returns count of qualifying txs."""
     btc_usd = _btc_price()
-    threshold_btc = GLOBAL_USD_THRESHOLD / btc_usd
+    threshold_btc = 200_000 / btc_usd  # $200K threshold for Bitcoin
     block_height = block.get("height", "?")
     txs = block.get("tx", [])
     found = 0
 
+    safe_print(f"  Bitcoin block {block_height}: scanning {len(txs)} txs (threshold: {threshold_btc:.4f} BTC = ${GLOBAL_USD_THRESHOLD:,.0f})")
+
     for tx in txs:
         tx_hash = tx.get("txid", "")
         vout = tx.get("vout", [])
+        vin = tx.get("vin", [])
 
-        for out in vout:
+        # Bitcoin heuristic: count inputs and outputs for pattern detection
+        num_inputs = len(vin)
+        num_outputs = len(vout)
+
+        for out_idx, out in enumerate(vout):
             value_btc = out.get("value", 0)
             if value_btc < threshold_btc:
                 continue
@@ -133,7 +164,6 @@ def _process_block(block: dict) -> int:
             elif spk.get("addresses"):
                 to_addr = spk["addresses"][0]
 
-            vin = tx.get("vin", [])
             from_addr = ""
             if vin and vin[0].get("prevout", {}).get("scriptPubKey", {}).get("address"):
                 from_addr = vin[0]["prevout"]["scriptPubKey"]["address"]
@@ -162,15 +192,31 @@ def _process_block(block: dict) -> int:
                     "source": "bitcoin_alchemy",
                 }
 
-                # Classify using known BTC exchange addresses
+                # Multi-signal Bitcoin classification
                 from_is_exchange = from_addr in BTC_EXCHANGE_ADDRESSES
                 to_is_exchange = to_addr in BTC_EXCHANGE_ADDRESSES
+
                 if from_is_exchange and not to_is_exchange:
                     classification = 'BUY'   # Withdrawal from exchange
                 elif to_is_exchange and not from_is_exchange:
                     classification = 'SELL'  # Deposit to exchange
+                elif from_is_exchange and to_is_exchange:
+                    classification = 'TRANSFER'  # Exchange internal
+                elif from_addr == 'coinbase':
+                    classification = 'TRANSFER'  # Mining reward
                 else:
-                    classification = 'TRANSFER'
+                    # Heuristic: 1 input -> many outputs = exchange batch withdrawal (BUY)
+                    # Heuristic: many inputs -> 1 output = exchange consolidation (TRANSFER)
+                    # Heuristic: round BTC amounts (1.0, 5.0, 10.0) more likely exchange
+                    is_round = (value_btc == int(value_btc)) and value_btc >= 1.0
+                    if num_inputs == 1 and num_outputs >= 5:
+                        classification = 'BUY'  # Batch withdrawal pattern
+                    elif num_inputs >= 5 and num_outputs <= 2:
+                        classification = 'SELL'  # Consolidation → likely exchange deposit
+                    elif is_round and value_btc >= 10.0:
+                        classification = 'BUY'  # Round amounts suggest OTC/exchange
+                    else:
+                        classification = 'TRANSFER'
 
                 event['classification'] = classification
 
@@ -181,18 +227,10 @@ def _process_block(block: dict) -> int:
                 elif classification == 'SELL':
                     bitcoin_sell_counts['BTC'] += 1
 
-                # Also route through dedup for in-memory dashboard
+                # Route through dedup for in-memory dashboard + Supabase persistence
                 from utils.dedup import handle_event
                 handle_event(event)
 
-                # Persist to dedicated alchemy_transactions table
-                from utils.supabase_writer import store_alchemy_transaction
-                store_alchemy_transaction(event, {
-                    'classification': classification,
-                    'confidence': 0.8 if classification != 'TRANSFER' else 0.5,
-                    'whale_score': 0,
-                    'reasoning': f"BTC {'exchange withdrawal' if classification == 'BUY' else 'exchange deposit' if classification == 'SELL' else 'transfer'}",
-                })
             except Exception as e:
                 logger.warning(f"Bitcoin event error: {e}")
 
@@ -207,10 +245,11 @@ def poll_bitcoin_blocks():
 
     height = fetch_bitcoin_blockcount()
     if height is not None:
-        _last_seen_height = height
-        safe_print(f"   Bitcoin tip: block {height}")
+        # Start 1 block behind so the first poll cycle processes a real block
+        _last_seen_height = height - 1
+        safe_print(f"   Bitcoin tip: block {height} (will process from {height})")
     else:
-        safe_print("⚠️  Bitcoin: could not fetch initial block height")
+        safe_print("Bitcoin: could not fetch initial block height")
 
     while not shutdown_flag.is_set():
         try:

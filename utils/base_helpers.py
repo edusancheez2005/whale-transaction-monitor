@@ -1,12 +1,22 @@
 # utils/base_helpers.py
 """Base helper functions to avoid circular imports"""
+import sys
 from threading import Lock
 from config.settings import print_lock, RUNTIME_ERRORS
 
 def safe_print(*args, **kwargs):
-    """Thread-safe print function"""
+    """Thread-safe print function that survives Windows cp1252 consoles."""
     with print_lock:
-        print(*args, **kwargs)
+        try:
+            print(*args, **kwargs)
+        except UnicodeEncodeError:
+            sep = kwargs.get('sep', ' ')
+            end = kwargs.get('end', '\n')
+            text = sep.join(str(arg) for arg in args)
+            encoding = getattr(sys.stdout, 'encoding', None) or 'utf-8'
+            safe_text = text.encode(encoding, errors='replace').decode(encoding, errors='replace')
+            sys.stdout.write(safe_text + end)
+            sys.stdout.flush()
 
 def log_error(error_message: str):
     """

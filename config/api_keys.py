@@ -45,8 +45,8 @@ DUNE_API_KEY = "OMOjlnPKwqG1OiLvZ4bTcs3V6EYX9ymF"  # Updated Dune Analytics API 
 BITQUERY_API_KEY = "ory_at_1z07_FgKYYRlTvrAaUzSxTdelBd--L-IyVTM3LGxbho.SCYADMgS1bCW_xNTI-wh_i049B8DjgpI5OeCjb3TXOo"
 HELIUS_API_KEY = "0bd8a69e-4bd7-4557-b4c6-1240a2185b6b"
 
-# CoinGecko API for price feeds (free tier)
-COINGECKO_API_KEY = ""  # Optional - free tier works without key, pro tier for rate limits
+# CoinGecko API for price feeds (paid Pro plan)
+COINGECKO_API_KEY = os.getenv("COINGECKO_API_KEY", "CG-nuPrNk1hMydULrhAGsZZJ2bD")
 
 # New API keys for address enrichment service integrations
 COVALENT_API_KEY = os.getenv("COVALENT_API_KEY", "cqt_rQfrBY93cfvpfwYDMKXwYjTXJppC")  # Alternative working key
@@ -124,6 +124,10 @@ ETHEREUM_RPC_PROVIDERS = [
 # Primary RPC URL (for backward compatibility)
 ETHEREUM_RPC_URL = ETHEREUM_RPC_PROVIDERS[0] if ETHEREUM_RPC_PROVIDERS else "https://ethereum.publicnode.com"
 
+# Alchemy WebSocket URLs (real-time streaming)
+ALCHEMY_ETHEREUM_WS = f"wss://eth-mainnet.g.alchemy.com/v2/{ALCHEMY_API_KEY}" if ALCHEMY_API_KEY and ALCHEMY_API_KEY != "YourApiKeyToken" else None
+ALCHEMY_POLYGON_WS = f"wss://polygon-mainnet.g.alchemy.com/v2/{ALCHEMY_API_KEY}" if ALCHEMY_API_KEY and ALCHEMY_API_KEY != "YourApiKeyToken" else None
+
 # Polygon setup (similar pattern)
 ALCHEMY_POLYGON_RPC = f"https://polygon-mainnet.g.alchemy.com/v2/{ALCHEMY_API_KEY}" if ALCHEMY_API_KEY and ALCHEMY_API_KEY != "YourApiKeyToken" else None
 INFURA_POLYGON_RPC = f"https://polygon-mainnet.infura.io/v3/{INFURA_PROJECT_ID}" if INFURA_PROJECT_ID and INFURA_PROJECT_ID != "YourProjectId" else None
@@ -141,8 +145,8 @@ POLYGON_RPC_URL = POLYGON_RPC_PROVIDERS[0] if POLYGON_RPC_PROVIDERS else "https:
 
 # Alchemy multi-chain RPC endpoints
 ALCHEMY_SOLANA_RPC = f"https://solana-mainnet.g.alchemy.com/v2/{ALCHEMY_API_KEY}" if ALCHEMY_API_KEY and ALCHEMY_API_KEY != "YourApiKeyToken" else None
-ALCHEMY_BITCOIN_RPC = f"https://btc-mainnet.g.alchemy.com/v2/{ALCHEMY_API_KEY}" if ALCHEMY_API_KEY and ALCHEMY_API_KEY != "YourApiKeyToken" else None
-ALCHEMY_TRON_RPC = None  # Tron monitor removed — was only producing stablecoin noise
+ALCHEMY_BITCOIN_RPC = f"https://bitcoin-mainnet.g.alchemy.com/v2/{ALCHEMY_API_KEY}" if ALCHEMY_API_KEY and ALCHEMY_API_KEY != "YourApiKeyToken" else None
+ALCHEMY_TRON_RPC = f"https://tron-mainnet.g.alchemy.com/v2/{ALCHEMY_API_KEY}" if ALCHEMY_API_KEY and ALCHEMY_API_KEY != "YourApiKeyToken" else None
 
 # Solana RPC providers (Alchemy primary, Helius fallback)
 SOLANA_RPC_PROVIDERS = [
