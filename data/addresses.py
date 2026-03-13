@@ -195,8 +195,28 @@ SOLANA_DEX_ADDRESSES = {
     "MarBmsSgKXdrN1egZf5sqe1TMai9K1rChYNDJgjq7aD": "marinade_staking",
 }
 
-# NOTE: Bitcoin DEX addresses removed — invalid entries with wrong lengths.
-# Bitcoin classification uses BTC_EXCHANGE_ADDRESSES in chains/bitcoin_alchemy.py.
+# =============================================================================
+# BITCOIN DEX ADDRESSES (NEW)
+# =============================================================================
+BITCOIN_DEX_ADDRESSES = {
+    "3XCb9DBUGfpM12aSR3aRhVdqhvMUq1Nud": "bitcoin_dex_1",
+    "3FmTw8FS5VNHuRz7QLw8SWpiHHKXAmaP": "bitcoin_dex_2",
+    "1353KFNLPs9s6C2fHXkznXJkuRQ6wye": "bitcoin_dex_3",
+    "1UCW96HV8eTi5iqtwMdmFZAfxcqVuejne9": "bitcoin_dex_4",
+    "1K3GdbZH6jLMCj9LKA44dPgrLYx8": "bitcoin_dex_5",
+    "1QsnjXC5pAL7w2UBnA51WK9Gtw": "bitcoin_dex_6",
+    "3oENojDcD7cMmbmYH3DhbsE8ARe3ddL": "bitcoin_dex_7",
+    "3DM1b683opoFdUJkmpovdUxiKYqM": "bitcoin_dex_8",
+    "1kS7TXZoGdsUX1CToB1TBQQECDYfc6Gr": "bitcoin_dex_9",
+    "3DT48we7BtSpbMJMqTcoM7CYdiMMG6uN1f": "bitcoin_dex_10",
+    
+    # Additional Bitcoin DEX addresses from latest batch
+    "1ZcVJm3RcYUW5A3mMz8SvV1u6w": "bitcoin_dex_11",
+    "1bKKfjxAhivZhQaJKXq22zL54gpyhwsHY63": "bitcoin_dex_12",
+    "1rUaAh7iBu4YpA3t5Je9mGcCvxRCjUP": "bitcoin_dex_13",
+    "3WmRbMc1zDYmHdRayqsNT3tn6hVsL": "bitcoin_dex_14",
+    "1qWcifh9sPmvmTNdTkVxtXZMbx7jRMrS": "bitcoin_dex_15",
+}
 
 # =============================================================================
 # MARKET MAKER ADDRESSES
@@ -279,111 +299,152 @@ known_exchange_addresses = {
     "0x0d0707963952f2fba59dd06f2b425ace40b492fe": "gate.io",
     "0xd793281182a0e3e023116004778f45c29fc14f19": "gate.io",
     
-    # FTX (deprecated but keeping for historical classification)
+    # FTX (deprecated but keeping for historical data)
     "0x2faf487a4414fe77e2327f0bf4ae2a264a776ad2": "ftx",
     "0xc098b2a3aa256d2140208c3de6543aaef5cd3a94": "ftx",
-
-    # Bybit — Etherscan labeled, CoinCarp tracker
-    "0xf89d7b9c864f589bbf53a82105107622b35eaa40": "bybit",
-    "0x1db92e2eebc8e0c075a02bea49a2935bcd2dfcf4": "bybit",
-    "0xa7efae728d2936e78bda97dc267687568dd593f3": "bybit",
-
-    # Bitstamp — Etherscan labeled
-    "0x00bdb5699745f5b860228c8f939abf1b9ae374ed": "bitstamp",
-    "0x1522900b6dafac587d499a862861c0869be6e428": "bitstamp",
-
-    # Poloniex — f13end gist, Etherscan labeled
-    "0x32be343b94f860124dc4fee278fdcbd38c102d88": "poloniex",
-    "0xb794f5ea0ba39494ce839613fffba74279579268": "poloniex",
-    "0xab11204cfeaccffa63c2d23aef2ea2082f4c4eb5": "poloniex",
-
-    # Upbit — Etherscan labeled
-    "0x390de26d772d2e2005c6d1d24afc902bae37a4bb": "upbit",
-    "0xba826fec90cefdf6706858e5fbafcb27a290fbe0": "upbit",
-
-    # Bithumb — Etherscan labeled
-    "0x88d34944cf554e9cccf4a24292d891f620e9c94f": "bithumb",
-    "0x3052cd6bf951449a984fe4b5a38b46aef9455c8e": "bithumb",
-    "0x186549a4ae594fc1f70ba4cffdac714b405be3f9": "bithumb",
-
-    # Bitget — CoinCarp tracker
-    "0x97b9d2102a9a65a26e1ee82d59e42d1b73b68689": "bitget",
-    "0x5bdf85216ec1e38d6458c870992a69e38e03f7ef": "bitget",
-
-    # MEXC — Etherscan labeled
-    "0x75e89d5979e4f6fba9f97c104c2f0afb3f1dcb88": "mexc",
-    "0x4eaf936c172b5e5511959167e8ab4f7031113e03": "mexc",
-
-    # HTX (Huobi rebrand) — additional wallets
-    "0x18709e89bd403f470088abdacebe86cc60dda12e": "htx",
-    "0x6748f50f686bfbca6fe8ad62b22228b87f31ff2b": "htx",
-
-    # Additional Binance — f13end gist, Etherscan labeled
-    "0xfe9e8709d3215310075d67e3ed32a380ccf451c8": "binance",
-    "0x0681d8db095565fe8a346fa0277bffde9c0edbbf": "binance",
-    "0x564286362092d8e7936f0549571a803b203aaced": "binance",
-    "0xd551234ae421e3bcba99a0da6d736074f22192ff": "binance",
-    "0x4e9ce36e442e55ecd9025b9a6e0d88485d628a67": "binance",
-    "0xbe0eb53f46cd790cd13851d5eff43d12404d33e8": "binance",
-    "0xf977814e90da44bfa03b6295a0616a897441acec": "binance",
-    "0x21a31ee1afc51d94c2efccaa2092ad1028285549": "binance",
-    "0x1ab4973a48dc892cd9971ece8e01dcc7688f8f23": "binance",
-    "0xe7804c37c13166ff0b37f5ae0bb07a3aebb6e245": "binance",
-
-    # Additional Kraken — f13end gist
-    "0xe853c56864a2ebe4576a807d26fdc4a0ada51919": "kraken",
-    "0xda9dfa130df4de4673b89022ee50ff26f6ea73cf": "kraken",
-
-    # Additional Coinbase — Etherscan labeled
-    "0xa9d1e08c7793af67e9d92fe308d5697fb81d3e43": "coinbase",
-    "0x77134cbc06cb00b66f4c7e623d5fdbf6777635ec": "coinbase",
-
-    # Additional Gate.io
-    "0xd793281182a0e3e023116004778f45c29fc14f19": "gate.io",
-    "0x0d0707963952f2fba59dd06f2b425ace40b492fe": "gate.io",
+    
+    # New CEX addresses from user data
+    "0xf44eae1ffbbc3420e414cf051f52fbc419a2bd9b": "cex_evm_1",
+    "0xd8d5a132c74c80ec94acece5f5e1ba08b9ab66bd": "cex_evm_2",
+    "0x4c2e37c0e316fcd00f70eebda8d04aba5f3185c0": "cex_evm_3",
+    "0xd94a12f958704679fd2c41144912c565ccea7392": "cex_evm_4",
+    "0x04c085926ea2f167168fc83f8659cd74671352c5": "cex_evm_5",
+    "0x42c1f1b87eb77b9cae7c7825df1a420e02f1e1a4": "cex_evm_6",
+    "0x82259f1a6be4b6f8113d5ba14a9dac830ad806f5": "cex_evm_7",
+    "0x2dd7c6473ec146733b558230d13a93372edce7c0": "cex_evm_8",
+    "0x9f6e460154ff2775e7fd34d4e14e0febf189e6c5": "cex_evm_9",
+    "0xc2abb17bd2a08e9abea25d8bf2effa2b1cffe229": "cex_evm_10",
+    "0xd8d97a76f9f09c87411381045c6bd3c3c0f44807": "cex_evm_11",
+    "0x86e1d946273e3d2664865c06b40486a1964f7857": "cex_evm_12",
+    "0xaabfa7979b51e7cdb45f8a94e66b747ae7ecdf07": "cex_evm_13",
+    "0x2f8655af96c71ddf8dd31d9fdd4b23882a300eb9": "cex_evm_14",
+    "0x69723a1cdd6b465c0730984b94a331593d65fe37": "cex_evm_15",
+    "0xd44330753798b425ab99d40aac838570423a29c6": "cex_evm_16",
+    "0x471af2a6a631ad49228c803c9c7345e1dface0ec": "cex_evm_17",
+    "0xfc321be4b66f17ed98a0a90eed13f0f3e8f1f50e": "cex_evm_18",
+    "0x28c9b6003ffbd5f730047f70e10c9f3c790d50f7": "cex_evm_19",
+    "0x0926315662359efd26b9497758ce454b0a4ad28b": "cex_evm_20",
+    "0x8e49dbc7d32b1ac993b2354fb2d165774904fde3": "cex_evm_21",
+    "0xda12168e1098cac959165f127f882bc63f2bb9a2": "cex_evm_22",
+    "0xcdaac9df82c2ac361d00583d95c7060795ee6275": "cex_evm_23",
+    "0x1a133d2e01df6e245611cbc0f26fb2ade0404a87": "cex_evm_24",
+    "0x03f79603fc7eedec585340bf02a62732a7851ac7": "cex_evm_25",
+    "0x67c061cad8ea61605464c993c8569938257033df": "cex_evm_26",
+    "0x4f7b3fa4f0dda7377f81b51f135e8f24941939fd": "cex_evm_27",
+    "0x326b5eb3ea4d6db1dd852dfc1da1e9060c0e973a": "cex_evm_28",
+    "0x7dcc6bf48d9230beac7942344bcecb7daf2848a3": "cex_evm_29",
+    "0xdcd7808f418ad3af6ad1c5133481757452f86770": "cex_evm_30",
+    "0x5f1f831054d10774040069a2a836e8e3075de08d": "cex_evm_31",
+    "0xaf4c08d1cda2a351d27317368c3c700b23966fec": "cex_evm_32",
+    "0xaab3e9da05ce7bf118aabd8cc5812a63b8b8cfd6": "cex_evm_33",
+    "0x115a5b6f3b08b4dc9cb0228b2fa7d7fb02629b04": "cex_evm_34",
+    "0x6b340a712daff7e29bafe0cedcd32a0aed878669": "cex_evm_35",
+    "0x2cc04f7df274dd4deb881a2174d388b60b1c1e3d": "cex_evm_36",
+    "0x483a79ff0370796bb8051af2ecbe7952e5e79ffb": "cex_evm_37",
+    "0x9d3502cfbaaf640cbb042f564cbcc7db36cdf779": "cex_evm_38",
+    "0x4ca0c06fe27ee8ae4c4e5625507dd2c4f576e25f": "cex_evm_39",
+    "0x851e4ba1dd0b0077b478fcefa41ddce9bbfa7f16": "cex_evm_40",
+    "0x4c769c59ae730bdd5ae40e4728e0f41e11b2db85": "cex_evm_41",
+    "0x6aceede3eed74afe21fbf7d6a77cc9eafca2d56e": "cex_evm_42",
+    "0xaa59183afd6aa87d98ad72cf386206ead547f54e": "cex_evm_43",
+    "0xbd28aa86fd4e379000d5aaaf67fcc72e18d5d52f": "cex_evm_44",
+    "0x416a8253a669b7231ceadb3ae96df82d02e32384": "cex_evm_45",
+    "0xe6317d2d6d8e89e7693247c4aa9abab869a3cee1": "cex_evm_46",
+    "0x7e098bf0de92962dc7608ffc6227e1aae9a6e1a0": "cex_evm_47",
+    "0xdf94a07f0f177415417118a5f9733d002b9df84c": "cex_evm_48",
+    "0xf6337c7ebc7eac441542492e30e83165a6a0526e": "cex_evm_49",
+    "0x35b4d767146a83d7e23f934acf1528707d14b02e": "cex_evm_50",
+    "0xf176ce1b07433257582c58c0dffc3f4ca2bb4d1d": "cex_evm_51",
+    "0xebbb901469cf3fc50c3eed155e85ed889eddcdd5": "cex_evm_52",
+    "0xbb5f9d0e30b61efd82a57096026405cb98891625": "cex_evm_53",
+    "0x92c450ac36d14410ac44bbab124244ae1547877b": "cex_evm_54",
+    "0xf4be587362967d2524f5be40cc13315c27179b63": "cex_evm_55",
+    "0x8ee51a20bff5e9c3eeea9d0991ac93032e31599c": "cex_evm_56",
+    "0x6b92791e7fc8c8e669288a5f4f70f17a0dafda66": "cex_evm_57",
+    "0x3b41dea75d60b35fcf7899f7101a50ae8bc548c5": "cex_evm_58",
+    "0xb0669a57f92c101e0901a3c2f07332790889589b": "cex_evm_59",
+    "0x715a276c6c0c38557ae31a731a81f463094e5abf": "cex_evm_60",
+    "0x967caeca3c26becc00c2dc810e63d57e36dbcc13": "cex_evm_61",
+    "0x012a0767bcd9c01ff96b364e95b766831756f531": "cex_evm_62",
+    "0xc7a67741f4d5fdd9b4a010321e17a550528fb9b6": "cex_evm_63",
+    
+    # Additional EVM CEX addresses from latest batch
+    "0x49e9dc4a0bda512deb9d93dccd2ba37d9d37c06b": "cex_evm_64",
+    "0xf684d41caa153f4825361581f9ab255d23e04e15": "cex_evm_65",
+    "0x93a0258cd03d50152271f587a92a769051809b70": "cex_evm_66",
+    "0x08490bb7c96e499848c00066040cfa0a329ce26b": "cex_evm_67",
+    "0xe874b0002f697d1d753a9184ef6718d149fb1a6c": "cex_evm_68",
+    "0xb73e250b719e3eee7cad040b647ec61daa182e8d": "cex_evm_69",
+    "0xeef14c7ade937096f08bcc81572c7392e284a997": "cex_evm_70",
+    "0xa8dbfa266617a5581b62ca0b79df11ac0fe3adcd": "cex_evm_71",
+    "0xcc04dfd5280a811a8cfde47e58e71554c7e0b729": "cex_evm_72",
+    "0x94aad76c79a1bc77c014586d331433235d478662": "cex_evm_73",
+    "0x0f7cddd8fb2eff5e9c7fe03b3f797a399766eb97": "cex_evm_74",
+    "0x0d684803b43e519e3b48940268f90e5edd1311ab": "cex_evm_75",
+    "0x50181fe5c711cfa1fa2d140cb48687fea8a2b7ec": "cex_evm_76",
+    "0xebbde079d07a206a993e91d2bd677296da564bcb": "cex_evm_77",
+    "0xa2314b063184f41c6e2666de61aca7e2b9b48a69": "cex_evm_78",
+    "0x44044ddee1e0808bc04ac242e19fda0263b39611": "cex_evm_79",
+    "0xb9ed0276fb45da0ea0ccab667c88288cb6395633": "cex_evm_80",
+    "0x29c3b314ae0269729d4dcc50d5ee1005f1f8ee18": "cex_evm_81",
+    "0x47dfb3903272768b726e6c457e579325313ca3fb": "cex_evm_82",
+    "0xd0a813515db9f577f21f751b99ad091155198b7a": "cex_evm_83",
+    "0xd9b787cda92738b2221a26887d22d65abef1ae1c": "cex_evm_84",
+    "0xeff30cd369874de0e458e94a7e4537230f58e691": "cex_evm_85",
+    "0x893a56cc7eaa78542984afd8f0c8dc8cd4689411": "cex_evm_86",
+    "0xcec531cc229b55e162ec29ca31fa53ac44227dc9": "cex_evm_87",
+    "0xdb4189fd96f1be0f25886c2875eae88bfba5507e": "cex_evm_88",
+    "0xedfe171a7818aec93c38179330e39800771304c5": "cex_evm_89",
+    "0xb06b43b26129dd757ff31e41a09e8cfd263c3377": "cex_evm_90",
+    "0x0054ed009656d719926cb58d18270cf41b1b0d0e": "cex_evm_91",
+    "0xae1fd38e6234b65005146ca65c316c607948036d": "cex_evm_92",
+    "0xf97f2f3dc9f5cd783cdafeb62e3c7a95dbcba7d2": "cex_evm_93",
 }
 
-# NOTE: Bitcoin CEX addresses removed — invalid entries with wrong lengths.
-# Bitcoin classification uses BTC_EXCHANGE_ADDRESSES in chains/bitcoin_alchemy.py.
+# =============================================================================
+# BITCOIN CEX ADDRESSES (NEW)
+# =============================================================================
+BITCOIN_CEX_ADDRESSES = {
+    "3GZ7ieus8ZTXmRP461CMpGjUBSQW6o5mBB": "bitcoin_cex_1",
+    "1gMwQKaHzxfjR8rMW6WWmVDRsdQBL38T": "bitcoin_cex_2",
+    "3dYW1257tKPwQ5ieDur1u6V2HxXuzWT": "bitcoin_cex_3",
+    
+    # Additional Bitcoin CEX addresses from latest data batch
+    "1nqBMv2SkWz7B6g3u1n5otDCXkAEGH2K1Q": "bitcoin_cex_4",
+    "3qNdCi9VF92nscXEZ8FZUWPVnvmgptQ": "bitcoin_cex_5",
+    "1YpeKkLnwcp8hHk5Zx1WM98Pb7EuSJnSD7": "bitcoin_cex_6",
+    "1XRip7y3rvHvqtJwqr3KHUGLUd": "bitcoin_cex_7",
+    "394sfp2WGPp7nxWkevmJ9r4w4UxrUG": "bitcoin_cex_8",
+    "3b2nriqFyq5H3NiwyTmKRdjWuwE": "bitcoin_cex_9",
+    
+    # Additional Bitcoin CEX addresses from latest batch
+    "3vPoPJM2YrxfqgXQXYoy8nQrwbvzuMj": "bitcoin_cex_10",
+    "3MRo2V9ZizzkmQuLr6399qsdrpKMsCaof": "bitcoin_cex_11",
+}
 
 # =============================================================================
 # SOLANA EXCHANGE ADDRESSES
 # =============================================================================
 solana_exchange_addresses = {
-    # Binance — Solscan labeled, CoinCarp tracker
+    # Binance
     "5tzFkiKscjHK98Yfu7GHWm4msBpJ2RpiLneuNDk68Msu": "binance",
     "AC5RDfQFmDS1deWZos921JfqscXdByf8BKHs5ACWjtW2": "binance",
     "2ojv9BAiHUrvsm9gxDe7fJSzbNZSJcxZvf8dqmWGHG8S": "binance",
     "5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1": "binance",
     "6QEJkDV8NhHc4pUCAP3v6n5h5osHUqR1xCEhUAX8e9bL": "binance",
     "BQcdHdAQW1hczDbBi9hiegXAR7A98Q9jx3X3iBBBDiq4": "binance",
-    "3yFwqXBfZY4jBVUafQ1YEXw189y2dN3V5KQq9uzBDy1E": "binance",
-    "9un5wqE3q4oCjUvyaw5QR9PEBtGrmRY31UV6pZfTkiLd": "binance",
-    # Coinbase — Solscan labeled
+    # Coinbase
     "H8sMJSCQxfKiFTCfDR3DUMLPwcRbM61LGFJ8N4dK3WjS": "coinbase",
     "6usRqHG7RVo6F7GZRq9Cxjme8oBTPHSMezTCvAcYijhg": "coinbase",
     "GJRs4FwHtemZ5ZE9x3FNvJ8TMwitKTh21yxdRPqn7npE": "coinbase",
-    "2AQdpHJ2JpcEgPiATUXjQxA8QmafFegfQwSLWSprPicm": "coinbase",
-    # Kraken — Solscan labeled
+    # Kraken
     "FWznbcNXWQuHTawe9RxvQ2LdCENssh12dsznf4RiouN5": "kraken",
-    "CdU37JGNFe1hM5aPaeRApp4riWBqFLTk6r1GsjvJqYp": "kraken",
-    # Bybit — CoinCarp tracker
+    # Bybit
     "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM": "bybit",
-    "AC5RDfQFmDS1deWZos921JfqscXdByf8BKHs5ACWjtW2": "bybit",
-    # OKX — CoinCarp tracker
+    # OKX
     "4ykPMrJisMvzT4VFN5SQrfMHYV6RPKAB3PwDJUqJtJis": "okx",
-    "5VCwKtCXgCDuQKLMJaoFMrBMgMNr8KqXrPFzR3Y6hoGo": "okx",
-    # Gate.io — CoinCarp tracker
+    # Gate.io
     "ASTyfSima4LLAdDgoFGkgqoKowG1LZFDr9fAQrg7iaJZ": "gate.io",
-    "u6PJ8DtQuPFnfmwHbGFULQ4u4EgjDiyYKjVEsynXq2w": "gate.io",
-    # KuCoin — CoinCarp tracker
-    "BmFdpraQhkiDQE6SnfG5PkRQ6dQkwKQaFx5iEq5nLFpK": "kucoin",
-    # Crypto.com — CoinCarp tracker
-    "AobVSwdW9BbpMdJvTqeCN4hPAmh4rHm7vwLnQ5ATSyrS": "crypto.com",
-    # Bitget — CoinCarp tracker
-    "CL8Mmkf45ic5MczN7SqpPGBuAq7dmhUVwNaFk4dVBv7j": "bitget",
-    # HTX/Huobi — CoinCarp tracker
-    "88xTWZMeKFECbsaYGLwt8rTnAfRbpRPzQsTEBmkMGfFM": "htx",
     # Market makers
     "44P5Ct5JkPz76Rs2K6juC65zXMpFRDrHatxcASJ4Dyra": "wintermute",
 }
