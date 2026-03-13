@@ -29,7 +29,8 @@ def on_xrp_message(ws, message):
     try:
         data = json.loads(message)
         txn = data.get("transaction")
-        if txn and txn.get("TransactionType") == "Payment":
+        tx_type = txn.get("TransactionType", "") if txn else ""
+        if txn and tx_type in ("Payment", "OfferCreate"):
             total_transfers_fetched += 1
 
             # Get transaction hash for deduplication
@@ -39,14 +40,34 @@ def on_xrp_message(ws, message):
             if has_been_classified("XRP", tx_hash):
                 return
 
-            amount = txn.get("Amount")
-            if isinstance(amount, str):
-                try:
-                    amount_xrp = float(amount) / 10_000_000
-                except Exception:
-                    amount_xrp = 0
-            else:
+            # Parse amount based on transaction type
+            if tx_type == "OfferCreate":
+                # OfferCreate: extract XRP amount from TakerPays or TakerGets
+                taker_pays = txn.get("TakerPays", {})
+                taker_gets = txn.get("TakerGets", {})
                 amount_xrp = 0
+                if isinstance(taker_pays, str):
+                    # TakerPays is XRP (in drops) — creator is buying tokens with XRP
+                    try:
+                        amount_xrp = float(taker_pays) / 10_000_000
+                    except Exception:
+                        amount_xrp = 0
+                elif isinstance(taker_gets, str):
+                    # TakerGets is XRP (in drops) — creator is selling tokens for XRP
+                    try:
+                        amount_xrp = float(taker_gets) / 10_000_000
+                    except Exception:
+                        amount_xrp = 0
+            else:
+                # Payment: standard Amount field
+                amount = txn.get("Amount")
+                if isinstance(amount, str):
+                    try:
+                        amount_xrp = float(amount) / 10_000_000
+                    except Exception:
+                        amount_xrp = 0
+                else:
+                    amount_xrp = 0
 
             # Only process significant transactions
             xrp_price = TOKEN_PRICES.get("XRP", 0.5)
@@ -64,7 +85,7 @@ def on_xrp_message(ws, message):
             _settings.xrp_total_amount[0] += amount_xrp
 
             from_addr = txn.get("Account", "")
-            to_addr = txn.get("Destination", "")
+            to_addr = txn.get("Destination", "") if tx_type == "Payment" else ""
 
             # Filter Ripple Labs treasury/escrow mega-transfers (>$1B)
             RIPPLE_TREASURY = {
@@ -82,7 +103,6 @@ def on_xrp_message(ws, message):
             from_is_exchange = from_addr in xrp_exchange_addresses
             to_is_exchange = to_addr in xrp_exchange_addresses
             has_dest_tag = "DestinationTag" in txn
-            tx_type = txn.get("TransactionType", "Payment")
 
             # OfferCreate = DEX trade on the XRP Ledger (actual buy/sell signal)
             if tx_type == "OfferCreate":

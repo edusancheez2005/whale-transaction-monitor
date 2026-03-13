@@ -34,12 +34,18 @@ POLYGON_CEX_ADDRESSES = {
     '0x1ab4973a48dc892cd9971ece8e01dcc7688f8f23',  # Binance 3
     '0xe7804c37c13166ff0b37f5ae0bb07a3aebb6e245',  # Binance 48
     '0xf977814e90da44bfa03b6295a0616a897441acec',  # Binance 8
+    '0xdfd5293d8e347dfe59e90efd55b2956a1343963d',  # Binance 14
+    '0x5a52e96bacdabb82fd05763e25335261b270efcb',  # Binance 15
     '0x72a53cdbbcc1b9efa39c834a540550e23463aacb',  # Crypto.com
     '0x6cc5f688a315f3dc28a7781717a9a798a59fda7b',  # OKX
+    '0x4c569c1e53db4636e0f700ba68bc2efb5882c2e0',  # Upbit
+    '0x2933782b20aded1b2e989c4dc54ee6d7242f1b57',  # KuCoin
     '0xa9d1e08c7793af67e9d92fe308d5697fb81d3e43',  # Coinbase
     '0x71660c4005ba85c37ccec55d0c4493e66fe775d3',  # Coinbase 2
     '0x2910543af39aba0cd09dbb2d50200b3e800a63d2',  # Kraken
     '0xf89d7b9c864f589bbf53a82105107622b35eaa40',  # Bybit
+    '0xd9d93951896b4ef97d251334ef2a0e39f6f6d7d7',  # Gate.io
+    '0x0d0707963952f2fba59dd06f2b425ace40b492fe',  # Gate.io 2
 }
 POLYGON_DEX_ADDRESSES = {
     '0xa5e0829caced82f9edc736e8167366c1e5104d41',  # QuickSwap
@@ -60,7 +66,7 @@ POLYGON_DEFI_ADDRESSES = {
     '0x8dff5e27ea6b7ac08ebfdf9eb090f32ee9a30fcf',  # Aave V2 Pool
     '0x1a13f4ca1d028320a707d99520abfefca3998b7f',  # Aave V2 amUSDC
     '0xa0c68c638235ee32657e8f720a23cec1bfc77c77',  # Polygon PoS Bridge
-    '0x40ec5b33f54e0e8a33a975908c5ba1c14e5bbbdf',  # Polygon Bridge (Ethereum side root)
+    '0x40ec5b33f54e0e8a33a975908c5ba1c14e5bbbdf',  # Polygon Bridge Root
     '0x22f9dcf4647084d6c31b2765f6910cd85c178c18',  # Stargate Router
 }
 
