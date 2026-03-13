@@ -170,42 +170,29 @@ DEX_ADDRESSES = {
 }
 
 SOLANA_DEX_ADDRESSES = {
+    # Jupiter
+    "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4": "jupiter_v6",
+    "JUP4Fb2cqiRUcaTHdrPC8h2gNsA2ETXiPDD33WcGuJB": "jupiter_v4",
+    "jupoNjAxXgZ4rjzxzPMP4oxduvQsQtZzyknqvzYNrNu": "jupiter_limit_order",
+    "DCA265Vj8a9CEuX1eb1LWRnDT7uK6q1xMipnNyatn23M": "jupiter_dca",
     # Raydium
-    "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8": "raydium_amm",
-    "5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1": "raydium_pool",
-    
-    # Serum/OpenBook
-    "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin": "serum_dex",
-    "srmqPvymJeFKQ4zGQed1GFppgkRHL9kaELCbyksJtPX": "serum_pools",
-    
+    "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8": "raydium_amm_v4",
+    "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK": "raydium_clmm",
+    "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C": "raydium_cpmm",
     # Orca
-    "orcaEKTdK7LKz57vaAYr9QeNsVEPfiu6QeMU1kektZE": "orca_pools",
-    "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc": "orca_whirlpools",
-    
-    # New Solana DEX addresses from user data
-    "yk7qq9ebfgoYBXdnv93BRr344CPB1TPzbfvr3": "solana_dex_1",
-    "T2pqL35ryvNTWTRXx2EYTSNukNpSQbuxxG3Yw8bLE": "solana_dex_2",
-    "Hgii2xiDbT4wQ7eqK9q4cDX2ozm2oc5hzQHdMSo5MH": "solana_dex_3",
-    "QWCidht8rLwqUdkHNZF5fbKVNJncS2JcQzq": "solana_dex_4",
-    "Hxz8bum1TLDvspgnzBRYKQtsHC9iXeUmvR5maRMSX": "solana_dex_5",
-    "LUQiVEgKMfq2SGegb8WhMTaaNZ7x21rTqKszwtz": "solana_dex_6",
-    "xYPJNmPBrksnMiyWxKwLPzaLCsJmnhCe277L7W13SQ": "solana_dex_7",
-    
-    # Additional Solana DEX addresses from latest data batch
-    "6EF9ybLvn73v1KRTuw4SZndF4DDcdD58Xn": "solana_dex_8",
-    "GndMUMdpbfoEHiWGoLPfopvWVFcnTdKPN6z7N": "solana_dex_9",
-    "k3VN16PKXs8rt9dW5yJafWuV8PM6mZmeiBFLVGdQ": "solana_dex_10",
-    "XXC8DboQQSDiWiqD6VL9Rf8vUhAtWQ1LDaSQTPYZjK9v": "solana_dex_11",
-    "UcjTLGyPec48vkyAVQxcSPmDWJmkAVqtXgFM": "solana_dex_12",
-    "8EYxxQt7ERPrED2msMQW7gLDifcPRfVxH": "solana_dex_13",
-    "kcp8fMtzdrx3gZGM1y6ZEjN6se96CKVgMzU39eejvUu": "solana_dex_14",
-    "GdcHwX9tf5x7B9ax3trDvb9thin7vh6A6GnSBPp3St": "solana_dex_15",
-    "YuLJ64NpN6nFkWFtfpb5nVyWErSN8z4dNY": "solana_dex_16",
-    "ZsqDRmioafVNCW5yzi1x3hsXhZmTAADQ9nQG76j": "solana_dex_17",
-    
-    # Additional Solana DEX addresses from latest batch
-    "jpjDC1xPqkhFmGtAJFRDwwTuQd1kZ17wBfyhes": "solana_dex_18",
-    "p9tR4fpfyGj2Ex7rqyKiTwHq8JrkTfPvK": "solana_dex_19",
+    "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc": "orca_whirlpool",
+    "9W959DqEETiGZocYWCQPaJ6sBmUzgfxXfqGeTEdp3aQP": "orca_v2",
+    # OpenBook / Serum
+    "srmqPvymJeFKQ4zGQed1GFppgkRHL9kaELCbyksJtPX": "openbook_v1",
+    # Meteora
+    "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo": "meteora_dlmm",
+    "Eo7WjKq67rjJQSZxS6z3YkapzY3eMj6Xy8X5EQVn5UaB": "meteora_pools",
+    # Phoenix
+    "PhoeNiXZ8ByJGLkxNfZRnkUfjvmuYqLR89jjFHGqdXY": "phoenix_dex",
+    # Drift
+    "dRiftyHA39MWEi3m9aunc5MzRF1JYuBsbn6VPcn33UH": "drift_v2",
+    # Marinade
+    "MarBmsSgKXdrN1egZf5sqe1TMai9K1rChYNDJgjq7aD": "marinade_staking",
 }
 
 # =============================================================================
@@ -439,49 +426,27 @@ BITCOIN_CEX_ADDRESSES = {
 # SOLANA EXCHANGE ADDRESSES
 # =============================================================================
 solana_exchange_addresses = {
-    "FdAXT4XPsswRhaJveaB45Lz9CFbKHGpyY3rSyRFRGArj": "bybit",
-    "3Z4oLTsytjW5K2sgEYiDEbykerbYm6SnAJQm5kMQoZxd": "okx",
-    "HSsAV4suBdFgaybUwzWDK1rR14FNQ73BcF3kAM7rRkbF": "kraken",
-    "HU23r7UoZbqTUuh3vA7emAGztFtqwTeVips789vqxxBw": "kucoin",
-    "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM": "crypto.com",
-    "73tF8uN3BwVzUzwETv59CvCF4oqzNtkUxKdJuFLHqmD9": "gate.io",
-    "AFrks6SxLK3FNKpKPdpx5DsFYhQZk8VKnz9BcVQxhYaY": "huobi",
     # Binance
+    "5tzFkiKscjHK98Yfu7GHWm4msBpJ2RpiLneuNDk68Msu": "binance",
+    "AC5RDfQFmDS1deWZos921JfqscXdByf8BKHs5ACWjtW2": "binance",
+    "2ojv9BAiHUrvsm9gxDe7fJSzbNZSJcxZvf8dqmWGHG8S": "binance",
     "5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1": "binance",
     "6QEJkDV8NhHc4pUCAP3v6n5h5osHUqR1xCEhUAX8e9bL": "binance",
     "BQcdHdAQW1hczDbBi9hiegXAR7A98Q9jx3X3iBBBDiq4": "binance",
-    
-    # New Solana CEX addresses from user data
-    "DVeJnY4fTnH6hauiBsCDJ59VCek1Yk3vRAKAxy67M": "solana_cex_1",
-    "L2EEfrCNZcqxYdfdfs89zPcATWswpAiJtBwnQbbEMDh": "solana_cex_2",
-    "vNg3zioiC8U65MCpX26aE5hSivxk8GtZdGD1F2aQu17Q": "solana_cex_3",
-    "sSGpJy9R4dbtwVFh4kxnHTMjiwD31zATKPvr3": "solana_cex_4",
-    "nH5gXtPmYPh7ktKAZprDupJBVkRj9aYmRfCTYH4rvw": "solana_cex_5",
-    "AT9Sdjfwmk1i2cuCQT5Cu9btPYBR66H765xLd8": "solana_cex_6",
-    "PBhjGEqVSEtoMMrcmFpiQz6H45RWPNQzsT6KQTe8": "solana_cex_7",
-    "TdSHs3TXD8mKBE1wsDbLGaQGPLMijzMAJ": "solana_cex_8",
-    "xSxJcujsbSTbxt2J7smaiLknsaRf7CUWrSSPau3": "solana_cex_9",
-    "EG31HVrCUyhcjHpDp9nbrpbMFev3coRs7Ctxpn38TNX": "solana_cex_10",
-    "siyrmSbKDgGXHkPc6g1DWRMNqVWjP5SHaMVNpwrNp": "solana_cex_11",
-    "uqJU9HXARMHUxXomF4q4whjbCknmrc6KS": "solana_cex_12",
-    
-    # Additional Solana CEX addresses from latest data batch
-    "iYjERzXDBaCwMAznLsMdymkFMuh5V6Tnzt37": "solana_cex_13",
-    "bvLv4ZGaqABMPeZU7JUVB2YDCnQzoQ5S": "solana_cex_14",
-    "EG31HVrCUyhcjHpDp9nbrpbMFev3coRs7Ctxpn38TNX": "solana_cex_15",
-    "TdSHs3TXD8mKBE1wsDbLGaQGPLMijzMAJ": "solana_cex_16",
-    "EAU11pkwpAJEKdyDQorYKw3nXpVvGRffHhex29": "solana_cex_17",
-    "b3N311xbKdmPAatAHrdf2rf5eQJG9k9Xoyr6kjjVsqoY": "solana_cex_18",
-    "xknH2ogi77DfyCcET3ybsbGP5mKumy9n": "solana_cex_19",
-    "MYC5x9y3AJE1M3TutUDb86ZQ4Dg2VRMHG3vWBQMr": "solana_cex_20",
-    "i6SaCRdNetMEZtcfbX5L5YhEMU3c15QsK": "solana_cex_21",
-    "ewDY11Bj3tqSeVmWmjhGYTFGvNMw23HuGQ": "solana_cex_22",
-    "Ndfrnuv6mqH1WPUxyf5eoHmhYZdbMAFRp": "solana_cex_23",
-    "gVe7qhM4KwuFiwUYsZmFxF98FibJcBrt": "solana_cex_24",
-    
-    # Additional Solana CEX addresses from latest batch
-    "P2owcmqpX1yvYxVjjJNqTYwbZAqsNhssu": "solana_cex_25",
-    "oUs4s8u8RFCPUVBBUZBo3wnF2nbZUF8J8Yn9UDaurNY": "solana_cex_26",
+    # Coinbase
+    "H8sMJSCQxfKiFTCfDR3DUMLPwcRbM61LGFJ8N4dK3WjS": "coinbase",
+    "6usRqHG7RVo6F7GZRq9Cxjme8oBTPHSMezTCvAcYijhg": "coinbase",
+    "GJRs4FwHtemZ5ZE9x3FNvJ8TMwitKTh21yxdRPqn7npE": "coinbase",
+    # Kraken
+    "FWznbcNXWQuHTawe9RxvQ2LdCENssh12dsznf4RiouN5": "kraken",
+    # Bybit
+    "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM": "bybit",
+    # OKX
+    "4ykPMrJisMvzT4VFN5SQrfMHYV6RPKAB3PwDJUqJtJis": "okx",
+    # Gate.io
+    "ASTyfSima4LLAdDgoFGkgqoKowG1LZFDr9fAQrg7iaJZ": "gate.io",
+    # Market makers
+    "44P5Ct5JkPz76Rs2K6juC65zXMpFRDrHatxcASJ4Dyra": "wintermute",
 }
 
 # =============================================================================
