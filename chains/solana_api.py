@@ -24,24 +24,37 @@ logger = logging.getLogger(__name__)
 
 # Known Solana exchange and DEX addresses for classification
 SOLANA_CEX_ADDRESSES = {
-    '5tzFkiKscjHK98Yfu7GHWm4msBpJ2RpiLneuNDk68Msu',  # Binance Hot Wallet
-    'AC5RDfQFmDS1deWZos921JfqscXdByf8BKHs5ACWjtW2',  # Binance 2
-    '2ojv9BAiHUrvsm9gxDe7fJSzbNZSJcxZvf8dqmWGHG8S',  # Binance 3
-    '9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM',  # Bybit
-    'FWznbcNXWQuHTawe9RxvQ2LdCENssh12dsznf4RiouN5',  # Kraken
+    '5tzFkiKscjHK98Yfu7GHWm4msBpJ2RpiLneuNDk68Msu',  # Binance
+    'AC5RDfQFmDS1deWZos921JfqscXdByf8BKHs5ACWjtW2',  # Binance
+    '2ojv9BAiHUrvsm9gxDe7fJSzbNZSJcxZvf8dqmWGHG8S',  # Binance
+    '5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1',  # Binance
+    '6QEJkDV8NhHc4pUCAP3v6n5h5osHUqR1xCEhUAX8e9bL',  # Binance
+    'BQcdHdAQW1hczDbBi9hiegXAR7A98Q9jx3X3iBBBDiq4',  # Binance
     'H8sMJSCQxfKiFTCfDR3DUMLPwcRbM61LGFJ8N4dK3WjS',  # Coinbase
-    '6usRqHG7RVo6F7GZRq9Cxjme8oBTPHSMezTCvAcYijhg',  # Coinbase 2
+    '6usRqHG7RVo6F7GZRq9Cxjme8oBTPHSMezTCvAcYijhg',  # Coinbase
+    'GJRs4FwHtemZ5ZE9x3FNvJ8TMwitKTh21yxdRPqn7npE',  # Coinbase
+    'FWznbcNXWQuHTawe9RxvQ2LdCENssh12dsznf4RiouN5',  # Kraken
+    '9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM',  # Bybit
     '4ykPMrJisMvzT4VFN5SQrfMHYV6RPKAB3PwDJUqJtJis',  # OKX
     'ASTyfSima4LLAdDgoFGkgqoKowG1LZFDr9fAQrg7iaJZ',  # Gate.io
+    '44P5Ct5JkPz76Rs2K6juC65zXMpFRDrHatxcASJ4Dyra',  # Wintermute
 }
 SOLANA_DEX_ADDRESSES = {
     'JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4',   # Jupiter V6
     'JUP4Fb2cqiRUcaTHdrPC8h2gNsA2ETXiPDD33WcGuJB',   # Jupiter V4
-    '675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8',  # Raydium AMM
+    'jupoNjAxXgZ4rjzxzPMP4oxduvQsQtZzyknqvzYNrNu',   # Jupiter Limit Order
+    'DCA265Vj8a9CEuX1eb1LWRnDT7uK6q1xMipnNyatn23M',  # Jupiter DCA
+    '675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8',  # Raydium AMM V4
     'CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK',  # Raydium CLMM
+    'CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C',  # Raydium CPMM
     'whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc',   # Orca Whirlpool
     '9W959DqEETiGZocYWCQPaJ6sBmUzgfxXfqGeTEdp3aQP',  # Orca V2
-    'srmqPvymJeFKQ4zGQed1GFppgkRHL9kaELCbyksJtPX',   # OpenBook/Serum
+    'srmqPvymJeFKQ4zGQed1GFppgkRHL9kaELCbyksJtPX',   # OpenBook V1
+    'LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo',   # Meteora DLMM
+    'Eo7WjKq67rjJQSZxS6z3YkapzY3eMj6Xy8X5EQVn5UaB',  # Meteora Pools
+    'PhoeNiXZ8ByJGLkxNfZRnkUfjvmuYqLR89jjFHGqdXY',   # Phoenix DEX
+    'dRiftyHA39MWEi3m9aunc5MzRF1JYuBsbn6VPcn33UH',   # Drift V2
+    'MarBmsSgKXdrN1egZf5sqe1TMai9K1rChYNDJgjq7aD',   # Marinade Staking
 }
 
 
