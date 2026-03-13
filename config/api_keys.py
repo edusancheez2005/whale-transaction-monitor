@@ -145,6 +145,7 @@ POLYGON_RPC_URL = POLYGON_RPC_PROVIDERS[0] if POLYGON_RPC_PROVIDERS else "https:
 
 # Alchemy multi-chain RPC endpoints
 ALCHEMY_SOLANA_RPC = f"https://solana-mainnet.g.alchemy.com/v2/{ALCHEMY_API_KEY}" if ALCHEMY_API_KEY and ALCHEMY_API_KEY != "YourApiKeyToken" else None
+ALCHEMY_SOLANA_GRPC = "solana-mainnet.g.alchemy.com"  # Yellowstone gRPC endpoint (X-Token auth)
 ALCHEMY_BITCOIN_RPC = f"https://bitcoin-mainnet.g.alchemy.com/v2/{ALCHEMY_API_KEY}" if ALCHEMY_API_KEY and ALCHEMY_API_KEY != "YourApiKeyToken" else None
 ALCHEMY_TRON_RPC = f"https://tron-mainnet.g.alchemy.com/v2/{ALCHEMY_API_KEY}" if ALCHEMY_API_KEY and ALCHEMY_API_KEY != "YourApiKeyToken" else None
 

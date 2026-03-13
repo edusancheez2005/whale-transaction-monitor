@@ -56,6 +56,7 @@ from chains.ethereum_ws import start_ethereum_ws_thread
 from chains.whale_alert import start_whale_thread
 from chains.xrp import start_xrp_thread 
 from chains.solana import start_solana_thread
+from chains.solana_grpc import start_solana_grpc_thread
 from chains.polygon import print_new_polygon_transfers, test_polygonscan_connection
 from chains.polygon_ws import start_polygon_ws_thread
 from chains.solana_api import print_new_solana_transfers, test_helius_connection
@@ -2120,10 +2121,14 @@ def start_real_time_monitoring():
         polygon_thread.start()
         real_time_threads.append(polygon_thread)
         
-        # Start Solana monitoring (websocket-based)
-        solana_thread = start_solana_thread()
-        if solana_thread:
-            real_time_threads.append(solana_thread)
+        # Start Solana monitoring (Yellowstone gRPC primary, WS fallback)
+        solana_grpc_thread = start_solana_grpc_thread()
+        if solana_grpc_thread:
+            real_time_threads.append(solana_grpc_thread)
+
+        solana_ws_thread = start_solana_thread()
+        if solana_ws_thread:
+            real_time_threads.append(solana_ws_thread)
         
         print(f"✅ Started {len(real_time_threads)} real-time monitoring threads")
         

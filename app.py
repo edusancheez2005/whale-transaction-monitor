@@ -11,6 +11,7 @@ from chains.ethereum import print_new_erc20_transfers
 from chains.whale_alert import start_whale_thread
 from chains.xrp import start_xrp_thread
 from chains.solana import start_solana_thread
+from chains.solana_grpc import start_solana_grpc_thread
 from chains.polygon import print_new_polygon_transfers
 from chains.bitcoin_alchemy import poll_bitcoin_blocks
 from chains.solana_api import print_new_solana_transfers
@@ -232,15 +233,15 @@ def start_monitors():
     if xrp_thread:
         threads.append(xrp_thread)
 
-    # Start Solana WebSocket monitoring (Helius)
-    solana_thread = start_solana_thread()
-    if solana_thread:
-        threads.append(solana_thread)
+    # Start Solana gRPC streaming (Yellowstone via Alchemy) — primary
+    solana_grpc_thread = start_solana_grpc_thread()
+    if solana_grpc_thread:
+        threads.append(solana_grpc_thread)
 
-    # Start Solana API polling (Alchemy primary RPC)
-    solana_api_thread = threading.Thread(target=print_new_solana_transfers, daemon=True, name="Solana-API")
-    solana_api_thread.start()
-    threads.append(solana_api_thread)
+    # Start Solana WebSocket as fallback
+    solana_ws_thread = start_solana_thread()
+    if solana_ws_thread:
+        threads.append(solana_ws_thread)
 
     # Start Polygon monitoring (Alchemy primary, PolygonScan fallback)
     polygon_thread = threading.Thread(target=print_new_polygon_transfers, daemon=True, name="Polygon")
