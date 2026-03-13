@@ -30,23 +30,13 @@ SOLANA_CEX_ADDRESSES = {
     '5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1',  # Binance
     '6QEJkDV8NhHc4pUCAP3v6n5h5osHUqR1xCEhUAX8e9bL',  # Binance
     'BQcdHdAQW1hczDbBi9hiegXAR7A98Q9jx3X3iBBBDiq4',  # Binance
-    '3yFwqXBfZY4jBVUafQ1YEXw189y2dN3V5KQq9uzBDy1E',  # Binance
-    '9un5wqE3q4oCjUvyaw5QR9PEBtGrmRY31UV6pZfTkiLd',  # Binance
     'H8sMJSCQxfKiFTCfDR3DUMLPwcRbM61LGFJ8N4dK3WjS',  # Coinbase
     '6usRqHG7RVo6F7GZRq9Cxjme8oBTPHSMezTCvAcYijhg',  # Coinbase
     'GJRs4FwHtemZ5ZE9x3FNvJ8TMwitKTh21yxdRPqn7npE',  # Coinbase
-    '2AQdpHJ2JpcEgPiATUXjQxA8QmafFegfQwSLWSprPicm',  # Coinbase
     'FWznbcNXWQuHTawe9RxvQ2LdCENssh12dsznf4RiouN5',  # Kraken
-    'CdU37JGNFe1hM5aPaeRApp4riWBqFLTk6r1GsjvJqYp',   # Kraken
     '9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM',  # Bybit
     '4ykPMrJisMvzT4VFN5SQrfMHYV6RPKAB3PwDJUqJtJis',  # OKX
-    '5VCwKtCXgCDuQKLMJaoFMrBMgMNr8KqXrPFzR3Y6hoGo',  # OKX
     'ASTyfSima4LLAdDgoFGkgqoKowG1LZFDr9fAQrg7iaJZ',  # Gate.io
-    'u6PJ8DtQuPFnfmwHbGFULQ4u4EgjDiyYKjVEsynXq2w',   # Gate.io
-    'BmFdpraQhkiDQE6SnfG5PkRQ6dQkwKQaFx5iEq5nLFpK',  # KuCoin
-    'AobVSwdW9BbpMdJvTqeCN4hPAmh4rHm7vwLnQ5ATSyrS',  # Crypto.com
-    'CL8Mmkf45ic5MczN7SqpPGBuAq7dmhUVwNaFk4dVBv7j',  # Bitget
-    '88xTWZMeKFECbsaYGLwt8rTnAfRbpRPzQsTEBmkMGfFM',  # HTX
     '44P5Ct5JkPz76Rs2K6juC65zXMpFRDrHatxcASJ4Dyra',  # Wintermute
 }
 SOLANA_DEX_ADDRESSES = {
