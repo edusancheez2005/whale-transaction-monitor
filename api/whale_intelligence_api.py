@@ -150,7 +150,7 @@ async def get_whale_signals(
         supabase = get_supabase_client()
         
         # Query whale transactions using Supabase client
-        result = supabase.table('whale_transactions').select('*').gte('timestamp', since_time.isoformat()).in_('classification', ['BUY', 'SELL']).eq('blockchain', 'ethereum').gte('whale_score', min_whale_score).not_.is_('token_symbol', 'null').order('timestamp', desc=True).limit(1000).execute()
+        result = supabase.table('all_whale_transactions').select('*').gte('timestamp', since_time.isoformat()).in_('classification', ['BUY', 'SELL']).gte('whale_score', min_whale_score).not_.is_('token_symbol', 'null').order('timestamp', desc=True).limit(1000).execute()
         
         transactions = result.data
         
@@ -282,7 +282,7 @@ async def get_token_activity(symbol: str, limit: int = Query(50, le=200)):
         
         # Query for detailed token activity using Supabase client
         since_time = (datetime.utcnow() - timedelta(hours=24)).isoformat()
-        result = supabase.table('whale_transactions').select('*').eq('token_symbol', symbol).gte('timestamp', since_time).eq('blockchain', 'ethereum').order('timestamp', desc=True).limit(limit * 2).execute()
+        result = supabase.table('all_whale_transactions').select('*').eq('token_symbol', symbol).gte('timestamp', since_time).order('timestamp', desc=True).limit(limit * 2).execute()
         
         # DEDUPLICATION: Remove duplicate transactions based on transaction_hash
         unique_txs = {}
@@ -358,9 +358,9 @@ async def get_system_stats():
         since_24h = (datetime.utcnow() - timedelta(hours=24)).isoformat()
         since_1h = (datetime.utcnow() - timedelta(hours=1)).isoformat()
         
-        # Get all transactions from last 24 hours
-        result_24h = supabase.table('whale_transactions').select('*').eq('blockchain', 'ethereum').gte('timestamp', since_24h).execute()
-        result_1h = supabase.table('whale_transactions').select('*').eq('blockchain', 'ethereum').gte('timestamp', since_1h).execute()
+        # Get all transactions from last 24 hours (all chains)
+        result_24h = supabase.table('all_whale_transactions').select('*').gte('timestamp', since_24h).execute()
+        result_1h = supabase.table('all_whale_transactions').select('*').gte('timestamp', since_1h).execute()
         
         # Calculate statistics
         transactions_24h = result_24h.data
@@ -729,7 +729,7 @@ async def health_check():
     try:
         supabase = get_supabase_client()
         # Test connection by fetching count of whale transactions
-        result = supabase.table('whale_transactions').select('id', count='exact').limit(1).execute()
+        result = supabase.table('all_whale_transactions').select('transaction_hash', count='exact').limit(1).execute()
         return {
             "status": "healthy", 
             "database": "connected",
