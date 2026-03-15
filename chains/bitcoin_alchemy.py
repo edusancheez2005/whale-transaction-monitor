@@ -68,6 +68,7 @@ BTC_EXCHANGE_ADDRESSES = {
     "3HfSvaoXD3s1TdHPBjEREDaZWpGhWijj5G": "binance",       # BitInfoCharts Binance-coldwallet cluster
     "1BHpgEwybYj6LBHXNB8sDEXySMFAR5ZqQ1": "binance",       # CoinCarp / BitInfoCharts Binance cluster
     "bc1qyp9e57q98s6tfxrp9jx82qw46cxv26py7eu7d0": "binance",  # Binance withdrawal hot wallet — CoinCarp
+    "3FrSzikNqBgikWgTHixywhXcx57q6H6rHC": "binance",       # Cold wallet — f13end gist + BitInfoCharts Binance-coldwallet cluster
     # =========================================================================
     # COINBASE — Sources: BitInfoCharts Coinbase / Coinbase-Prime-Custody wallet
     # clusters, CoinCarp exchange tracker, WalletExplorer Coinbase.com cluster.
@@ -108,6 +109,9 @@ BTC_EXCHANGE_ADDRESSES = {
     "1AXRj8nRBJBKn8dBjFWp7YhwJozG8tFBJy": "kraken",       # f13end gist — Kraken BTC wallet
     "3DRsgixrVLmE5KCHjU3s4M4XCoDr8VxPy4": "kraken",       # WalletExplorer Kraken.com cluster
     "bc1qge65u0v94swukz7r5dcvy5hh96dqljqt2lugtu": "kraken",  # BitInfoCharts Kraken.com cluster
+    "1AnwDVbwsLBVwRfqN2x9Eo4YEJSPXo2cwG": "kraken",       # f13end gist — Kraken BTC wallet
+    "14eQD1QQb8QFVG8YFwGz7skyzsvBLWLwJS": "kraken",       # f13end gist — Kraken BTC wallet
+    "1A7znRYE24Z6K8MCAKXLmEvuS5ixzvUrjH": "kraken",       # f13end gist — Kraken BTC wallet
     # =========================================================================
     # BITFINEX — Sources: BitInfoCharts Bitfinex-coldwallet cluster,
     # CoinCarp Bitfinex exchange tracker, blockchain.com labeled.
@@ -122,6 +126,7 @@ BTC_EXCHANGE_ADDRESSES = {
     "3AQ4C2M6bkiJAenVcBYCWGhStRCN7eYhzp": "bitfinex",      # f13end gist — Bitfinex BTC
     "1LK1a2SGv1qFNU1Gx6vUiMSCPNFZcWJYsR": "bitfinex",      # BitInfoCharts Bitfinex-coldwallet cluster
     "bc1q0ruahmhsyq3pap2fcya28sg56uv5j70s5n2ewz340nnhq9gpg88se0avyf": "bitfinex",  # Bitfinex cold — BitInfoCharts
+    "bc1qd4ysezhmypwty5dnw7c8nqy5h5nxg0xqsvaefd0qn5kq32vwnwqqgv4rzr": "bitfinex",  # Bitfinex deposit — BitInfoCharts + blockchain.com labeled (~55k BTC)
     # =========================================================================
     # OKX (formerly OKEx) — Sources: BitInfoCharts OKX wallet cluster,
     # OKX proof-of-reserves (monthly zk-STARK reports), CoinCarp tracker.
@@ -194,6 +199,7 @@ BTC_EXCHANGE_ADDRESSES = {
     "3DgjsUG7pdmcNqH2BfWCNzgqriiNxPcvHF": "bitstamp",      # BitInfoCharts Bitstamp-coldwallet cluster
     "38bqHN2k1aGMCb5CWDaedGg8bDLL1E1V9D": "bitstamp",      # WalletExplorer Bitstamp.net cluster
     "3CkBGPwqVJMiVn4s5cYG2uBNBRttVdq4jy": "bitstamp",      # WalletExplorer Bitstamp.net cluster
+    "3Nxwenay9Z8Lc9JBiywExpnEFiLp6Afp8v": "bitstamp",      # Cold wallet — f13end gist + BitInfoCharts Bitstamp-coldwallet cluster
     # =========================================================================
     # CRYPTO.COM — Sources: CoinCarp Crypto.com tracker, BitInfoCharts.
     # =========================================================================
@@ -219,6 +225,10 @@ BTC_EXCHANGE_ADDRESSES = {
     "1DBNqDa8LthdqjR8nkSeVVMMKBZGX6Nwdr": "gate.io",      # WalletExplorer Gate.io cluster
     "1G47mSr3oANXMafVrR8UC4pzV7FEAzo3r9": "gate.io",      # BitInfoCharts Gate.io cluster
     "bc1qudtd2drkv4yql6dyhactwqnld4e8vmvteh4k8j": "gate.io",  # CoinCarp Gate.io BTC wallet
+    "3HroDXv8hmzKRtaSfBffRgedKpru8fgy6M": "gate.io",      # Cold wallet — BitInfoCharts gate.io-coldwallet cluster
+    "14kmvhQrWrNEHbrSKBySj4qHGjemDtS3SF": "gate.io",      # Cold wallet — BitInfoCharts gate.io-coldwallet cluster
+    "1HpED69tpKSaEaWpY3Udt1DtcVcuCUoh2Y": "gate.io",      # Cold wallet — BitInfoCharts gate.io-coldwallet cluster
+    "1Ay8vMC7R1UbyCCZRVULMV7iQpHSAbguJP": "gate.io",      # BitInfoCharts gate.io-coldwallet cluster — top 100 rich list
     # =========================================================================
     # BITMEX — Sources: BitMEX official blog (insurance fund addresses),
     # BitInfoCharts BitMEX-coldwallet cluster, CoinDesk reporting.
@@ -238,6 +248,7 @@ BTC_EXCHANGE_ADDRESSES = {
     "1N52wHoVR79PMDishab2XmRHsbekCdGquK": "bittrex",      # WalletExplorer Bittrex.com cluster
     "3NQDS3hoFjBb5hLDcUy2bRsJpFZtg9x3dH": "bittrex",     # BitInfoCharts Bittrex-coldwallet cluster
     "3PV4JbhHbf64mXYv9sBSTfRU5QN4xFBVMQ": "bittrex",     # WalletExplorer Bittrex.com cluster
+    "16rCmCmbuWDhPjWTrpQGaU3EPdZF7MTdUk": "bittrex",     # Cold wallet — f13end gist + BitInfoCharts Bittrex-coldwallet cluster
     # =========================================================================
     # UPBIT — Sources: Arkham Intelligence ("Mr. 100" identification),
     # CoinCarp Upbit tracker. Largest Korean exchange.
@@ -261,6 +272,7 @@ BTC_EXCHANGE_ADDRESSES = {
     "14c5fPbY4Y5bT7Ti8nQoYxWP8xwT63n2KF": "poloniex",     # WalletExplorer Poloniex.com cluster
     "3Mn7CRjMLTCQxjYpDEiUvbMNkXqVr9uH5k": "poloniex",    # BitInfoCharts Poloniex cluster
     "19NLkDXz2j5VxDzJEiScsvPMGrJfDhWiRb": "poloniex",     # WalletExplorer Poloniex.com cluster
+    "17A16QmavnUfCW11DAApiJxp7ARnxN5pGX": "poloniex",     # f13end gist + BitInfoCharts Poloniex cluster (34 chars, valid P2PKH)
     # =========================================================================
     # DERIBIT — Sources: CoinCarp Deribit tracker.
     # =========================================================================
@@ -284,6 +296,7 @@ BTC_EXCHANGE_ADDRESSES = {
     # =========================================================================
     "bc1q4j7fcl8zx5yl56j00nkqez9zf3f6ggqchwzzcs5hjxwqhsgxvavq3qfgpr": "coincheck",  # BitInfoCharts Coincheck cluster
     "3QXqRuMcvj4XJBuoJAU7MPpyQcfQnH3NsM": "coincheck",   # WalletExplorer Coincheck.jp cluster
+    "336xGpGweq1wtY4kRTuA4w6d7yDkBU9czU": "coincheck",   # Cold wallet — f13end gist + BitInfoCharts Coincheck cluster
     # =========================================================================
     # BITBANK — Sources: BitInfoCharts.
     # =========================================================================

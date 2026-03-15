@@ -336,11 +336,104 @@ known_exchange_addresses = {
 
     # Additional Coinbase — Etherscan labeled
     "0xa9d1e08c7793af67e9d92fe308d5697fb81d3e43": "coinbase",
-    "0x77134cbc06cb00b66f4c7e623d5fdbf6777635ec": "coinbase",
+    "0x77134cbc06cb00b66f4c7e623d5fdbf6777635ec": "bitfinex",  # Bitfinex: Hot Wallet (corrected from coinbase)
 
     # Additional Gate.io
     "0xd793281182a0e3e023116004778f45c29fc14f19": "gate.io",
     "0x0d0707963952f2fba59dd06f2b425ace40b492fe": "gate.io",
+
+    # =========================================================================
+    # VERIFIED EXPANSION — March 2026 (all Etherscan-labeled)
+    # =========================================================================
+
+    # Binance — Etherscan labeled hot wallets & numbered wallets
+    "0x631fc1ea2270e98fbd9d92658ece0f5a269aa161": "binance",   # Binance: Hot Wallet
+    "0xb1256d6b31e4ae87da1d56e5890c66be7f1c038e": "binance",   # Binance: Hot Wallet 2
+    "0x1fbe2acee135d991592f167ac371f3dd893a508b": "binance",   # Binance: Hot Wallet 19
+    "0xee7ae85f2fe2239e27d9c1e23fffe168d63b4055": "binance",   # Binance: Hot Wallet 34
+    "0x56eddb7aa87536c09ccc2793473599fd21a8b17f": "binance",   # Binance 17
+    "0x9696f59e4d72e237be84ffd425dcad154bf96976": "binance",   # Binance 18
+    "0x001866ae5b3de6caa5a51543fd9fb64f524f5478": "binance",   # Binance 9
+    "0x8f80c66c70cbc52009babb04c1cadf9b40109289": "binance",   # Binance: Deposit Funder 2
+    "0x9430801ebaf509ad49202aabc5f5bc6fd8a3daf8": "binance",   # Binance: Deposit Funder 1
+
+    # Coinbase — Etherscan labeled
+    "0xb5d85cbf7cb3ee0d56b3bb207d5fc4b82f43f511": "coinbase",  # Coinbase 44
+    "0x382ffce2287252f930e1c8dc9328dac5bf282ba1": "coinbase",  # Coinbase: Fees
+    "0xcd531ae9efcce479654c4926dec5f6209531ca7b": "coinbase",  # Coinbase Prime 1
+    "0x1565f0c48c06bc006095591a4c3fe4a6f39712cf": "coinbase",  # Coinbase Prime: Deposit Funder 1
+    "0x881d4032abe4188e2237efcd27ab435e81fc6bb1": "coinbase",  # Coinbase: Commerce
+    "0xeb2629a2734e272bcc07bda959863f316f4bd4cf": "coinbase",  # Coinbase 54
+    "0x7830c87c02e56aff27fa8ab1241711331fa86f43": "coinbase",  # Coinbase: Deposit
+
+    # Kraken — Etherscan labeled
+    "0x89e51fa8ca5d66cd220baed62ed01e8951aa7c40": "kraken",    # Kraken 7
+    "0xe9f7ecae3a53d2a67105292894676b00d1fab785": "kraken",    # Kraken: Hot Wallet
+
+    # OKX — Etherscan labeled
+    "0x4b4e14a3773ee558b6597070797fd51eb48606e5": "okx",       # OKX: Hot Wallet
+
+    # Bybit — Etherscan labeled
+    "0xbaed383ede0e5d9d72430661f3285daa77e9439f": "bybit",     # Bybit: Hot Wallet 6
+    "0xa7a93fd0a276fc1c0197a5b5623ed117786eed06": "bybit",     # Bybit: Hot Wallet 2
+    "0xee5b5b923ffce93a870b3104b7ca09c3db80047a": "bybit",     # Bybit: Hot Wallet 4
+
+    # Bitfinex — Etherscan labeled
+    "0xab7c74abc0c4d48d1bdad5dcb26153fc8780f83e": "bitfinex",  # Bitfinex: MultiSig 1
+
+    # Gemini — Etherscan labeled
+    "0x61edcdf5bb737adffe5043706e7c5bb1f1a56eea": "gemini",    # Gemini 3
+    "0x8d6f396d210d385033b348bcae9e4f9ea4e045bd": "gemini",    # Gemini 6
+
+    # Gate.io — Etherscan labeled
+    "0x6596da8b65995d5feacff8c2936f0b7a2051b0d0": "gate.io",   # Gate.io: Deposit Funder
+    "0x7793cd85c11a924478d358d49b05b37e91b5810f": "gate.io",   # Gate.io 2
+    "0xc882b111a75c0c657fc507c04fbfcd2cc984f071": "gate.io",   # Gate.io 5
+    "0x234ee9e35f8e9749a002fc42970d570db716453b": "gate.io",   # Gate.io 4
+
+    # KuCoin — Etherscan labeled
+    "0x53f78a071d04224b8e254e243fffc6d9f2f3fa23": "kucoin",    # KuCoin: Hot Wallet 2
+    "0x45300136662dd4e58fc0df61e6290dffd992b785": "kucoin",    # KuCoin 17
+    "0x2933782b5a8d72f2754103d1489614f29bfa4625": "kucoin",    # KuCoin: Wallet
+    "0x2602669a92fccf44e5319ff51b0f453aab9db021": "kucoin",    # KuCoin: Deposit Funder 2
+
+    # HTX (Huobi) — Etherscan labeled
+    "0xfdb16996831753d5331ff813c29a93c76834a0ad": "htx",       # HTX 23
+    "0xeee28d484628d41a82d01e21d12e2e78d69920da": "htx",       # HTX 4
+    "0x794d28ac31bcb136294761a556b68d2634094153": "htx",       # HTX 22
+    "0x956e0dbecc0e873d34a5e39b25f364b2ca036730": "htx",       # HTX: Old Address 29
+
+    # Crypto.com — Etherscan labeled
+    "0x72a53cdbbcc1b9efa39c834a540550e23463aacb": "crypto.com", # Crypto.com 14
+    "0xcffad3200574698b78f32232aa9d63eabd290703": "crypto.com", # Crypto.com 16
+    "0xae45a8240147e6179ec7c9f92c5a18f9a97b3fca": "crypto.com", # Crypto.com: Deposit Funder
+
+    # Bitstamp — Etherscan labeled
+    "0x059799f2261d37b829c2850cee67b5b975432271": "bitstamp",  # Bitstamp 4
+    "0x4c766def136f59f6494f0969b1355882080cf8e0": "bitstamp",  # Bitstamp 5
+    "0x48ec5560bfd59b95859965cce48cc244cfdf6b0c": "bitstamp",  # Bitstamp: Wallet
+
+    # Uphold — Etherscan labeled
+    "0x1c727a55ea3c11b0ab7d3a361fe0f3c47ce6de5d": "uphold",    # Uphold
+
+    # Bitget — Etherscan labeled
+    "0x82c6a9ab67e45f89a3968a9e1382672245ebafe4": "bitget",    # Bitget Deposit
+
+    # MEXC — Etherscan labeled
+    "0x0211f3cedbef3143223d3acf0e589747933e8527": "mexc",      # MEXC 2
+
+    # WhiteBIT — Etherscan labeled
+    "0x39f6a6c85d39d5abad8a398310c52e7c374f2ba3": "whitebit",  # WhiteBIT
+
+    # Luno — Etherscan labeled
+    "0x416299aade6443e6f6e8ab67126e65a7f606eef5": "luno",      # Luno 2
+
+    # CoinEx — Etherscan labeled
+    "0xb9ee1e551f538a464e8f8c41e9904498505b49b0": "coinex",    # CoinEx
+
+    # Bithumb — Etherscan labeled
+    "0x3fbe1f8fc5ddb27d428aa60f661eaaab0d2000ce": "bithumb",   # Bithumb: Contract 1
+    "0x03599a2429871e6be1b154fb9c24691f9d301865": "bithumb",   # Bithumb: Deposit Funder 4
 }
 
 # NOTE: Bitcoin CEX addresses removed — invalid entries with wrong lengths.
@@ -350,42 +443,82 @@ known_exchange_addresses = {
 # SOLANA EXCHANGE ADDRESSES
 # =============================================================================
 solana_exchange_addresses = {
-    # Binance — Solscan labeled, CoinCarp tracker
-    "5tzFkiKscjHK98Yfu7GHWm4msBpJ2RpiLneuNDk68Msu": "binance",
-    "AC5RDfQFmDS1deWZos921JfqscXdByf8BKHs5ACWjtW2": "binance",
-    "2ojv9BAiHUrvsm9gxDe7fJSzbNZSJcxZvf8dqmWGHG8S": "binance",
-    "5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1": "binance",
-    "6QEJkDV8NhHc4pUCAP3v6n5h5osHUqR1xCEhUAX8e9bL": "binance",
-    "BQcdHdAQW1hczDbBi9hiegXAR7A98Q9jx3X3iBBBDiq4": "binance",
-    "3yFwqXBfZY4jBVUafQ1YEXw189y2dN3V5KQq9uzBDy1E": "binance",
-    "9un5wqE3q4oCjUvyaw5QR9PEBtGrmRY31UV6pZfTkiLd": "binance",
-    # Coinbase — Solscan labeled
-    "H8sMJSCQxfKiFTCfDR3DUMLPwcRbM61LGFJ8N4dK3WjS": "coinbase",
-    "6usRqHG7RVo6F7GZRq9Cxjme8oBTPHSMezTCvAcYijhg": "coinbase",
-    "GJRs4FwHtemZ5ZE9x3FNvJ8TMwitKTh21yxdRPqn7npE": "coinbase",
-    "2AQdpHJ2JpcEgPiATUXjQxA8QmafFegfQwSLWSprPicm": "coinbase",
+    # -------------------------------------------------------------------------
+    # Binance — Solscan labeled "Binance 2", "Binance.us Hot Wallet", "binance staking"
+    # -------------------------------------------------------------------------
+    "5tzFkiKscXHK5ZXCGbXZxdw7gTjjD1mBwuoFbhUvuAi9": "binance",          # Solscan: "Binance 2" (hot wallet)
+    "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM": "binance",          # Solscan: Binance (largest Bonk holder)
+    "53unSgGWqEWANcPYRF35B2Bgf8BkszUtcccKiXwGGLyr": "binance",          # Solscan: "Binance.us Hot Wallet"
+    "DRpbCBMxVnDK7maPM5tGv6MvB3v1sRMC86PZ8okm21hy": "binance",          # Solscan: "binance staking" (funded by Binance 1)
+
+    # -------------------------------------------------------------------------
+    # Coinbase — Solscan labeled "Coinbase Hot Wallet 2", "Coinbase Hot Wallet 3"
+    # -------------------------------------------------------------------------
+    "H8sMJSCQxfKiFTCfDR3DUMLPwcRbM61LGFJ8N4dK3WjS": "coinbase",         # Solscan: Coinbase (hot wallet)
+    "GJRs4FwHtemZ5ZE9x3FNvJ8TMwitKTh21yxdRPqn7npE": "coinbase",         # Solscan: "Coinbase Hot Wallet 2"
+    "D89hHJT5Aqyx1trP6EnGY9jJUB3whgnq3aUvvCqedvzf": "coinbase",         # Solscan: "Coinbase Hot Wallet 3"
+    "2AQdpHJ2JpcEgPiATUXjQxA8QmafFegfQwSLWSprPicm": "coinbase",         # Coinbase (hot wallet)
+
+    # -------------------------------------------------------------------------
+    # OKX — Solscan labeled "OKX: Hot Wallet", SolanaFM labeled
+    # -------------------------------------------------------------------------
+    "5VCwKtCXgCJ6kit5FybXjvriW3xELsFDhYrPSqtJNmcD": "okx",             # Solscan/SolanaFM: "OKX" (main wallet)
+    "C68a6RCGLiPskbPYtAcsCjhG8tfTWYcoB4JjCrXFdqyo": "okx",             # Solscan: "OKX: Hot Wallet" ($107M+ balance)
+    "is6MTRHEgyFLNTfYcuV4QBWLjrZBfmhVNYR6ccgr8KV": "okx",              # Solscan: "OKX: Hot Wallet" (secondary)
+
+    # -------------------------------------------------------------------------
+    # Bybit — Solscan labeled "Bybit Hot Wallet", SolanaFM labeled "BYBIT"
+    # -------------------------------------------------------------------------
+    "AC5RDfQFmDS1deWZos921JfqscXdByf8BKHs5ACWjtW2": "bybit",            # Solscan: "Bybit Hot Wallet"
+    "FFaPfxY3BJ6Ph7S2UZTxePixVo5UsmCQR83qkUxn6ttn": "bybit",           # SolanaFM: labeled "BYBIT"
+
+    # -------------------------------------------------------------------------
     # Kraken — Solscan labeled
-    "FWznbcNXWQuHTawe9RxvQ2LdCENssh12dsznf4RiouN5": "kraken",
-    "CdU37JGNFe1hM5aPaeRApp4riWBqFLTk6r1GsjvJqYp": "kraken",
-    # Bybit — CoinCarp tracker
-    "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM": "bybit",
-    "AC5RDfQFmDS1deWZos921JfqscXdByf8BKHs5ACWjtW2": "bybit",
-    # OKX — CoinCarp tracker
-    "4ykPMrJisMvzT4VFN5SQrfMHYV6RPKAB3PwDJUqJtJis": "okx",
-    "5VCwKtCXgCDuQKLMJaoFMrBMgMNr8KqXrPFzR3Y6hoGo": "okx",
+    # -------------------------------------------------------------------------
+    "FWznbcNXWQuHTawe9RxvQ2LdCENssh12dsznf4RiouN5": "kraken",           # Solscan: Kraken (hot wallet)
+
+    # -------------------------------------------------------------------------
+    # HTX/Huobi — Solscan labeled "HTX: Hot Wallet"
+    # -------------------------------------------------------------------------
+    "BY4StcU9Y2BpgH8quZzorg31EGE4L1rjomN8FNsCBEcx": "htx",             # Solscan: "HTX: Hot Wallet"
+
+    # -------------------------------------------------------------------------
+    # Crypto.com — Solscan labeled "Crypto.com Hot Wallet 2"
+    # -------------------------------------------------------------------------
+    "AobVSwdW9BbpMdJvTqeCN4hPAmh4rHm7vwLnQ5ATSyrS": "crypto.com",      # Solscan: "Crypto.com Hot Wallet 2"
+
+    # -------------------------------------------------------------------------
     # Gate.io — CoinCarp tracker
-    "ASTyfSima4LLAdDgoFGkgqoKowG1LZFDr9fAQrg7iaJZ": "gate.io",
-    "u6PJ8DtQuPFnfmwHbGFULQ4u4EgjDiyYKjVEsynXq2w": "gate.io",
+    # -------------------------------------------------------------------------
+    "ASTyfSima4LLAdDgoFGkgqoKowG1LZFDr9fAQrg7iaJZ": "gate.io",         # Solscan: Gate.io (hot wallet)
+    "u6PJ8DtQuPFnfmwHbGFULQ4u4EgjDiyYKjVEsynXq2w": "gate.io",          # Gate.io (secondary)
+
+    # -------------------------------------------------------------------------
     # KuCoin — CoinCarp tracker
-    "BmFdpraQhkiDQE6SnfG5PkRQ6dQkwKQaFx5iEq5nLFpK": "kucoin",
-    # Crypto.com — CoinCarp tracker
-    "AobVSwdW9BbpMdJvTqeCN4hPAmh4rHm7vwLnQ5ATSyrS": "crypto.com",
+    # -------------------------------------------------------------------------
+    "BmFdpraQhkiDQE6SnfG5PkRQ6dQkwKQaFx5iEq5nLFpK": "kucoin",         # KuCoin (hot wallet)
+
+    # -------------------------------------------------------------------------
     # Bitget — CoinCarp tracker
-    "CL8Mmkf45ic5MczN7SqpPGBuAq7dmhUVwNaFk4dVBv7j": "bitget",
-    # HTX/Huobi — CoinCarp tracker
-    "88xTWZMeKFECbsaYGLwt8rTnAfRbpRPzQsTEBmkMGfFM": "htx",
+    # -------------------------------------------------------------------------
+    "CL8Mmkf45ic5MczN7SqpPGBuAq7dmhUVwNaFk4dVBv7j": "bitget",          # Bitget (hot wallet)
+
+    # -------------------------------------------------------------------------
+    # Raydium — Solscan labeled "Raydium Authority V4", official docs
+    # -------------------------------------------------------------------------
+    "5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1": "raydium",         # Solscan: "Raydium Authority V4" (pool authority)
+    "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8": "raydium",         # Raydium docs: Legacy AMM v4 Program
+    "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C": "raydium",         # Solscan: "Raydium CPMM" Program
+
+    # -------------------------------------------------------------------------
+    # Jupiter — Solscan labeled, official program
+    # -------------------------------------------------------------------------
+    "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4": "jupiter",          # Solscan: Jupiter Aggregator v6 Program
+
+    # -------------------------------------------------------------------------
     # Market makers
-    "44P5Ct5JkPz76Rs2K6juC65zXMpFRDrHatxcASJ4Dyra": "wintermute",
+    # -------------------------------------------------------------------------
+    "44P5Ct5JkPz76Rs2K6juC65zXMpFRDrHatxcASJ4Dyra": "wintermute",      # Wintermute (market maker)
 }
 
 # =============================================================================
@@ -906,22 +1039,63 @@ DEFI_LENDING_ADDRESSES = {
 # XRP EXCHANGE ADDRESSES  
 # =============================================================================
 xrp_exchange_addresses = {
-    # Binance
+    # =========================================================================
+    # Binance — Bithomp/XRPScan labeled, CoinCarp richlist
+    # =========================================================================
     "rLNaPoKeeBjZe2qs6x52yVPZpZ8td4dc6w": "binance",
-    "rEb8TK3gBgk5auZkwc6sHnwrGVJH8DuaLh": "binance_hot",
-    "rJb5KsHsDHF1YS5B5DU6QCkH5NsPaKQTcy": "binance_cold",
-    # Major exchanges
+    "rEb8TK3gBgk5auZkwc6sHnwrGVJH8DuaLh": "binance",         # Binance hot wallet
+    "rJb5KsHsDHF1YS5B5DU6QCkH5NsPaKQTcy": "binance",         # Bithomp: Binance association
+    "rs8ZPbYqgecRcDzQpJYAMhSxSi5htsjnza": "binance",         # CoinCarp richlist: Binance
+    "rDAE53VfMvftPB4ogpWGWvzkQxfht6JPxr": "binance",         # CoinCarp richlist: Binance
+
+    # =========================================================================
+    # Coinbase — Bithomp labeled
+    # =========================================================================
+    "rNQEMJw3sAoXpYUe4gr9C1Js5EZK3cVUmJ": "coinbase",
+    "rw2ciyaNshpHe7bCHo4bRWq6pqqynnWKQg": "coinbase",        # Bithomp: Coinbase
+
+    # =========================================================================
+    # Kraken — Kraken official support docs, Bithomp labeled
+    # =========================================================================
+    "rL9vUaa1p16YWWvkmXsQEGv9uQS65AXRPS": "kraken",
+    "rHVLgqh1xS7PBWmhgAHMG9P1mnTRB269D8": "kraken",
+    "rLHzPsX6oXkzU2qL12kHCH8G8cnZv1rBJh": "kraken",         # Kraken official shared XRP deposit address (was mislabeled bitkub)
+
+    # =========================================================================
+    # Bitstamp — XRPScan labeled, Bithomp labeled
+    # =========================================================================
+    "rJHb8RCfuB89HCwE7wo4W9d8qHEQhh7bVK": "bitstamp",
+    "rDsbeomae4FXwgQTJp9Rs64Qg9vDiTCdBv": "bitstamp",        # XRPScan labeled
+    "rvYAfWj5gh67oV6fW32ZzP3Aw4Eubs59B": "bitstamp",         # Bithomp: Bitstamp gateway/IOU
+
+    # =========================================================================
+    # Upbit — CoinCarp richlist labeled
+    # =========================================================================
+    "rUobSiUpHCX1WEMRaZ8C1HTqpEqwQHC5Ns": "upbit",
+    "rDxJNbV23mu9xsWoQHoBqZQvc77YcbJXwb": "upbit",           # CoinCarp richlist
+    "r4G689g4KePYLKkyyumM1iUppTP4nhZwVC": "upbit",            # CoinCarp richlist
+    "rJo4m69u9Wd1F8fN2RbgAsJEF6a4hW1nSi": "upbit",           # CoinCarp richlist
+    "rLgn612WAgRoZ285YmsQ4t7kb8Ui3csdoU": "upbit",            # CoinCarp richlist
+    "rs48xReB6gjKtTnTfii93iwUhjhTJsW78B": "upbit",            # CoinCarp richlist
+    "rJWbw1u3oDDRcYLFqiWFjhGWRKVcBAWdgp": "upbit",            # CoinCarp richlist
+    "rMNUAfSz2spLEbaBwPnGtxTzZCajJifnzH": "upbit",            # CoinCarp richlist
+    "r38a3PtqW3M7LRESgaR4dyHjg3AxAmiZCt": "upbit",            # CoinCarp richlist
+
+    # =========================================================================
+    # Other verified exchanges — Bithomp/XRPScan/CoinCarp labeled
+    # =========================================================================
     "rEy8TFcrAPvhpKrwyrscNYyqBGUkE9hKaJ": "huobi",
     "rLW9gnQo7BQhU6igk5keqYnH3TVrCxGRzm": "bittrex",
-    "rG6FZ31hDHN1K5Dkbma3PSB5uVCuVVRzfn": "bitso",
-    "rJHb8RCfuB89HCwE7wo4W9d8qHEQhh7bVK": "bitstamp",
-    "rNQEMJw3sAoXpYUe4gr9C1Js5EZK3cVUmJ": "coinbase",
-    "rL9vUaa1p16YWWvkmXsQEGv9uQS65AXRPS": "kraken",
-    "rHVLgqh1xS7PBWmhgAHMG9P1mnTRB269D8": "kraken_2",
-    "rUobSiUpHCX1WEMRaZ8C1HTqpEqwQHC5Ns": "upbit",
+    "rG6FZ31hDHN1K5Dkbma3PSB5uVCuVVRzfn": "bitso",           # Bithomp: bitso
+    "rhub8VRN55s94qWKDv6jmDy1pUykJzF3wq": "gatehub",         # Bithomp: gatehub
+    "rMdG3ju8pgyVh29ELPWaDuA74CpWW6Fxns": "uphold",          # XRPScan richlist: Uphold
+    "r9LHiNDZvpLoWPoKnbH2JWjFET8zoYT4Y5": "bithumb",         # Bithomp: bithumb
+    "rw7m3CtVHwGSdhFjV4MyJozmZJv3DYQnsA": "bitbank",         # CoinCarp richlist: Bitbank
     "r9x5KeWFx3mWHyPqB2NZAUPh1S7rcXK6CP": "gateio",
-    # Added exchanges
-    "rLHzPsX6oXkzU2qL12kHCH8G8cnZv1rBJh": "bitkub",
+
+    # =========================================================================
+    # Unverified but retained — could not independently confirm via explorers
+    # =========================================================================
     "rBKz5MC2iXdoS3XgnNSYmF69K1Yo4NS3Ws": "bitbank",
     "rDbWJ9C7uExThZYAwV8m6LsZ5YSX3sa6US": "bybit",
     "r3bStftDyFRKBIARiGLHETzz8BLJMDiTqS": "crypto.com",
