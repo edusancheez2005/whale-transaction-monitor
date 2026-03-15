@@ -171,7 +171,19 @@ TOP_100_ERC20_TOKENS = [
     {"symbol": "ANKR", "address": "0x8290333cef9e6d528dd5618fb97a76f268f3edd4", "tier": "small_cap", "decimals": 18},
     {"symbol": "SKL", "address": "0x00c83aecc790e8a4453e5dd3b0b4b3680501a7a7", "tier": "small_cap", "decimals": 18},
     {"symbol": "CTK", "address": "0x2ba64efb7a4f3e4242cfa373be66e8b7b2a2f0f4", "tier": "micro_cap", "decimals": 6},
-    {"symbol": "AUDIO", "address": "0x18aaa7115705e8be94bffebde57af9bfc265b998", "tier": "small_cap", "decimals": 18}
+    {"symbol": "AUDIO", "address": "0x18aaa7115705e8be94bffebde57af9bfc265b998", "tier": "small_cap", "decimals": 18},
+
+    # 🆕 2024-2025 HIGH VOLUME ADDITIONS — Etherscan verified March 2026
+    {"symbol": "VIRTUAL", "address": "0x44ff8620b8ca30902395a7bd3f2407e1a091bf73", "tier": "large_cap", "decimals": 18},
+    {"symbol": "WLD", "address": "0x163f8c2467924be0ae7b5347228cabf260318753", "tier": "large_cap", "decimals": 18},
+    {"symbol": "ENA", "address": "0x57e114b691db790c35207b2e685d4a43181e6061", "tier": "large_cap", "decimals": 18},
+    {"symbol": "EIGEN", "address": "0xec53bf9167f50cdeb3ae105f56099aaab9061f83", "tier": "large_cap", "decimals": 18},
+    {"symbol": "W", "address": "0xb0ffa8000886e57f86dd5264b9582b2ad87b2b91", "tier": "large_cap", "decimals": 18},
+    {"symbol": "ONDO", "address": "0xfaba6f8e4a5e8ab82f62fe7c39859fa577269be3", "tier": "large_cap", "decimals": 18},
+    {"symbol": "MNT", "address": "0x3c3a81e81dc49a522a592e7622a7e711c06bf354", "tier": "large_cap", "decimals": 18},
+    {"symbol": "PENDLE", "address": "0x808507121b80c02388fad14726482e061b8da827", "tier": "mid_cap", "decimals": 18},
+    {"symbol": "ETHFI", "address": "0xfe0c30065b384f05761f15d0cc899d4f9f9cc0eb", "tier": "mid_cap", "decimals": 18},
+    {"symbol": "wTAO", "address": "0x77e06c9eccf2e797fd462a92b6d7642ef85b0a44", "tier": "large_cap", "decimals": 9},
 ]
 
 # --- Polygon tokens to monitor ---
@@ -227,7 +239,12 @@ SOL_TOKENS_TO_MONITOR = {
     "UXDY": {"mint": "UXD8m9cvwk4RcSxnX2HZ9VudQCEeDH6mQRm2YaTFstq", "decimals": 6, "min_threshold": 2_000},
     "USDR": {"mint": "USDrbBQwQbQ2oWHUPfA8QBHcyVxKUq1xHyXsSLKdUq2", "decimals": 6, "min_threshold": 5_000},
     "SHDW": {"mint": "SHDWyBxihqiCj6YekG2GUr7wqKLeLAMK1gHZck9pL6y", "decimals": 9, "min_threshold": 1_500},
-    "COPE": {"mint": "8HGyAAB1yoM1ttS7pXjHMa3dukTFGQggnFFH3hJZgzQh", "decimals": 6, "min_threshold": 1_000}
+    "COPE": {"mint": "8HGyAAB1yoM1ttS7pXjHMa3dukTFGQggnFFH3hJZgzQh", "decimals": 6, "min_threshold": 1_000},
+
+    # 2024-2025 high-volume additions — Solscan/Coinbase verified
+    "TRUMP": {"mint": "6p6xgHyF7AeE6TZkSmFsko444wqoP15icUSqi2jfGiPN", "decimals": 6, "min_threshold": 10_000},
+    "JUP": {"mint": "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN", "decimals": 6, "min_threshold": 5_000},
+    "POPCAT": {"mint": "7GCihgDB8fe6KNjn2MYtkzZcRjQy3t9GHdC8uHYmW2hr", "decimals": 9, "min_threshold": 2_000},
 }
 
 # --- TOKEN PRICES (USD) for ERC‑20 tokens ---
