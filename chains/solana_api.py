@@ -23,30 +23,39 @@ from utils.alchemy_rpc import get_alchemy_rpc, _rpc_call
 logger = logging.getLogger(__name__)
 
 # Known Solana exchange and DEX addresses for classification
+# Sources: Solscan labeled, SolanaFM labeled, CoinCarp tracker
 SOLANA_CEX_ADDRESSES = {
-    '5tzFkiKscjHK98Yfu7GHWm4msBpJ2RpiLneuNDk68Msu',  # Binance
-    'AC5RDfQFmDS1deWZos921JfqscXdByf8BKHs5ACWjtW2',  # Binance
-    '2ojv9BAiHUrvsm9gxDe7fJSzbNZSJcxZvf8dqmWGHG8S',  # Binance
-    '5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1',  # Binance
-    '6QEJkDV8NhHc4pUCAP3v6n5h5osHUqR1xCEhUAX8e9bL',  # Binance
-    'BQcdHdAQW1hczDbBi9hiegXAR7A98Q9jx3X3iBBBDiq4',  # Binance
-    '3yFwqXBfZY4jBVUafQ1YEXw189y2dN3V5KQq9uzBDy1E',  # Binance
-    '9un5wqE3q4oCjUvyaw5QR9PEBtGrmRY31UV6pZfTkiLd',  # Binance
+    # Binance — Solscan labeled
+    '5tzFkiKscXHK5ZXCGbXZxdw7gTjjD1mBwuoFbhUvuAi9',  # Binance 2 (hot wallet)
+    '9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM',  # Binance (largest Bonk holder)
+    '53unSgGWqEWANcPYRF35B2Bgf8BkszUtcccKiXwGGLyr',  # Binance.us Hot Wallet
+    'DRpbCBMxVnDK7maPM5tGv6MvB3v1sRMC86PZ8okm21hy',  # Binance staking
+    # Coinbase — Solscan labeled
     'H8sMJSCQxfKiFTCfDR3DUMLPwcRbM61LGFJ8N4dK3WjS',  # Coinbase
-    '6usRqHG7RVo6F7GZRq9Cxjme8oBTPHSMezTCvAcYijhg',  # Coinbase
-    'GJRs4FwHtemZ5ZE9x3FNvJ8TMwitKTh21yxdRPqn7npE',  # Coinbase
+    'GJRs4FwHtemZ5ZE9x3FNvJ8TMwitKTh21yxdRPqn7npE',  # Coinbase Hot Wallet 2
+    'D89hHJT5Aqyx1trP6EnGY9jJUB3whgnq3aUvvCqedvzf',  # Coinbase Hot Wallet 3
     '2AQdpHJ2JpcEgPiATUXjQxA8QmafFegfQwSLWSprPicm',  # Coinbase
+    # OKX — Solscan/SolanaFM labeled
+    '5VCwKtCXgCJ6kit5FybXjvriW3xELsFDhYrPSqtJNmcD',  # OKX main wallet
+    'C68a6RCGLiPskbPYtAcsCjhG8tfTWYcoB4JjCrXFdqyo',  # OKX Hot Wallet ($107M+)
+    'is6MTRHEgyFLNTfYcuV4QBWLjrZBfmhVNYR6ccgr8KV',   # OKX Hot Wallet (secondary)
+    # Bybit — Solscan/SolanaFM labeled
+    'AC5RDfQFmDS1deWZos921JfqscXdByf8BKHs5ACWjtW2',  # Bybit Hot Wallet
+    'FFaPfxY3BJ6Ph7S2UZTxePixVo5UsmCQR83qkUxn6ttn',  # Bybit (SolanaFM)
+    # Kraken
     'FWznbcNXWQuHTawe9RxvQ2LdCENssh12dsznf4RiouN5',  # Kraken
-    'CdU37JGNFe1hM5aPaeRApp4riWBqFLTk6r1GsjvJqYp',   # Kraken
-    '9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM',  # Bybit
-    '4ykPMrJisMvzT4VFN5SQrfMHYV6RPKAB3PwDJUqJtJis',  # OKX
-    '5VCwKtCXgCDuQKLMJaoFMrBMgMNr8KqXrPFzR3Y6hoGo',  # OKX
+    # HTX — Solscan labeled
+    'BY4StcU9Y2BpgH8quZzorg31EGE4L1rjomN8FNsCBEcx',  # HTX Hot Wallet
+    # Crypto.com — Solscan labeled
+    'AobVSwdW9BbpMdJvTqeCN4hPAmh4rHm7vwLnQ5ATSyrS',  # Crypto.com Hot Wallet 2
+    # Gate.io — CoinCarp tracker
     'ASTyfSima4LLAdDgoFGkgqoKowG1LZFDr9fAQrg7iaJZ',  # Gate.io
     'u6PJ8DtQuPFnfmwHbGFULQ4u4EgjDiyYKjVEsynXq2w',   # Gate.io
+    # KuCoin — CoinCarp tracker
     'BmFdpraQhkiDQE6SnfG5PkRQ6dQkwKQaFx5iEq5nLFpK',  # KuCoin
-    'AobVSwdW9BbpMdJvTqeCN4hPAmh4rHm7vwLnQ5ATSyrS',  # Crypto.com
+    # Bitget — CoinCarp tracker
     'CL8Mmkf45ic5MczN7SqpPGBuAq7dmhUVwNaFk4dVBv7j',  # Bitget
-    '88xTWZMeKFECbsaYGLwt8rTnAfRbpRPzQsTEBmkMGfFM',  # HTX
+    # Market makers
     '44P5Ct5JkPz76Rs2K6juC65zXMpFRDrHatxcASJ4Dyra',  # Wintermute
 }
 SOLANA_DEX_ADDRESSES = {
